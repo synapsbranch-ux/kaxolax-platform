@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./token": {
+      "types": "./dist/token.d.ts",
+      "default": "./dist/token.js"
     }
   },
   "files": [
@@ -20,12 +24,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "yjs": "catalog:"
+    "yjs": "catalog:",
+    "@kaxolax/contracts": "workspace:*"
   },
   "devDependencies": {
     "@kaxolax/config": "workspace:*",
     "eslint": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@types/node": "catalog:"
   }
 }

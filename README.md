@@ -33,7 +33,7 @@ Tous les ports sont ouverts sur `127.0.0.1` seulement. Les identifiants sont des
 
 | Service        | Adresse                 | Détails                                                                                                |
 | -------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| PostgreSQL 18  | `localhost:5432`        | utilisateur et mot de passe `kaxolax` ; bases `kaxolax` et `kaxolax_test`                              |
+| PostgreSQL 18  | `localhost:5432`        | utilisateur et mot de passe `kaxolax` ; bases `kaxolax`, `kaxolax_test` et `kaxolax_realtime_test`     |
 | Redis 8        | `localhost:6379`        | persistance AOF                                                                                        |
 | S3 (SeaweedFS) | `http://localhost:8333` | clés `kaxolax` / `kaxolax-local-secret` ; buckets `kaxolax-project-files` et `kaxolax-compile-outputs` |
 | Mailpit (SMTP) | `localhost:1025`        | accepte tout, n'envoie rien à l'extérieur                                                              |
@@ -52,7 +52,7 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 | `pnpm build`       | Compile tout                                                  |
 | `pnpm lint`        | ESLint (règles typées strictes)                               |
 | `pnpm typecheck`   | Vérification des types                                        |
-| `pnpm test`        | Tests unitaires (Vitest)                                      |
+| `pnpm test`        | Tests (Vitest, Japa) ; PostgreSQL et Redis doivent tourner    |
 | `pnpm check`       | lint + typecheck + tests + build, comme la CI                 |
 | `pnpm format`      | Formate avec Prettier (`format:check` pour vérifier)          |
 | `pnpm stack:up`    | `docker compose up -d --wait`                                 |
@@ -65,6 +65,7 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 apps/
   api/                API REST AdonisJS (comptes, projets, arborescence)
   compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
+  realtime/           édition collaborative (Hocuspocus + Yjs, persistance PostgreSQL)
 functions/     fonctions pures + handlers Lambda (upload-processor, zip-importer)
 packages/
   collab/             conventions Yjs (nom des documents, champ texte)
@@ -76,8 +77,7 @@ docker/        configuration des services locaux
 scripts/       outils de développement
 ```
 
-Les autres apps (web, realtime, compile-gateway) et paquets arrivent au fil des tâches de
-l'étape 1.
+Les autres apps (web, compile-gateway) arrivent au fil des tâches de l'étape 1.
 
 ## Image TeX Live
 

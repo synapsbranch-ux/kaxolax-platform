@@ -2,6 +2,7 @@
   "extends": "@kaxolax/config/tsconfig/library.json",
   "compilerOptions": {
     "lib": ["es2024", "dom"],
+    "types": ["node"],
     "noEmit": true
   },
   "include": ["src"]

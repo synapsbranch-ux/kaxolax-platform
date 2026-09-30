@@ -29,6 +29,9 @@ catalog:
   '@commitlint/cli': 21.2.3
   '@commitlint/config-conventional': 21.2.3
   '@eslint/js': 10.0.1
+  '@hocuspocus/extension-database': 4.7.0
+  '@hocuspocus/provider': 4.7.0
+  '@hocuspocus/server': 4.7.0
   '@japa/api-client': 3.2.1
   '@japa/assert': 4.2.0
   '@japa/plugin-adonisjs': 5.2.0
@@ -36,6 +39,8 @@ catalog:
   '@poppinss/ts-exec': 1.4.4
   '@types/luxon': 3.7.6
   '@types/node': 24.19.0
+  '@types/pg': 8.23.1
+  '@types/ws': 8.18.2
   '@vinejs/vine': 4.4.0
   eslint: 10.11.0
   eslint-config-prettier: 10.1.8
@@ -53,5 +58,6 @@ catalog:
   typescript: 6.0.3
   typescript-eslint: 8.71.0
   vitest: 5.0.2
+  ws: 8.22.0
   yjs: 13.6.33
   zod: 4.6.5

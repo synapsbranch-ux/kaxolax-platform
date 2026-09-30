@@ -1,8 +1,10 @@
+import { inject } from '@adonisjs/core'
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import Document from '#models/document'
 import { projectFor } from '#services/project_access'
+import RealtimeClient from '#services/realtime_client'
 import { createProject, listProjects, serializeProject } from '#services/project_service'
 import {
   createProjectValidator,
@@ -22,7 +24,10 @@ export class InvalidMainDocumentException extends Exception {
   static override message = 'The main document must be a document of this project'
 }
 
+@inject()
 export default class ProjectsController {
+  constructor(private readonly realtime: RealtimeClient) {}
+
   async index({ request, auth }: HttpContext) {
     const { view, q } = await request.validateUsing(listProjectsValidator, { data: request.qs() })
     return { projects: await listProjects(auth.getUserOrFail(), view ?? 'active', q) }
@@ -88,7 +93,9 @@ export default class ProjectsController {
   async destroy({ params, auth, response }: HttpContext) {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'owner')
     if (project.trashedAt === null) throw new ProjectNotTrashedException()
+    const documents = await Document.query().where('projectId', project.id).select('id')
     await project.delete()
+    await this.realtime.closeDocuments(documents.map((document) => document.id))
     response.noContent()
   }
 }

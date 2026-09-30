@@ -1,0 +1,14 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/api/database/migrations/**",
+        "$TURBO_ROOT$/apps/api/.env.example"
+      ],
+      "env": ["REALTIME_TEST_DATABASE_URL"]
+    }
+  }
+}

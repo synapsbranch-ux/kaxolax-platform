@@ -10,6 +10,7 @@ import { emailThrottle, loginIpThrottle, loginThrottle, registerThrottle } from 
 const AuthController = () => import('#controllers/auth_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
 const TreeController = () => import('#controllers/tree_controller')
+const RealtimeController = () => import('#controllers/realtime_controller')
 
 router
   .group(() => {
@@ -46,6 +47,8 @@ router
         router.post('projects/:id/documents', [TreeController, 'storeDocument'])
         router.patch('projects/:id/entities/:type/:entityId', [TreeController, 'update'])
         router.delete('projects/:id/entities/:type/:entityId', [TreeController, 'destroy'])
+
+        router.post('projects/:id/realtime-token', [RealtimeController, 'token'])
       })
       .use(middleware.auth())
   })

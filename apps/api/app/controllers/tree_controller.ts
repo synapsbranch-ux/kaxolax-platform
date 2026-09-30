@@ -1,4 +1,5 @@
 import { MAX_TEXT_DOCUMENT_BYTES } from '@kaxolax/contracts'
+import { inject } from '@adonisjs/core'
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
@@ -6,6 +7,7 @@ import { type TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
 import Project from '#models/project'
 import { projectFor } from '#services/project_access'
+import RealtimeClient from '#services/realtime_client'
 import {
   buildTree,
   createDocument,
@@ -33,7 +35,10 @@ async function touch(trx: TransactionClientContract, project: Project) {
     .update({ updatedAt: DateTime.utc().toSQL() })
 }
 
+@inject()
 export default class TreeController {
+  constructor(private readonly realtime: RealtimeClient) {}
+
   async show({ params, auth }: HttpContext) {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
     return { mainDocumentId: project.mainDocumentId, ...(await buildTree(project.id)) }
@@ -98,14 +103,17 @@ export default class TreeController {
 
   async destroy({ params, auth, response }: HttpContext) {
     const { type } = await entityParamsValidator.validate(params)
-    await db.transaction(async (trx) => {
+    const deleted = await db.transaction(async (trx) => {
       const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'editor', {
         trx,
         lock: true,
       })
-      await deleteEntity(trx, project.id, type, String(params.entityId))
+      const removed = await deleteEntity(trx, project.id, type, String(params.entityId))
       await touch(trx, project)
+      return removed
     })
+    // Après la validation de la transaction : les onglets ouverts sur ces documents sont fermés.
+    await this.realtime.closeDocuments(deleted.documentIds)
     response.noContent()
   }
 }

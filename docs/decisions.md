@@ -93,3 +93,25 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - Shield redirige en cas de jeton CSRF invalide (formulaires HTML). Le gestionnaire d'exceptions répond à la place 403 `E_BAD_CSRF_TOKEN` en JSON.
 - L'IP du client (limitation de débit) n'est lue dans `X-Forwarded-For` que pour `TRUSTED_PROXY_HOPS` intermédiaires (1 par défaut : Next.js ou CloudFront), pour qu'elle ne puisse pas être forgée.
+
+## 2026-09-30 · Temps réel : jeton signé par l'API, rôle relu en base
+
+- L'API signe un jeton court (`v1.<charge>.<HMAC-SHA256>`, 5 minutes) avec `REALTIME_TOKEN_SECRET`, partagé avec le service temps réel. Le jeton porte l'utilisateur et le projet, jamais le document.
+- À chaque connexion, le service vérifie la signature et l'expiration, puis le projet du document, l'existence du document et le rôle **relu en base**. Viewer et reviewer reçoivent une connexion en lecture seule, dont les modifications sont ignorées.
+- Limite connue : un membre retiré garde sa connexion ouverte jusqu'à sa déconnexion. À traiter avec le partage (étape 2).
+
+## 2026-09-30 · Temps réel : persistance de l'état Yjs
+
+- Chaque document est enregistré en entier (`yjs_state`, avec `content_sha256`), 2 s après la dernière modification et au plus 10 s après la première. L'écriture est sautée si le texte n'a pas changé.
+- Un arrêt propre (SIGTERM) ferme les connexions et vide les écritures en attente avant de quitter.
+- L'instantané interne (`/internal/projects/:id/snapshot`) lit d'abord les documents ouverts en mémoire : la compilation voit les modifications pas encore enregistrées.
+
+## 2026-09-30 · Temps réel : URL WebSocket
+
+- Le navigateur reçoit l'URL avec le jeton (`REALTIME_PUBLIC_URL`). En local, c'est `ws://localhost:1234` en direct : un WebSocket n'est pas soumis à CORS, et l'authentification se fait par jeton, sans cookie.
+- En staging, le chemin `/realtime` de la même origine est routé vers le service. La règle « même origine » vaut donc pour tous les appels HTTP.
+
+## 2026-09-30 · Tests du temps réel sur une base dédiée
+
+- Les tests du service temps réel recréent la base `kaxolax_realtime_test` et y appliquent les migrations de l'API (`node ace migration:run`), qui restent la seule source du schéma.
+- Une base distincte de `kaxolax_test` permet de lancer les deux suites en parallèle sous Turborepo. Le cache du test temps réel tient compte des migrations de l'API.

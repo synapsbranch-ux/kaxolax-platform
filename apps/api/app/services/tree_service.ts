@@ -217,14 +217,13 @@ export async function buildTree(
   projectId: string,
   client?: TransactionClientContract,
 ): Promise<TreeResponse> {
-  const [folders, documents, files] = await Promise.all([
-    Folder.query({ client }).where('projectId', projectId).orderBy('name'),
-    Document.query({ client })
-      .where('projectId', projectId)
-      .orderBy('name')
-      .select('id', 'folderId', 'name', 'updatedAt'),
-    File.query({ client }).where('projectId', projectId).orderBy('name'),
-  ])
+  // Requêtes successives : une transaction n'exécute qu'une requête à la fois (pg 9 l'imposera).
+  const folders = await Folder.query({ client }).where('projectId', projectId).orderBy('name')
+  const documents = await Document.query({ client })
+    .where('projectId', projectId)
+    .orderBy('name')
+    .select('id', 'folderId', 'name', 'updatedAt')
+  const files = await File.query({ client }).where('projectId', projectId).orderBy('name')
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   const paths = new Map<string, string>()
   const folderPath = (id: string, seen = new Set<string>()): string => {

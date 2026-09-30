@@ -19,9 +19,13 @@ même origine que l'application (rewrites Next.js en local, CloudFront en stagin
   dossier, tous types confondus, vérifiés en transaction avec le projet verrouillé.
 - **Accès** : toujours par `project_members`. Un projet dont l'utilisateur n'est pas membre
   répond 404. Rôles : owner > editor > reviewer > viewer.
+- **Temps réel** : `POST /projects/:id/realtime-token` signe un jeton de 5 minutes pour le
+  service `apps/realtime` (`REALTIME_TOKEN_SECRET`, `REALTIME_PUBLIC_URL`). À la suppression
+  d'un document, d'un dossier ou d'un projet, l'API demande au service de fermer les connexions
+  ouvertes (`REALTIME_INTERNAL_URL`, `INTERNAL_TOKEN`), au mieux et avec un délai de 2 s.
 
-Les uploads, l'import zip, la compilation, SyncTeX, l'export et le jeton temps réel arrivent
-avec les tâches suivantes.
+Les uploads, l'import zip, la compilation, SyncTeX et l'export arrivent avec les tâches
+suivantes.
 
 ## Développement
 

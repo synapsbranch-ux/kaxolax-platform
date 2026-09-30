@@ -19,3 +19,27 @@ export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>
 /** POST /internal/documents/:id/close du service temps réel. */
 export const closeDocumentResponseSchema = z.object({ closed: z.boolean() })
 export type CloseDocumentResponse = z.infer<typeof closeDocumentResponseSchema>
+
+/** Rôle d'un membre de projet (table project_members). */
+export const projectRoleSchema = z.enum(['owner', 'editor', 'reviewer', 'viewer'])
+export type ProjectRole = z.infer<typeof projectRoleSchema>
+
+/** Contenu du jeton signé par l'API pour ouvrir une connexion temps réel (valable 5 minutes). */
+export const realtimeTokenClaimsSchema = z.object({
+  sub: z.uuid(),
+  projectId: z.uuid(),
+  role: projectRoleSchema,
+  /** Expiration, en secondes depuis l'époque Unix. */
+  exp: z.number().int().positive(),
+})
+export type RealtimeTokenClaims = z.infer<typeof realtimeTokenClaimsSchema>
+
+/** POST /projects/:id/realtime-token de l'API. */
+export const realtimeTokenResponseSchema = z.object({
+  token: z.string().min(1),
+  url: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+})
+export type RealtimeTokenResponse = z.infer<typeof realtimeTokenResponseSchema>
+
+export const REALTIME_TOKEN_TTL_SECONDS = 300
