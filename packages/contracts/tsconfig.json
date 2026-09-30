@@ -1,0 +1,9 @@
+{
+  "extends": "@kaxolax/config/tsconfig/library.json",
+  "compilerOptions": {
+    // Le paquet tourne dans Node et dans le navigateur : TextEncoder/TextDecoder viennent du DOM.
+    "lib": ["es2024", "dom"],
+    "noEmit": true
+  },
+  "include": ["src", "vitest.config.ts"]
+}
