@@ -94,6 +94,14 @@ docker pull ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium
 docker tag ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium kaxolax-texlive:2026-medium
 ```
 
+## Images et staging
+
+`docker/Dockerfile` construit une image par service (`--target web|api|realtime|compile-gateway|compile-agent`).
+La CI (`.github/workflows/images.yml`) les construit en arm64 à chaque push. Depuis `main`, elle
+les pousse dans ECR (`kaxolax/<service>:staging`), déploie le staging par SSM (`kaxolax-deploy`),
+puis lance le parcours Playwright sur le staging. L'infrastructure, sa mise en place et les
+variables du dépôt à poser sont décrites dans `kaxolax-infra`.
+
 ## Conventions
 
 - TypeScript strict partout ; versions exactes, centralisées dans le `catalog` de `pnpm-workspace.yaml`.

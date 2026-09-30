@@ -1,12 +1,12 @@
 import { join } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
+import { testAddress, waitForLink } from './mail'
 
 /**
  * « Définition de terminé » de l'étape 1, automatisée : compte, projet, upload, écriture,
  * compilations pdfLaTeX et XeLaTeX, erreur, SyncTeX, export et réimport, reconnexion.
  */
 
-const MAILPIT_URL = process.env.E2E_MAILPIT_URL ?? 'http://localhost:8025'
 const fixtures = join(import.meta.dirname, 'fixtures')
 const PASSWORD = 'correct horse battery staple'
 
@@ -78,9 +78,9 @@ async function login(page: Page, email: string): Promise<void> {
 }
 
 test('stage 1 definition of done', async ({ page, request }, testInfo) => {
-  const email = `dod-${String(Date.now())}@example.test`
+  const email = testAddress('dod')
 
-  await test.step('1. create an account, confirm the email through Mailpit, log in', async () => {
+  await test.step('1. create an account, confirm the email, log in', async () => {
     await page.goto('/register')
     await page.fill('#fullName', 'Ada Lovelace')
     await page.fill('#email', email)
@@ -88,23 +88,11 @@ test('stage 1 definition of done', async ({ page, request }, testInfo) => {
     await page.getByRole('button', { name: 'Créer mon compte' }).click()
     await expect(page.getByText('Vérifiez vos emails')).toBeVisible()
 
-    let link: URL | null = null
-    await expect(async () => {
-      const search = await request.get(`${MAILPIT_URL}/api/v1/search`, {
-        params: { query: `to:${email}` },
-      })
-      const { messages } = (await search.json()) as { messages: { ID: string }[] }
-      const message = (await (
-        await request.get(`${MAILPIT_URL}/api/v1/message/${messages[0]?.ID ?? ''}`)
-      ).json()) as {
-        Text: string
-      }
-      const found = /https?:\/\/\S+\/verify-email\?token=[\w-]+/.exec(message.Text)?.[0]
-      expect(found).toBeTruthy()
-      link = new URL(found ?? '')
-    }).toPass({ timeout: 20_000 })
-    const verification = link as URL | null
-    if (verification === null) throw new Error('no verification link')
+    const verification = await waitForLink(
+      request,
+      email,
+      /https?:\/\/\S+\/verify-email\?token=[\w-]+/,
+    )
     await page.goto(`${verification.pathname}${verification.search}`)
     await expect(page.getByText('Votre adresse est confirmée.')).toBeVisible()
     await login(page, email)

@@ -553,6 +553,9 @@ importers:
         specifier: 'catalog:'
         version: 4.6.5
     devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: 'catalog:'
+        version: 3.1142.0
       '@kaxolax/config':
         specifier: workspace:*
         version: link:../../packages/config

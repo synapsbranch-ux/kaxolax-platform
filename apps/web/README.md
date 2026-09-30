@@ -36,7 +36,15 @@ racine (API, temps réel, gateway, agent, web).
 ```bash
 pnpm --filter @kaxolax/web exec playwright install chromium   # une fois
 pnpm --filter @kaxolax/web e2e
-# Sur staging : E2E_BASE_URL=https://… E2E_MAILPIT_URL=… pnpm --filter @kaxolax/web e2e
+```
+
+Sur staging, les emails de test sont reçus par SES et lus dans S3 (identifiants AWS de la chaîne
+par défaut du SDK) ; les trois valeurs sont des sorties Terraform de kaxolax-infra. La CI de `main`
+lance ce parcours après chaque déploiement quand ces variables du dépôt sont posées.
+
+```bash
+E2E_BASE_URL=https://….cloudfront.net E2E_MAIL_DOMAIN=e2e-mail.<domaine> \
+E2E_MAIL_S3_BUCKET=kaxolax-staging-e2e-mail-<compte> pnpm --filter @kaxolax/web e2e
 ```
 
 L'inscription est limitée à 10 par heure et par adresse IP : pour relancer souvent le parcours en

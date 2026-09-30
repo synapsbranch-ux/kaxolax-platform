@@ -1,0 +1,31 @@
+From: Kaxolax <no-reply@example.com>
+To: dod-1@e2e-mail.example.com
+Subject: Confirmez votre compte Kaxolax
+Message-ID: <8806ae64-6bc0-251d-ae4a-9f89b4c0443f@example.com>
+Date: Wed, 30 Sep 2026 23:49:48 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-20d73040b5488823-Part_1"
+
+----_NmP-20d73040b5488823-Part_1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Bienvenue sur Kaxolax !
+
+Confirmez votre adresse email en ouvrant ce lien =
+(valable 24 heures) :
+https://d111111abcdef8.cloudfront.net/verify-email?=
+token=3Dexample-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+Si vous n'avez pas cr=C3=A9=C3=A9 de compte, ignorez cet email.
+----_NmP-20d73040b5488823-Part_1
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<p>Bienvenue sur Kaxolax !</p><p>Confirmez votre adresse email (le lien est=
+ valable 24 heures) :</p><p><a href=3D"https://d111111abcdef8.cloudfront.=
+net/verify-email?token=3Dexample-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
+aaaaaaaa">Confirmer mon adresse email</a></p><p>Si vous n'avez pas =
+cr=C3=A9=C3=A9 de compte, ignorez cet email.</p>
+----_NmP-20d73040b5488823-Part_1--

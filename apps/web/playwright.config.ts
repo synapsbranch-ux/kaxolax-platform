@@ -6,6 +6,8 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: 'e2e',
+  // Les *.test.ts d'e2e/ sont des tests unitaires (Vitest) des utilitaires du parcours.
+  testMatch: '**/*.spec.ts',
   timeout: 240_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,

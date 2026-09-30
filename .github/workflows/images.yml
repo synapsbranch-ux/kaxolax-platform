@@ -3,6 +3,9 @@ name: images
 # Images Docker des services (docker/Dockerfile), en arm64 comme les instances Graviton du
 # staging. Toujours construites (le Dockerfile est vérifié) ; poussées vers ECR depuis main
 # seulement quand le rôle OIDC est configuré (variables du dépôt AWS_ECR_PUSH_ROLE_ARN, AWS_REGION).
+# Puis, depuis main : déploiement sur le staging par SSM (AWS_DEPLOY_ROLE_ARN) et parcours
+# Playwright de la « Définition de terminé » sur le staging (E2E_BASE_URL, E2E_MAIL_DOMAIN,
+# E2E_MAIL_S3_BUCKET : sorties Terraform de kaxolax-infra).
 
 on:
   push:
@@ -43,8 +46,8 @@ jobs:
 
       - name: Smoke test
         run: |
-          docker run --rm kaxolax/web:${GITHUB_SHA} node -e "require('fs').accessSync('apps/web/server.js')"
-          docker run --rm kaxolax/api:${GITHUB_SHA} node -e "require('fs').accessSync('build/bin/server.js')"
+          docker run --rm "kaxolax/web:${GITHUB_SHA}" node -e "require('fs').accessSync('apps/web/server.js')"
+          docker run --rm "kaxolax/api:${GITHUB_SHA}" node -e "require('fs').accessSync('build/bin/server.js')"
           for target in realtime compile-gateway compile-agent; do
             docker run --rm "kaxolax/$target:${GITHUB_SHA}" node -e "require('fs').accessSync('dist/main.js')"
           done
@@ -72,3 +75,80 @@ jobs:
               docker push "$REGISTRY/kaxolax/$target:$tag"
             done
           done
+
+  deploy:
+    name: deploy (staging)
+    needs: build
+    if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != '' && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # kaxolax-deploy (kaxolax-infra) sur l'instance applicative et le worker : configuration,
+      # secrets, images :staging, migrations, redémarrage des services.
+      - name: Run kaxolax-deploy through SSM
+        run: |
+          command_id=$(aws ssm send-command \
+            --document-name AWS-RunShellScript \
+            --targets Key=tag:Project,Values=kaxolax Key=tag:Stack,Values=staging \
+            --comment "kaxolax-platform ${GITHUB_SHA::7}" \
+            --parameters 'commands=["/usr/local/bin/kaxolax-deploy"]' \
+            --timeout-seconds 900 \
+            --query Command.CommandId --output text)
+          echo "SSM command ${command_id}"
+          for _ in $(seq 1 120); do
+            statuses=$(aws ssm list-command-invocations --command-id "$command_id" \
+              --query 'CommandInvocations[].Status' --output text)
+            if [ -n "$statuses" ] && ! grep -qE 'Pending|InProgress|Delayed' <<<"$statuses"; then
+              break
+            fi
+            sleep 10
+          done
+          aws ssm list-command-invocations --command-id "$command_id" --details \
+            --query 'CommandInvocations[].[InstanceId,Status,CommandPlugins[0].Output]' --output text
+          test "$(aws ssm list-command-invocations --command-id "$command_id" \
+            --query "length(CommandInvocations[?Status!='Success'])" --output text)" = 0
+          test "$(aws ssm list-command-invocations --command-id "$command_id" \
+            --query 'length(CommandInvocations)' --output text)" = 2
+
+  e2e-staging:
+    name: definition of done (staging)
+    needs: deploy
+    if: vars.E2E_BASE_URL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-staging-e2e
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @kaxolax/web exec playwright install --with-deps chromium
+
+      # Le rôle de déploiement lit aussi les emails de test reçus par SES (bucket E2E_MAIL_S3_BUCKET).
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Playwright
+        env:
+          E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
+          E2E_MAIL_DOMAIN: ${{ vars.E2E_MAIL_DOMAIN }}
+          E2E_MAIL_S3_BUCKET: ${{ vars.E2E_MAIL_S3_BUCKET }}
+        run: pnpm --filter @kaxolax/web e2e
