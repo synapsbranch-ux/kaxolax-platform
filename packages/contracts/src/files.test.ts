@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { hasTextDocumentExtension, isTextDocument, MAX_TEXT_DOCUMENT_BYTES } from './files.js'
+import {
+  hasTextDocumentExtension,
+  isPreviewableImage,
+  isTextDocument,
+  MAX_TEXT_DOCUMENT_BYTES,
+  mimeTypeFor,
+} from './files.js'
 
 const encode = (text: string) => new TextEncoder().encode(text)
 
@@ -35,5 +41,23 @@ describe('isTextDocument', () => {
 
   it('rejects a non-text extension even if the content is UTF-8', () => {
     expect(isTextDocument('image.png', encode('hello'))).toBe(false)
+  })
+})
+
+describe('mimeTypeFor', () => {
+  it('derives the type from the extension, whatever its case', () => {
+    expect(mimeTypeFor('figures/plot.PNG')).toBe('image/png')
+    expect(mimeTypeFor('photo.jpeg')).toBe('image/jpeg')
+    expect(mimeTypeFor('diagram.pdf')).toBe('application/pdf')
+  })
+
+  it('falls back to application/octet-stream', () => {
+    expect(mimeTypeFor('data.bin')).toBe('application/octet-stream')
+    expect(mimeTypeFor('Makefile')).toBe('application/octet-stream')
+  })
+
+  it('only previews browser images', () => {
+    expect(isPreviewableImage('image/png')).toBe(true)
+    expect(isPreviewableImage('application/pdf')).toBe(false)
   })
 })

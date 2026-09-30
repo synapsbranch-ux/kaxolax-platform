@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto'
 import { createDocumentState } from '@kaxolax/collab'
 import { Exception } from '@adonisjs/core/exceptions'
 import { type TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { DateTime } from 'luxon'
 import Document from '#models/document'
 import File from '#models/file'
 import Folder from '#models/folder'
+import Project from '#models/project'
 import { isUuid } from '#services/project_access'
 
 export type EntityType = 'folder' | 'document' | 'file'
@@ -95,6 +97,32 @@ export async function createDocument(
     },
     { client: trx },
   )
+}
+
+/** Fichier binaire dont le contenu est déjà dans S3 (clé `s3Key`). */
+export async function createFile(
+  trx: TransactionClientContract,
+  projectId: string,
+  input: {
+    id: string
+    name: string
+    folderId: string | null
+    s3Key: string
+    sha256: string
+    sizeBytes: number
+    mimeType: string
+  },
+): Promise<File> {
+  await assertFolder(trx, projectId, input.folderId)
+  await assertNameAvailable(trx, projectId, input.folderId, input.name)
+  return File.create({ projectId, ...input }, { client: trx })
+}
+
+/** Toute modification de l'arborescence met à jour la date du projet (tri du dashboard). */
+export async function touchProject(trx: TransactionClientContract, projectId: string) {
+  await Project.query({ client: trx })
+    .where('id', projectId)
+    .update({ updatedAt: DateTime.utc().toSQL() })
 }
 
 type Entity = Folder | Document | File

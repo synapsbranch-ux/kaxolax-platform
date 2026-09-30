@@ -70,6 +70,17 @@ export default await Env.create(new URL('../', import.meta.url), {
   MAIL_FROM_ADDRESS: Env.schema.string({ format: 'email' }),
   MAIL_FROM_NAME: Env.schema.string(),
 
+  /** S3 : SeaweedFS en local, AWS en staging (sans endpoint ni clés : rôle de l'instance). */
+  S3_REGION: Env.schema.string(),
+  S3_ENDPOINT: Env.schema.string.optional({ format: 'url', tld: false }),
+  /** Endpoint vu par le navigateur pour les URL présignées (localhost:8333 en local). */
+  S3_PUBLIC_ENDPOINT: Env.schema.string.optional({ format: 'url', tld: false }),
+  S3_FORCE_PATH_STYLE: Env.schema.boolean.optional(),
+  S3_ACCESS_KEY_ID: Env.schema.string.optional(),
+  S3_SECRET_ACCESS_KEY: Env.schema.secret.optional(),
+  S3_BUCKET_PROJECT_FILES: Env.schema.string(),
+  S3_BUCKET_COMPILE_OUTPUTS: Env.schema.string(),
+
   /** Signe les jetons de connexion au service temps réel (même valeur dans apps/realtime). */
   REALTIME_TOKEN_SECRET: sharedSecret,
   /** En-tête X-Internal-Token des appels entre services (même valeur partout). */

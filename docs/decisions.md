@@ -115,3 +115,21 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - Les tests du service temps réel recréent la base `kaxolax_realtime_test` et y appliquent les migrations de l'API (`node ace migration:run`), qui restent la seule source du schéma.
 - Une base distincte de `kaxolax_test` permet de lancer les deux suites en parallèle sous Turborepo. Le cache du test temps réel tient compte des migrations de l'API.
+
+## 2026-09-30 · Uploads : URL présignée avec taille signée
+
+- Le navigateur annonce nom, dossier et taille exacte ; l'API signe un PUT S3 avec `content-length` (15 min). S3 (et SeaweedFS) refuse un corps d'une autre taille. À la complétion, la taille est revérifiée et le sha256 calculé.
+- Plafonds : 100 Mio par fichier, 500 Mio par zip compressé. Un nom déjà pris dans le dossier répond 409 dès la création de l'upload (pas d'écrasement silencieux), puis à nouveau à la complétion.
+- Clés : `uploads/{uploadId}` (expiration 1 jour), puis `projects/{projectId}/files/{fileId}` pour les binaires. Les objets d'un fichier, d'un dossier ou d'un projet supprimé sont effacés au mieux après la transaction.
+
+## 2026-09-30 · Import zip : tout vérifier avant d'envoyer vers S3
+
+- Le zip est lu en deux phases : validation complète (répertoire central, chemins, doublons, 5 000 fichiers, 500 Mio annoncés, puis taille réelle de chaque entrée), extraction des binaires dans un répertoire temporaire, et seulement ensuite envoi vers S3. Une zip bomb n'envoie rien.
+- Raison supplémentaire : le SDK S3 v3 ne rend jamais la main si le flux du corps d'un `PutObject` échoue (constaté). `ObjectStorage.put` annule donc la requête sur erreur du flux.
+- Le texte gardé en mémoire est plafonné à 100 Mio par import (documents Yjs créés ensuite), pour protéger l'instance applicative.
+
+## 2026-09-30 · Import zip : document principal et compilateur
+
+- Document principal : `main.tex` à la racine, sinon le premier `.tex` (le moins profond, puis par ordre alphabétique) qui contient un `\documentclass` non commenté.
+- Compilateur : un zip exporté ne le dit pas. `fontspec`, `unicode-math`, `polyglossia`, `xeCJK`… donnent XeLaTeX ; `luacode`, `luatexja`, `\directlua`… donnent LuaLaTeX ; sinon pdfLaTeX. Sans cela, un projet XeLaTeX ne compilerait pas « sans retouche ».
+- Un zip dont tout le contenu est dans un seul dossier est importé comme si ce dossier était la racine. `__MACOSX/`, `.DS_Store` et `Thumbs.db` sont ignorés. Liens symboliques et entrées chiffrées sont refusés.

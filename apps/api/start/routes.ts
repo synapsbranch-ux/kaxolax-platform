@@ -11,6 +11,9 @@ const AuthController = () => import('#controllers/auth_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
 const TreeController = () => import('#controllers/tree_controller')
 const RealtimeController = () => import('#controllers/realtime_controller')
+const UploadsController = () => import('#controllers/uploads_controller')
+const ImportsController = () => import('#controllers/imports_controller')
+const FilesController = () => import('#controllers/files_controller')
 
 router
   .group(() => {
@@ -47,6 +50,12 @@ router
         router.post('projects/:id/documents', [TreeController, 'storeDocument'])
         router.patch('projects/:id/entities/:type/:entityId', [TreeController, 'update'])
         router.delete('projects/:id/entities/:type/:entityId', [TreeController, 'destroy'])
+        router.get('projects/:id/files/:fileId/url', [FilesController, 'url'])
+
+        router.post('projects/:id/uploads', [UploadsController, 'store'])
+        router.post('projects/:id/uploads/:uploadId/complete', [UploadsController, 'complete'])
+        router.post('imports', [ImportsController, 'store'])
+        router.post('imports/:uploadId/complete', [ImportsController, 'complete'])
 
         router.post('projects/:id/realtime-token', [RealtimeController, 'token'])
       })

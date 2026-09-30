@@ -29,8 +29,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
-      # Base de test (kaxolax_test) et Redis pour les tests fonctionnels de l'API.
-      - run: docker compose up -d --wait postgres redis
+      # PostgreSQL, Redis et S3 (buckets créés par s3-init) pour les tests de l'API et du temps réel.
+      - run: docker compose up -d --wait postgres redis s3 s3-init
       - run: pnpm check
 
   local-stack:

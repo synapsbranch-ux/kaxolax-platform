@@ -1,0 +1,9 @@
+{
+  "extends": "@kaxolax/config/tsconfig/library.json",
+  "compilerOptions": {
+    "lib": ["es2024"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src"]
+}

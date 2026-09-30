@@ -24,12 +24,19 @@ même origine que l'application (rewrites Next.js en local, CloudFront en stagin
   d'un document, d'un dossier ou d'un projet, l'API demande au service de fermer les connexions
   ouvertes (`REALTIME_INTERNAL_URL`, `INTERNAL_TOKEN`), au mieux et avec un délai de 2 s.
 
-Les uploads, l'import zip, la compilation, SyncTeX et l'export arrivent avec les tâches
-suivantes.
+- **Uploads** : `POST /projects/:id/uploads` renvoie une URL de PUT présignée (taille signée),
+  puis `POST /projects/:id/uploads/:uploadId/complete` vérifie l'objet et crée un document texte
+  ou un fichier binaire (`@kaxolax/upload-processor`). `GET /projects/:id/files/:fileId/url`
+  donne une URL de lecture de 5 minutes (`?download=true` pour télécharger).
+- **Import zip** : `POST /imports`, puis `POST /imports/:uploadId/complete` crée le projet
+  (`@kaxolax/zip-importer`).
+
+La compilation, SyncTeX et l'export arrivent avec les tâches suivantes.
 
 ## Développement
 
-Prérequis : la stack locale (`docker compose up -d` à la racine).
+Prérequis : la stack locale (`docker compose up -d` à la racine) : PostgreSQL, Redis, S3
+(SeaweedFS) et Mailpit.
 
 ```bash
 pnpm --filter @kaxolax/api migrate   # applique les migrations (crée .env depuis .env.example au besoin)

@@ -35,8 +35,12 @@
     "@adonisjs/redis": "catalog:",
     "@adonisjs/session": "catalog:",
     "@adonisjs/shield": "catalog:",
+    "@aws-sdk/client-s3": "catalog:",
+    "@aws-sdk/s3-request-presigner": "catalog:",
     "@kaxolax/collab": "workspace:*",
     "@kaxolax/contracts": "workspace:*",
+    "@kaxolax/upload-processor": "workspace:*",
+    "@kaxolax/zip-importer": "workspace:*",
     "@vinejs/vine": "catalog:",
     "luxon": "catalog:",
     "pg": "catalog:",
@@ -53,10 +57,12 @@
     "@poppinss/ts-exec": "catalog:",
     "@types/luxon": "catalog:",
     "@types/node": "catalog:",
+    "@types/yazl": "catalog:",
     "eslint": "catalog:",
     "hot-hook": "catalog:",
     "pino-pretty": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "yazl": "catalog:"
   },
   "hotHook": {
     "boundaries": [

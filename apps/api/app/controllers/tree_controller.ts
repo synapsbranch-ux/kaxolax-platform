@@ -3,16 +3,15 @@ import { inject } from '@adonisjs/core'
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
-import { type TransactionClientContract } from '@adonisjs/lucid/types/database'
-import { DateTime } from 'luxon'
-import Project from '#models/project'
 import { projectFor } from '#services/project_access'
+import ObjectStorage from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
 import {
   buildTree,
   createDocument,
   createFolder,
   deleteEntity,
+  touchProject,
   updateEntity,
 } from '#services/tree_service'
 import {
@@ -28,16 +27,12 @@ export class DocumentTooLargeException extends Exception {
   static override message = 'A text document must be smaller than 2 MB'
 }
 
-/** Toute modification de l'arborescence met à jour la date du projet (tri du dashboard). */
-async function touch(trx: TransactionClientContract, project: Project) {
-  await Project.query({ client: trx })
-    .where('id', project.id)
-    .update({ updatedAt: DateTime.utc().toSQL() })
-}
-
 @inject()
 export default class TreeController {
-  constructor(private readonly realtime: RealtimeClient) {}
+  constructor(
+    private readonly realtime: RealtimeClient,
+    private readonly storage: ObjectStorage,
+  ) {}
 
   async show({ params, auth }: HttpContext) {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
@@ -55,7 +50,7 @@ export default class TreeController {
         name: input.name,
         parentId: input.parentId ?? null,
       })
-      await touch(trx, project)
+      await touchProject(trx, project.id)
       return created
     })
     response.created({
@@ -78,7 +73,7 @@ export default class TreeController {
         folderId: input.folderId ?? null,
         content,
       })
-      await touch(trx, project)
+      await touchProject(trx, project.id)
       return created
     })
     response.created({
@@ -95,7 +90,7 @@ export default class TreeController {
         lock: true,
       })
       const updated = await updateEntity(trx, project.id, type, String(params.entityId), changes)
-      await touch(trx, project)
+      await touchProject(trx, project.id)
       return updated
     })
     return { type, id: entity.id, name: entity.name }
@@ -109,11 +104,12 @@ export default class TreeController {
         lock: true,
       })
       const removed = await deleteEntity(trx, project.id, type, String(params.entityId))
-      await touch(trx, project)
+      await touchProject(trx, project.id)
       return removed
     })
     // Après la validation de la transaction : les onglets ouverts sur ces documents sont fermés.
     await this.realtime.closeDocuments(deleted.documentIds)
+    await this.storage.delete(deleted.fileKeys)
     response.noContent()
   }
 }

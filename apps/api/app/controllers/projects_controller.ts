@@ -4,6 +4,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import Document from '#models/document'
 import { projectFor } from '#services/project_access'
+import ObjectStorage, { projectPrefix } from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
 import { createProject, listProjects, serializeProject } from '#services/project_service'
 import {
@@ -26,7 +27,10 @@ export class InvalidMainDocumentException extends Exception {
 
 @inject()
 export default class ProjectsController {
-  constructor(private readonly realtime: RealtimeClient) {}
+  constructor(
+    private readonly realtime: RealtimeClient,
+    private readonly storage: ObjectStorage,
+  ) {}
 
   async index({ request, auth }: HttpContext) {
     const { view, q } = await request.validateUsing(listProjectsValidator, { data: request.qs() })
@@ -96,6 +100,7 @@ export default class ProjectsController {
     const documents = await Document.query().where('projectId', project.id).select('id')
     await project.delete()
     await this.realtime.closeDocuments(documents.map((document) => document.id))
+    await this.storage.deletePrefix(projectPrefix(project.id))
     response.noContent()
   }
 }

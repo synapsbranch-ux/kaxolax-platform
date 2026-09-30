@@ -52,7 +52,7 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 | `pnpm build`       | Compile tout                                                  |
 | `pnpm lint`        | ESLint (règles typées strictes)                               |
 | `pnpm typecheck`   | Vérification des types                                        |
-| `pnpm test`        | Tests (Vitest, Japa) ; PostgreSQL et Redis doivent tourner    |
+| `pnpm test`        | Tests (Vitest, Japa) ; la stack locale doit tourner           |
 | `pnpm check`       | lint + typecheck + tests + build, comme la CI                 |
 | `pnpm format`      | Formate avec Prettier (`format:check` pour vérifier)          |
 | `pnpm stack:up`    | `docker compose up -d --wait`                                 |
@@ -66,7 +66,9 @@ apps/
   api/                API REST AdonisJS (comptes, projets, arborescence)
   compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
   realtime/           édition collaborative (Hocuspocus + Yjs, persistance PostgreSQL)
-functions/     fonctions pures + handlers Lambda (upload-processor, zip-importer)
+functions/
+  upload-processor/   vérification et classement d'un fichier uploadé
+  zip-importer/       extraction et validation d'un projet zip
 packages/
   collab/             conventions Yjs (nom des documents, champ texte)
   config/             tsconfig, ESLint, Prettier
