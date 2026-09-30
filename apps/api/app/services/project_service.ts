@@ -1,0 +1,73 @@
+import db from '@adonisjs/lucid/services/db'
+import { type DateTime } from 'luxon'
+import Project from '#models/project'
+import ProjectMember, { type ProjectRole } from '#models/project_member'
+import type User from '#models/user'
+import { starterDocument } from '#services/latex'
+import { createDocument } from '#services/tree_service'
+
+export type ProjectView = 'active' | 'archived' | 'trashed'
+
+/** Date ISO en UTC ; une colonne absente d'un modèle tout juste créé vaut null. */
+function iso(value: DateTime | null | undefined): string | null {
+  return value ? value.toUTC().toISO() : null
+}
+
+export function serializeProject(project: Project, role: ProjectRole) {
+  return {
+    id: project.id,
+    name: project.name,
+    compiler: project.compiler,
+    mainDocumentId: project.mainDocumentId,
+    role,
+    archivedAt: iso(project.archivedAt),
+    trashedAt: iso(project.trashedAt),
+    lastCompiledAt: iso(project.lastCompiledAt),
+    createdAt: iso(project.createdAt),
+    updatedAt: iso(project.updatedAt),
+  }
+}
+
+/** Crée un projet, son propriétaire dans project_members et un main.tex minimal qui compile. */
+export async function createProject(user: User, name: string): Promise<Project> {
+  return db.transaction(async (trx) => {
+    const project = await Project.create(
+      { ownerId: user.id, name, compiler: 'pdflatex' },
+      { client: trx },
+    )
+    await ProjectMember.create(
+      { projectId: project.id, userId: user.id, role: 'owner' },
+      { client: trx },
+    )
+    const main = await createDocument(trx, project.id, {
+      name: 'main.tex',
+      folderId: null,
+      content: starterDocument(name, user.fullName),
+    })
+    project.mainDocumentId = main.id
+    await project.useTransaction(trx).save()
+    return project
+  })
+}
+
+/** Projets dont l'utilisateur est membre, filtrés par vue et par nom. */
+export async function listProjects(user: User, view: ProjectView, search: string | undefined) {
+  const query = Project.query()
+    .join('project_members', 'project_members.project_id', 'projects.id')
+    .where('project_members.user_id', user.id)
+    .select('projects.*', 'project_members.role as member_role')
+    .orderBy('projects.updated_at', 'desc')
+  if (view === 'active')
+    void query.whereNull('projects.archived_at').whereNull('projects.trashed_at')
+  if (view === 'archived')
+    void query.whereNotNull('projects.archived_at').whereNull('projects.trashed_at')
+  if (view === 'trashed') void query.whereNotNull('projects.trashed_at')
+  if (search !== undefined && search.trim() !== '') {
+    const pattern = `%${search.trim().replace(/[\\%_]/g, (character) => `\\${character}`)}%`
+    void query.whereILike('projects.name', pattern)
+  }
+  const projects = await query
+  return projects.map((project) =>
+    serializeProject(project, (project.$extras as { member_role: ProjectRole }).member_role),
+  )
+}

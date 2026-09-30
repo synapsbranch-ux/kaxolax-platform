@@ -23,6 +23,7 @@ corepack enable      # fournit la version de pnpm du package.json
 pnpm install
 docker compose up -d
 pnpm stack:check     # vérifie PostgreSQL, Redis, S3 et Mailpit
+pnpm --filter @kaxolax/api migrate
 pnpm dev
 ```
 
@@ -62,9 +63,11 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 
 ```
 apps/
+  api/                API REST AdonisJS (comptes, projets, arborescence)
   compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
 functions/     fonctions pures + handlers Lambda (upload-processor, zip-importer)
 packages/
+  collab/             conventions Yjs (nom des documents, champ texte)
   config/             tsconfig, ESLint, Prettier
   contracts/          schémas zod partagés entre services
   latex-log-parser/   parsing des logs LaTeX, BibTeX et Biber
@@ -73,7 +76,7 @@ docker/        configuration des services locaux
 scripts/       outils de développement
 ```
 
-Les autres apps (web, api, realtime, compile-gateway) et paquets arrivent au fil des tâches de
+Les autres apps (web, realtime, compile-gateway) et paquets arrivent au fil des tâches de
 l'étape 1.
 
 ## Image TeX Live

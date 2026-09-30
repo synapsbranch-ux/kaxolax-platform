@@ -12,6 +12,8 @@ coverage/
 .env
 .env.*
 !.env.example
+# Surcharges des tests, sans aucun secret.
+!.env.test
 
 # Tests
 playwright-report/

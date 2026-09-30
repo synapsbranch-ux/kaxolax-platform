@@ -1,0 +1,67 @@
+{
+  "name": "@kaxolax/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ace build",
+    "dev": "node -e \"const f=require('node:fs');f.existsSync('.env')||f.copyFileSync('.env.example','.env')\" && node ace serve --hmr",
+    "start": "node build/bin/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "node -e \"const f=require('node:fs');f.existsSync('.env')||f.copyFileSync('.env.example','.env')\" && node ace test",
+    "migrate": "node -e \"const f=require('node:fs');f.existsSync('.env')||f.copyFileSync('.env.example','.env')\" && node ace migration:run"
+  },
+  "imports": {
+    "#controllers/*": "./app/controllers/*.js",
+    "#exceptions/*": "./app/exceptions/*.js",
+    "#models/*": "./app/models/*.js",
+    "#mails/*": "./app/mails/*.js",
+    "#services/*": "./app/services/*.js",
+    "#middleware/*": "./app/middleware/*.js",
+    "#validators/*": "./app/validators/*.js",
+    "#policies/*": "./app/policies/*.js",
+    "#database/*": "./database/*.js",
+    "#tests/*": "./tests/*.js",
+    "#start/*": "./start/*.js",
+    "#config/*": "./config/*.js"
+  },
+  "dependencies": {
+    "@adonisjs/auth": "catalog:",
+    "@adonisjs/core": "catalog:",
+    "@adonisjs/limiter": "catalog:",
+    "@adonisjs/lucid": "catalog:",
+    "@adonisjs/mail": "catalog:",
+    "@adonisjs/redis": "catalog:",
+    "@adonisjs/session": "catalog:",
+    "@adonisjs/shield": "catalog:",
+    "@kaxolax/collab": "workspace:*",
+    "@kaxolax/contracts": "workspace:*",
+    "@vinejs/vine": "catalog:",
+    "luxon": "catalog:",
+    "pg": "catalog:",
+    "reflect-metadata": "catalog:"
+  },
+  "devDependencies": {
+    "@adonisjs/assembler": "catalog:",
+    "@adonisjs/tsconfig": "catalog:",
+    "@japa/api-client": "catalog:",
+    "@japa/assert": "catalog:",
+    "@japa/plugin-adonisjs": "catalog:",
+    "@japa/runner": "catalog:",
+    "@kaxolax/config": "workspace:*",
+    "@poppinss/ts-exec": "catalog:",
+    "@types/luxon": "catalog:",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "hot-hook": "catalog:",
+    "pino-pretty": "catalog:",
+    "typescript": "catalog:"
+  },
+  "hotHook": {
+    "boundaries": [
+      "./app/controllers/**/*.ts",
+      "./app/middleware/*.ts"
+    ]
+  }
+}

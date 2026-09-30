@@ -72,3 +72,24 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - Fastify 5 (avec pino) pour l'agent et les autres services Node internes : routes JSON typées, logs structurés, `inject` pour les tests sans réseau.
 - pnpm 11 refuse les scripts d'installation par défaut. esbuild (via tsx) est déclaré `allowBuilds: false`, car son binaire vient d'une dépendance optionnelle.
+
+## 2026-09-30 · API : sessions, vérification d'email et jetons
+
+- Contexte : la spécification décrit l'ordre « créer un compte, confirmer l'email, se connecter ».
+- Décision : la connexion exige un email vérifié (403 `E_EMAIL_NOT_VERIFIED`). Les jetons de vérification (24 h) et de réinitialisation (1 h) sont à usage unique, seul leur sha256 est stocké, et un nouveau jeton invalide les précédents.
+- Les réponses de renvoi de vérification et de mot de passe oublié sont identiques que le compte existe ou non. Mots de passe hachés en scrypt (natif, sans dépendance compilée).
+
+## 2026-09-30 · API : modèles Lucid écrits à la main, UUID générés par l'application
+
+- La génération de schéma de Lucid 22 est désactivée : les modèles déclarent leurs colonnes (décorateurs). Les noms de colonnes qui contiennent des chiffres (`content_sha256`, `s3_key`, `sha256`) sont explicites.
+- Les UUID sont générés par l'application (`selfAssignPrimaryKey`), avec `gen_random_uuid()` en valeur par défaut côté base.
+
+## 2026-09-30 · API : unicité des noms et verrou du projet
+
+- Les modifications d'arborescence d'un projet se font en transaction, après `SELECT … FOR UPDATE` sur la ligne du projet. L'unicité d'un nom entre dossiers, documents et fichiers d'un même dossier est ainsi vérifiée sans course (un test lance 5 créations simultanées).
+- Des index uniques par type (avec `COALESCE` du dossier parent) servent de filet de sécurité.
+
+## 2026-09-30 · API : CSRF en JSON et proxys de confiance
+
+- Shield redirige en cas de jeton CSRF invalide (formulaires HTML). Le gestionnaire d'exceptions répond à la place 403 `E_BAD_CSRF_TOKEN` en JSON.
+- L'IP du client (limitation de débit) n'est lue dans `X-Forwarded-For` que pour `TRUSTED_PROXY_HOPS` intermédiaires (1 par défaut : Next.js ou CloudFront), pour qu'elle ne puisse pas être forgée.
