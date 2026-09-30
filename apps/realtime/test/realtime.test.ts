@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { documentName } from '@kaxolax/collab'
 import { closeDocumentResponseSchema, projectSnapshotSchema } from '@kaxolax/contracts'
 import type pg from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -242,6 +243,10 @@ describe('internal routes', () => {
       content: 'ouvert et modifié',
       sha256: sha256('ouvert et modifié'),
     })
+    // Le document fermé a été chargé le temps de la lecture, puis déchargé.
+    const documents = running.server.hocuspocus.documents
+    await eventually(() => !documents.has(documentName(seed.projectId, closedId)))
+    expect(documents.has(documentName(seed.projectId, seed.documentId))).toBe(true)
   })
 
   it('closes the connections of a deleted document and refuses to reopen it', async () => {

@@ -104,7 +104,7 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - Chaque document est enregistré en entier (`yjs_state`, avec `content_sha256`), 2 s après la dernière modification et au plus 10 s après la première. L'écriture est sautée si le texte n'a pas changé.
 - Un arrêt propre (SIGTERM) ferme les connexions et vide les écritures en attente avant de quitter.
-- L'instantané interne (`/internal/projects/:id/snapshot`) lit d'abord les documents ouverts en mémoire : la compilation voit les modifications pas encore enregistrées.
+- L'instantané interne (`/internal/projects/:id/snapshot`) lit les documents ouverts en mémoire (modifications pas encore enregistrées comprises) ; les autres sont chargés par `openDirectConnection` puis déchargés.
 
 ## 2026-09-30 · Temps réel : URL WebSocket
 

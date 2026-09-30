@@ -22,11 +22,11 @@ attente avant de quitter.
 
 ## Routes HTTP
 
-| Route                                 | Rôle                                                          |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `GET /health`                         | État du service et nombre de documents ouverts                |
-| `GET /internal/projects/:id/snapshot` | Texte courant de chaque document (mémoire d'abord, puis base) |
-| `POST /internal/documents/:id/close`  | Ferme les connexions d'un document supprimé                   |
+| Route                                 | Rôle                                                                              |
+| ------------------------------------- | --------------------------------------------------------------------------------- |
+| `GET /health`                         | État du service et nombre de documents ouverts                                    |
+| `GET /internal/projects/:id/snapshot` | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe) |
+| `POST /internal/documents/:id/close`  | Ferme les connexions d'un document supprimé                                       |
 
 Les routes `/internal` exigent l'en-tête `X-Internal-Token`. Leurs réponses suivent les schémas
 de `@kaxolax/contracts` (`projectSnapshotSchema`, `closeDocumentResponseSchema`).

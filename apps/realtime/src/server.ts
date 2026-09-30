@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Database } from '@hocuspocus/extension-database'
 import { type Hocuspocus, Server } from '@hocuspocus/server'
-import { documentName, parseDocumentName, readDocumentText, textOf } from '@kaxolax/collab'
+import { documentName, parseDocumentName, textOf } from '@kaxolax/collab'
 import { verifyRealtimeToken } from '@kaxolax/collab/token'
 import {
   type CloseDocumentResponse,
@@ -74,11 +74,22 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
   const snapshot = async (instance: Hocuspocus, projectId: string): Promise<ProjectSnapshot> => {
     const documents = []
     for (const id of await store.documentIds(projectId)) {
+      const name = documentName(projectId, id)
       // Un document ouvert fait foi : il contient les modifications pas encore enregistrées.
-      const loaded = instance.documents.get(documentName(projectId, id))
-      const content = loaded
-        ? textOf(loaded)
-        : readDocumentText(await store.fetchState(projectId, id))
+      const loaded = instance.documents.get(name)
+      let content: string
+      if (loaded) {
+        content = textOf(loaded)
+      } else {
+        // Chargé par Hocuspocus (et partagé avec un client qui l'ouvrirait au même moment), puis
+        // déchargé : rien n'est écrit si le texte n'a pas changé.
+        const connection = await instance.openDirectConnection(name)
+        try {
+          content = connection.document ? textOf(connection.document) : ''
+        } finally {
+          await connection.disconnect()
+        }
+      }
       documents.push({ id, content, sha256: sha256(content) })
     }
     return { projectId, documents }
