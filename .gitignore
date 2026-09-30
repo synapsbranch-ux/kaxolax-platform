@@ -20,6 +20,8 @@ test-results/
 # Divers
 .DS_Store
 *.log
+# Logs TeX réels servant de fixtures au parser.
+!packages/latex-log-parser/test/fixtures/**/*.log
 tmp/
 
 # Données locales de l'agent de compilation (répertoires de projets, cache, sorties)
