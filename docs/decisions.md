@@ -150,3 +150,18 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - Le répertoire garde les sorties précédentes (compilation incrémentale). Le PDF n'est envoyé que si latexmk est allé au bout et que la dernière passe du moteur l'a écrit (`Output written on output.pdf|xdv`). Un arrêt, un timeout ou une erreur fatale sans page ne renvoient plus l'ancien PDF.
 - Écarté : supprimer `output.pdf` avant chaque compilation, qui obligerait latexmk à tout relancer et ferait perdre la recompilation à chaud.
+
+## 2026-09-30 · Web : une connexion temps réel par projet, routage par session
+
+- Tous les documents ouverts d'un projet partagent un WebSocket (`HocuspocusProviderWebsocket`). Le jeton est une fonction : un jeton frais de 5 minutes à chaque (re)connexion.
+- `sessionAwareness` est activé : sans lui, un document refermé puis rouvert aussitôt sur la même connexion (changement de fichier, double montage de React en développement) perdait ses frappes côté serveur. Un test du service temps réel reproduit le cas.
+- L'éditeur n'est créé qu'après la première synchronisation, et une compilation attend que les dernières frappes soient acquittées (3 s au plus).
+
+## 2026-09-30 · Web : build « legacy » de pdf.js
+
+- Le build moderne de pdf.js 6 appelle `Map.prototype.getOrInsertComputed`, absent de navigateurs encore répandus (et du Chromium de Playwright) : la page restait blanche. Le build `legacy`, qui embarque les polyfills, est utilisé.
+- Les pages sont rendues quand elles approchent de la zone visible ; la couche texte sert à la recherche, à la sélection et au double-clic SyncTeX.
+
+## 2026-09-30 · API : `GET /projects/:id`
+
+- L'en-tête de l'éditeur a besoin du nom, du compilateur et du rôle de l'utilisateur : route ajoutée à la liste de la spécification, avec le même contrôle d'accès (404 hors membres).

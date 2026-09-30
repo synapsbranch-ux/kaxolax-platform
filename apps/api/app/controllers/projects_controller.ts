@@ -32,6 +32,12 @@ export default class ProjectsController {
     private readonly storage: ObjectStorage,
   ) {}
 
+  /** Un projet avec le rôle de l'utilisateur (en-tête de l'éditeur). */
+  async show({ params, auth }: HttpContext) {
+    const { project, role } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    return { project: serializeProject(project, role) }
+  }
+
   async index({ request, auth }: HttpContext) {
     const { view, q } = await request.validateUsing(listProjectsValidator, { data: request.qs() })
     return { projects: await listProjects(auth.getUserOrFail(), view ?? 'active', q) }

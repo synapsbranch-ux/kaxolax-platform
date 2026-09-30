@@ -1,5 +1,7 @@
 // @ts-check
 import js from '@eslint/js'
+import nextPlugin from '@next/eslint-plugin-next'
+import reactHooks from 'eslint-plugin-react-hooks'
 import prettier from 'eslint-config-prettier/flat'
 import { defineConfig, globalIgnores } from 'eslint/config'
 import globals from 'globals'
@@ -8,9 +10,11 @@ import tseslint from 'typescript-eslint'
 /**
  * Configuration ESLint commune, avec règles typées.
  *
- * @param {{ tsconfigRootDir: string, browser?: boolean }} options
+ * `react` ajoute les règles des hooks, `next` celles de Next.js (App Router).
+ *
+ * @param {{ tsconfigRootDir: string, browser?: boolean, react?: boolean, next?: boolean }} options
  */
-export function createConfig({ tsconfigRootDir, browser = false }) {
+export function createConfig({ tsconfigRootDir, browser = false, react = false, next = false }) {
   return defineConfig(
     globalIgnores(['**/dist/**', '**/build/**', '**/.next/**', '**/coverage/**', '**/.turbo/**']),
     js.configs.recommended,
@@ -38,6 +42,8 @@ export function createConfig({ tsconfigRootDir, browser = false }) {
         'no-console': 'off',
       },
     },
+    react || next ? reactHooks.configs.flat['recommended-latest'] : {},
+    next ? nextPlugin.configs['core-web-vitals'] : {},
     {
       files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
       extends: [tseslint.configs.disableTypeChecked],

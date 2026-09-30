@@ -1,0 +1,45 @@
+{
+  "name": "@kaxolax/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@codemirror/state": "catalog:",
+    "@codemirror/view": "catalog:",
+    "@hocuspocus/provider": "catalog:",
+    "@kaxolax/collab": "workspace:*",
+    "@kaxolax/contracts": "workspace:*",
+    "@kaxolax/editor": "workspace:*",
+    "@kaxolax/ui": "workspace:*",
+    "lucide-react": "catalog:",
+    "next": "catalog:",
+    "pdfjs-dist": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "y-codemirror.next": "catalog:",
+    "yjs": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@kaxolax/config": "workspace:*",
+    "@playwright/test": "catalog:",
+    "@tailwindcss/postcss": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "eslint": "catalog:",
+    "postcss": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

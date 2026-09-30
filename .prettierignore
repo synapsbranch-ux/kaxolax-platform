@@ -7,3 +7,7 @@ coverage/
 **/fixtures/**
 # Fichiers générés par AdonisJS (codegen).
 .adonisjs/
+# Généré par Next.js (next dev, next build, next typegen).
+next-env.d.ts
+playwright-report/
+test-results/

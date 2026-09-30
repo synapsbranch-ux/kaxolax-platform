@@ -1,0 +1,218 @@
+import { join } from 'node:path'
+import { expect, type Page, test } from '@playwright/test'
+
+/**
+ * « Définition de terminé » de l'étape 1, automatisée : compte, projet, upload, écriture,
+ * compilations pdfLaTeX et XeLaTeX, erreur, SyncTeX, export et réimport, reconnexion.
+ */
+
+const MAILPIT_URL = process.env.E2E_MAILPIT_URL ?? 'http://localhost:8025'
+const fixtures = join(import.meta.dirname, 'fixtures')
+const PASSWORD = 'correct horse battery staple'
+
+const INTRO = [
+  '\\section{Introduction}',
+  'As shown by Knuth~\\cite{knuth}, typesetting is an art.',
+  '',
+].join('\n')
+
+/** main.tex : figure, citation et section incluse par \input. La ligne 9 sert à SyncTeX. */
+const MAIN = [
+  '\\documentclass{article}', // 1
+  '\\usepackage{graphicx}', // 2
+  '\\begin{document}', // 3
+  '\\input{intro}', // 4
+  '\\begin{figure}[h]', // 5
+  '\\centering\\includegraphics[width=4cm]{plot.png}', // 6
+  '\\caption{A generated plot}', // 7
+  '\\end{figure}', // 8
+  'A paragraph used to check SyncTeX in both directions.', // 9
+  '', // 10
+  '\\bibliographystyle{plain}', // 11
+  '\\bibliography{refs}', // 12
+  '\\end{document}', // 13
+  '',
+].join('\n')
+const SYNCTEX_LINE = 9
+
+async function replaceEditorContent(page: Page, text: string): Promise<void> {
+  const content = page.locator('.cm-content')
+  await content.click()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.press('Delete')
+  // Une seule insertion : pas de fermeture automatique des accolades.
+  await page.keyboard.insertText(text)
+  await expect(page.getByTestId('sync-state')).toHaveText('Enregistré')
+}
+
+async function openInTree(page: Page, path: string): Promise<void> {
+  await page.locator(`[data-path="${path}"]`).click()
+  await expect(page.locator('.cm-content')).toBeVisible()
+}
+
+/** Lance une compilation et attend la réponse de l'API. */
+async function compile(page: Page) {
+  const response = page.waitForResponse(
+    (candidate) => candidate.url().endsWith('/compile') && candidate.request().method() === 'POST',
+  )
+  await page.getByTestId('recompile').click()
+  return (await (await response).json()) as { status: string; pdfUrl: string | null }
+}
+
+async function expectPdfText(page: Page, ...texts: string[]): Promise<void> {
+  await page.getByTestId('panel-pdf').click()
+  const viewer = page.getByTestId('pdf-viewer')
+  for (const text of texts) await expect(viewer.locator('.textLayer')).toContainText(text)
+}
+
+async function activeLine(page: Page): Promise<string> {
+  return (await page.locator('.cm-activeLineGutter').first().textContent()) ?? ''
+}
+
+async function login(page: Page, email: string): Promise<void> {
+  await page.goto('/login')
+  await page.fill('#email', email)
+  await page.fill('#password', PASSWORD)
+  await page.getByRole('button', { name: 'Se connecter' }).click()
+  await expect(page).toHaveURL(/\/dashboard$/)
+}
+
+test('stage 1 definition of done', async ({ page, request }, testInfo) => {
+  const email = `dod-${String(Date.now())}@example.test`
+
+  await test.step('1. create an account, confirm the email through Mailpit, log in', async () => {
+    await page.goto('/register')
+    await page.fill('#fullName', 'Ada Lovelace')
+    await page.fill('#email', email)
+    await page.fill('#password', PASSWORD)
+    await page.getByRole('button', { name: 'Créer mon compte' }).click()
+    await expect(page.getByText('Vérifiez vos emails')).toBeVisible()
+
+    let link: URL | null = null
+    await expect(async () => {
+      const search = await request.get(`${MAILPIT_URL}/api/v1/search`, {
+        params: { query: `to:${email}` },
+      })
+      const { messages } = (await search.json()) as { messages: { ID: string }[] }
+      const message = (await (
+        await request.get(`${MAILPIT_URL}/api/v1/message/${messages[0]?.ID ?? ''}`)
+      ).json()) as {
+        Text: string
+      }
+      const found = /https?:\/\/\S+\/verify-email\?token=[\w-]+/.exec(message.Text)?.[0]
+      expect(found).toBeTruthy()
+      link = new URL(found ?? '')
+    }).toPass({ timeout: 20_000 })
+    const verification = link as URL | null
+    if (verification === null) throw new Error('no verification link')
+    await page.goto(`${verification.pathname}${verification.search}`)
+    await expect(page.getByText('Votre adresse est confirmée.')).toBeVisible()
+    await login(page, email)
+  })
+
+  let projectUrl = ''
+  await test.step('2. create a blank project, upload an image and a .bib file', async () => {
+    await page.getByRole('button', { name: 'Nouveau projet' }).click()
+    await page.fill('#name-dialog-input', 'Definition of done')
+    await page.getByRole('button', { name: 'Créer' }).click()
+    await expect(page).toHaveURL(/\/project\/[0-9a-f-]{36}$/)
+    projectUrl = page.url()
+    await expect(page.locator('.cm-content')).toContainText('\\documentclass')
+
+    await page
+      .getByTestId('upload-input')
+      .setInputFiles([join(fixtures, 'plot.png'), join(fixtures, 'refs.bib')])
+    await expect(page.locator('[data-path="plot.png"]')).toBeVisible()
+    await expect(page.locator('[data-path="refs.bib"]')).toBeVisible()
+    await page.locator('[data-path="plot.png"]').click()
+    await expect(page.getByTestId('image-preview')).toBeVisible()
+  })
+
+  await test.step('3. write a document with a figure, a citation and a section in an \\input file', async () => {
+    await page.getByRole('button', { name: 'Nouveau fichier' }).click()
+    await page.fill('#name-dialog-input', 'intro.tex')
+    await page.getByRole('button', { name: 'Créer' }).click()
+    await expect(page.locator('[data-path="intro.tex"]')).toBeVisible()
+    await replaceEditorContent(page, INTRO)
+    await openInTree(page, 'main.tex')
+    await replaceEditorContent(page, MAIN)
+  })
+
+  await test.step('4. compile with pdfLaTeX, then XeLaTeX: figure and bibliography are in the PDF', async () => {
+    const pdflatex = await compile(page)
+    expect(pdflatex.status).toBe('success')
+    await expectPdfText(page, 'Introduction', 'A generated plot', 'References', 'The TeXbook')
+
+    await page.getByLabel('Compilateur').selectOption('xelatex')
+    await expect(page.getByLabel('Compilateur')).toHaveValue('xelatex')
+    const xelatex = await compile(page)
+    expect(xelatex.status).toBe('success')
+    await expectPdfText(page, 'A generated plot', 'The TeXbook')
+  })
+
+  await test.step('5. an error opens the editor on the right line', async () => {
+    await replaceEditorContent(
+      page,
+      MAIN.replace('A paragraph used', 'A \\undefinedmacro paragraph used'),
+    )
+    const failed = await compile(page)
+    expect(failed.status).toBe('failure')
+    await expect(page.getByTestId('error-count')).toHaveText('1')
+    await page.getByTestId('panel-logs').click()
+    // Le curseur est ailleurs avant le clic.
+    await page.locator('.cm-line').first().click()
+    await page.getByTestId('log-error').first().click()
+    await expect.poll(() => activeLine(page)).toBe(String(SYNCTEX_LINE))
+  })
+
+  await test.step('6. SyncTeX from code to PDF and from PDF to code', async () => {
+    await replaceEditorContent(page, MAIN)
+    expect((await compile(page)).status).toBe('success')
+    await expectPdfText(page, 'SyncTeX in both directions')
+
+    await page
+      .locator('.cm-line')
+      .nth(SYNCTEX_LINE - 1)
+      .click()
+    await page.getByTestId('synctex-to-pdf').click()
+    await expect(page.getByTestId('synctex-highlight')).toBeVisible()
+
+    await page.locator('.cm-line').first().click()
+    await expect.poll(() => activeLine(page)).toBe('1')
+    await page
+      .getByTestId('pdf-viewer')
+      .locator('.textLayer span', { hasText: 'SyncTeX in both' })
+      .first()
+      .dblclick()
+    await expect.poll(() => activeLine(page)).toBe(String(SYNCTEX_LINE))
+  })
+
+  await test.step('7. download the zip and import it back: it compiles the same way', async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('download-zip').click(),
+    ])
+    const zipPath = testInfo.outputPath('project.zip')
+    await download.saveAs(zipPath)
+
+    await page.goto('/dashboard')
+    await page.getByTestId('import-input').setInputFiles(zipPath)
+    await expect(page).toHaveURL(/\/project\/[0-9a-f-]{36}$/)
+    expect(page.url()).not.toBe(projectUrl)
+    await expect(page.locator('[data-path="intro.tex"]')).toBeVisible()
+    await expect(page.locator('[data-path="plot.png"]')).toBeVisible()
+    const reimported = await compile(page)
+    expect(reimported.status).toBe('success')
+    await expectPdfText(page, 'A generated plot', 'The TeXbook', 'SyncTeX in both directions')
+  })
+
+  await test.step('8. log out, log in again, reopen the project: content and last PDF are there', async () => {
+    await page.getByRole('button', { name: 'Se déconnecter' }).click()
+    await expect(page).toHaveURL(/\/login/)
+    await login(page, email)
+    await page.getByRole('link', { name: 'Definition of done' }).first().click()
+    await expect(page).toHaveURL(projectUrl)
+    await expect(page.locator('.cm-content')).toContainText('SyncTeX in both directions')
+    await expectPdfText(page, 'A generated plot', 'The TeXbook')
+  })
+})

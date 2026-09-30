@@ -137,6 +137,21 @@ test.group('projects', (group) => {
     assert.lengthOf(await ProjectMember.query().where('projectId', id), 0)
   })
 
+  test('shows a project with the role of the current user', async ({ client }) => {
+    const user = await createUser()
+    const created = await client
+      .post('/api/v1/projects')
+      .json({ name: 'Seul' })
+      .loginAs(user)
+      .withCsrfToken()
+    const id = created.body().project.id as string
+    const shown = await client.get(`/api/v1/projects/${id}`).loginAs(user)
+    shown.assertStatus(200)
+    shown.assertBodyContains({ project: { id, name: 'Seul', role: 'owner', compiler: 'pdflatex' } })
+    const stranger = await createUser()
+    ;(await client.get(`/api/v1/projects/${id}`).loginAs(stranger)).assertStatus(404)
+  })
+
   test("never exposes another user's project", async ({ client }) => {
     const owner = await createUser()
     const intruder = await createUser()

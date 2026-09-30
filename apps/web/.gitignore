@@ -1,0 +1,8 @@
+.next/
+next-env.d.ts
+playwright-report/
+test-results/
+# Écrits par `next dev` quand il détecte un agent IA.
+AGENTS.md
+CLAUDE.md
+*.tsbuildinfo

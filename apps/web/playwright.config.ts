@@ -1,0 +1,30 @@
+import { defineConfig, devices } from '@playwright/test'
+
+/**
+ * Parcours de la « Définition de terminé ». Il suppose la pile lancée (voir README) : en local,
+ * `pnpm dev` et un agent de compilation ; sur staging, E2E_BASE_URL pointe vers l'environnement.
+ */
+export default defineConfig({
+  testDir: 'e2e',
+  timeout: 240_000,
+  expect: { timeout: 30_000 },
+  fullyParallel: false,
+  workers: 1,
+  retries: 0,
+  reporter: [['list'], ['html', { open: 'never' }]],
+  use: {
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    acceptDownloads: true,
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
+      : {},
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 1000 } },
+    },
+  ],
+})

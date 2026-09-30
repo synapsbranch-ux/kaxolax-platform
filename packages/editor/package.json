@@ -1,0 +1,39 @@
+{
+  "name": "@kaxolax/editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "catalog:",
+    "@codemirror/commands": "catalog:",
+    "@codemirror/language": "catalog:",
+    "@codemirror/legacy-modes": "catalog:",
+    "@codemirror/search": "catalog:",
+    "@codemirror/state": "catalog:",
+    "@codemirror/view": "catalog:",
+    "@lezer/highlight": "catalog:"
+  },
+  "devDependencies": {
+    "@kaxolax/config": "workspace:*",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

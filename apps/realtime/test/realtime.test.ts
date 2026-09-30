@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
+import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { documentName } from '@kaxolax/collab'
 import { closeDocumentResponseSchema, projectSnapshotSchema } from '@kaxolax/contracts'
 import type pg from 'pg'
+import { WebSocket } from 'ws'
+import * as Y from 'yjs'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { DocumentStore } from '../src/store.js'
 import {
@@ -153,6 +156,44 @@ describe('collaborative editing', () => {
       async () =>
         (await storedDocument(seed.documentId))?.content_sha256 === sha256('>lecture seule'),
     )
+  })
+  it('keeps a document writable when it is closed and reopened at once on a shared socket', async () => {
+    // Cas du navigateur : un onglet change de document puis y revient, ou React monte deux fois
+    // l'éditeur. Sans routage par session, le serveur ignore les frappes du second fournisseur.
+    const seed = await seedProject(pool, 'x')
+    const socket = new HocuspocusProviderWebsocket({
+      url: running.url,
+      WebSocketPolyfill: WebSocket,
+    })
+    const open = () => {
+      const doc = new Y.Doc()
+      const provider = new HocuspocusProvider({
+        websocketProvider: socket,
+        name: documentName(seed.projectId, seed.documentId),
+        token: tokenFor(seed.owner, seed.projectId),
+        document: doc,
+        sessionAwareness: true,
+      })
+      provider.attach()
+      return { doc, provider }
+    }
+    try {
+      open().provider.destroy()
+      const second = open()
+      await new Promise<void>((resolve) => {
+        second.provider.on('synced', () => {
+          resolve()
+        })
+      })
+      second.doc.getText('content').insert(1, ' saved')
+      await eventually(() => !second.provider.hasUnsyncedChanges)
+      await eventually(
+        async () => (await storedDocument(seed.documentId))?.content_sha256 === sha256('x saved'),
+      )
+      second.provider.destroy()
+    } finally {
+      socket.destroy()
+    }
   })
 })
 

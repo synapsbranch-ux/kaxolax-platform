@@ -8,14 +8,17 @@
     "./tsconfig/node.json": "./tsconfig/node.json",
     "./tsconfig/library.json": "./tsconfig/library.json",
     "./eslint": "./eslint/index.js",
-    "./prettier": "./prettier/index.js"
+    "./prettier": "./prettier/index.js",
+    "./tsconfig/react-library.json": "./tsconfig/react-library.json"
   },
   "scripts": {
     "lint": "eslint ."
   },
   "dependencies": {
     "@eslint/js": "catalog:",
+    "@next/eslint-plugin-next": "catalog:",
     "eslint-config-prettier": "catalog:",
+    "eslint-plugin-react-hooks": "catalog:",
     "globals": "catalog:",
     "typescript-eslint": "catalog:"
   },

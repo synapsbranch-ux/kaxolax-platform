@@ -46,18 +46,19 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 
 ## Commandes
 
-| Commande           | Effet                                                         |
-| ------------------ | ------------------------------------------------------------- |
-| `pnpm dev`         | Lance tous les paquets et apps en mode développement          |
-| `pnpm build`       | Compile tout                                                  |
-| `pnpm lint`        | ESLint (règles typées strictes)                               |
-| `pnpm typecheck`   | Vérification des types                                        |
-| `pnpm test`        | Tests (Vitest, Japa) ; la stack locale doit tourner           |
-| `pnpm check`       | lint + typecheck + tests + build, comme la CI                 |
-| `pnpm format`      | Formate avec Prettier (`format:check` pour vérifier)          |
-| `pnpm stack:up`    | `docker compose up -d --wait`                                 |
-| `pnpm stack:check` | Vérifie que la stack locale répond                            |
-| `pnpm stack:down`  | Arrête la stack (`docker compose down -v` efface les données) |
+| Commande                         | Effet                                                         |
+| -------------------------------- | ------------------------------------------------------------- |
+| `pnpm dev`                       | Lance tous les paquets et apps en mode développement          |
+| `pnpm build`                     | Compile tout                                                  |
+| `pnpm lint`                      | ESLint (règles typées strictes)                               |
+| `pnpm typecheck`                 | Vérification des types                                        |
+| `pnpm test`                      | Tests (Vitest, Japa) ; la stack locale doit tourner           |
+| `pnpm check`                     | lint + typecheck + tests + build, comme la CI                 |
+| `pnpm format`                    | Formate avec Prettier (`format:check` pour vérifier)          |
+| `pnpm stack:up`                  | `docker compose up -d --wait`                                 |
+| `pnpm stack:check`               | Vérifie que la stack locale répond                            |
+| `pnpm stack:down`                | Arrête la stack (`docker compose down -v` efface les données) |
+| `pnpm --filter @kaxolax/web e2e` | Parcours Playwright de la « Définition de terminé »           |
 
 ## Structure
 
@@ -66,6 +67,7 @@ apps/
   api/                API REST AdonisJS (comptes, projets, arborescence)
   compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
   compile-gateway/    verrous Redis, affinité et bascule entre agents
+  web/                application Next.js (auth, tableau de bord, éditeur)
   realtime/           édition collaborative (Hocuspocus + Yjs, persistance PostgreSQL)
 functions/
   upload-processor/   vérification et classement d'un fichier uploadé
@@ -74,13 +76,13 @@ packages/
   collab/             conventions Yjs (nom des documents, champ texte)
   config/             tsconfig, ESLint, Prettier
   contracts/          schémas zod partagés entre services
+  editor/             extensions CodeMirror (langage LaTeX, repli, raccourcis)
+  ui/                 composants shadcn/ui partagés
   latex-log-parser/   parsing des logs LaTeX, BibTeX et Biber
 docs/          décisions d'architecture (decisions.md)
 docker/        configuration des services locaux
 scripts/       outils de développement
 ```
-
-L'application web (apps/web) arrive avec la tâche 9.
 
 ## Image TeX Live
 
