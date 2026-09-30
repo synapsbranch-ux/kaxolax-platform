@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "kaxolax-local",
+      "credentials": [{ "accessKey": "kaxolax", "secretKey": "kaxolax-local-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}
