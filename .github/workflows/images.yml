@@ -1,0 +1,74 @@
+name: images
+
+# Images Docker des services (docker/Dockerfile), en arm64 comme les instances Graviton du
+# staging. Toujours construites (le Dockerfile est vérifié) ; poussées vers ECR depuis main
+# seulement quand le rôle OIDC est configuré (variables du dépôt AWS_ECR_PUSH_ROLE_ARN, AWS_REGION).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - docker/**
+      - apps/**
+      - packages/**
+      - functions/**
+      - pnpm-lock.yaml
+      - .github/workflows/images.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      DOCKER_BUILDKIT: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build
+        run: |
+          for target in web api realtime compile-gateway compile-agent; do
+            docker build -f docker/Dockerfile --target "$target" -t "kaxolax/$target:${GITHUB_SHA}" .
+          done
+          docker images 'kaxolax/*'
+
+      - name: Smoke test
+        run: |
+          docker run --rm kaxolax/web:${GITHUB_SHA} node -e "require('fs').accessSync('apps/web/server.js')"
+          docker run --rm kaxolax/api:${GITHUB_SHA} node -e "require('fs').accessSync('build/bin/server.js')"
+          for target in realtime compile-gateway compile-agent; do
+            docker run --rm "kaxolax/$target:${GITHUB_SHA}" node -e "require('fs').accessSync('dist/main.js')"
+          done
+
+      - name: Configure AWS credentials (OIDC)
+        if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != ''
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Push to ECR
+        if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != ''
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          for target in web api realtime compile-gateway compile-agent; do
+            for tag in "${GITHUB_SHA}" staging; do
+              docker tag "kaxolax/$target:${GITHUB_SHA}" "$REGISTRY/kaxolax/$target:$tag"
+              docker push "$REGISTRY/kaxolax/$target:$tag"
+            done
+          done

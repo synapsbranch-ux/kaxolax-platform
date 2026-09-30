@@ -165,3 +165,9 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 ## 2026-09-30 · API : `GET /projects/:id`
 
 - L'en-tête de l'éditeur a besoin du nom, du compilateur et du rôle de l'utilisateur : route ajoutée à la liste de la spécification, avec le même contrôle d'accès (404 hors membres).
+
+## 2026-09-30 · Images Docker des services
+
+- Un seul `docker/Dockerfile` à cibles multiples (web, api, realtime, compile-gateway, compile-agent) : un étage construit tout le monorepo, puis `pnpm deploy --prod` isole chaque service avec ses seules dépendances de production. Next.js tourne en mode `standalone`.
+- Les images sont en arm64, comme les instances Graviton du staging, et construites sur des runners arm. Elles vont dans ECR depuis `main` quand le rôle OIDC est configuré.
+- L'agent tourne dans un conteneur qui pilote Docker par le socket de l'hôte. Son répertoire de travail est monté au même chemin des deux côtés : les montages des compilations désignent des chemins de l'hôte. Les compilations restent des conteneurs neufs, sans réseau et sans le socket.
