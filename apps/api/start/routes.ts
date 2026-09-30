@@ -14,6 +14,8 @@ const RealtimeController = () => import('#controllers/realtime_controller')
 const UploadsController = () => import('#controllers/uploads_controller')
 const ImportsController = () => import('#controllers/imports_controller')
 const FilesController = () => import('#controllers/files_controller')
+const CompilesController = () => import('#controllers/compiles_controller')
+const ExportsController = () => import('#controllers/exports_controller')
 
 router
   .group(() => {
@@ -58,6 +60,14 @@ router
         router.post('imports/:uploadId/complete', [ImportsController, 'complete'])
 
         router.post('projects/:id/realtime-token', [RealtimeController, 'token'])
+
+        router.post('projects/:id/compile', [CompilesController, 'compile'])
+        router.post('projects/:id/compile/stop', [CompilesController, 'stop'])
+        router.get('projects/:id/compile/last', [CompilesController, 'last'])
+        router.post('projects/:id/compile/clear-cache', [CompilesController, 'clearCache'])
+        router.get('projects/:id/synctex/code', [CompilesController, 'synctexCode'])
+        router.get('projects/:id/synctex/pdf', [CompilesController, 'synctexPdf'])
+        router.get('projects/:id/download.zip', [ExportsController, 'download'])
       })
       .use(middleware.auth())
   })

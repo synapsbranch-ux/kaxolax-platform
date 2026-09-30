@@ -31,7 +31,13 @@ même origine que l'application (rewrites Next.js en local, CloudFront en stagin
 - **Import zip** : `POST /imports`, puis `POST /imports/:uploadId/complete` crée le projet
   (`@kaxolax/zip-importer`).
 
-La compilation, SyncTeX et l'export arrivent avec les tâches suivantes.
+- **Compilation** : `POST /projects/:id/compile` (instantané temps réel + table `files`, envoyé
+  au compile-gateway ; résultat enregistré dans `compiles`, URL présignées du PDF et du log),
+  `POST /projects/:id/compile/stop`, `GET /projects/:id/compile/last`,
+  `POST /projects/:id/compile/clear-cache`.
+- **SyncTeX** : `GET /projects/:id/synctex/code` (`file`, `line`, `column`) et
+  `GET /projects/:id/synctex/pdf` (`page`, `h`, `v`).
+- **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel.
 
 ## Développement
 

@@ -133,3 +133,20 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Document principal : `main.tex` à la racine, sinon le premier `.tex` (le moins profond, puis par ordre alphabétique) qui contient un `\documentclass` non commenté.
 - Compilateur : un zip exporté ne le dit pas. `fontspec`, `unicode-math`, `polyglossia`, `xeCJK`… donnent XeLaTeX ; `luacode`, `luatexja`, `\directlua`… donnent LuaLaTeX ; sinon pdfLaTeX. Sans cela, un projet XeLaTeX ne compilerait pas « sans retouche ».
 - Un zip dont tout le contenu est dans un seul dossier est importé comme si ce dossier était la racine. `__MACOSX/`, `.DS_Store` et `Thumbs.db` sont ignorés. Liens symboliques et entrées chiffrées sont refusés.
+
+## 2026-09-30 · Gateway : verrou, affinité atomique et arrêt de la compilation précédente
+
+- Le verrou est pris d'office (`SET compile:lock:{id} buildId PX … GET`) : l'ancienne valeur signale une compilation en cours, arrêtée avant de lancer la nouvelle. Il est libéré par comparaison (script Lua), jamais celui d'une autre demande.
+- L'affinité est posée par compare-and-set : deux premières demandes simultanées vont au même agent, qui sérialise les compilations d'un projet. Vérifié en réel : deux clics à 300 ms d'écart ne font jamais tourner deux conteneurs du même projet.
+- ioredis (déjà utilisé par l'API via `@adonisjs/redis`) pour `SET … GET` et les scripts Lua.
+
+## 2026-09-30 · Compilation : ce que l'API construit et garde
+
+- Ressources : instantané temps réel des documents (état en base si le service ne répond pas), fichiers de la table `files`, chemins calculés depuis l'arbre. Tout membre du projet peut compiler.
+- La table `compiles` garde statut, durée, agent et préfixe ; les entrées du log sont écrites à côté des sorties (`entries.json`), pour « dernière compilation » sans changer le modèle de données. `last_compiled_at` est mis à jour sans toucher `updated_at` (tri du tableau de bord).
+- SyncTeX du PDF vers le code ne renvoie que des documents du projet : une étiquette de citation pointe vers `output.bbl`, que l'éditeur ne peut pas ouvrir.
+
+## 2026-09-30 · Agent : jamais le PDF d'une compilation antérieure
+
+- Le répertoire garde les sorties précédentes (compilation incrémentale). Le PDF n'est envoyé que si latexmk est allé au bout et que la dernière passe du moteur l'a écrit (`Output written on output.pdf|xdv`). Un arrêt, un timeout ou une erreur fatale sans page ne renvoient plus l'ancien PDF.
+- Écarté : supprimer `output.pdf` avant chaque compilation, qui obligerait latexmk à tout relancer et ferait perdre la recompilation à chaud.

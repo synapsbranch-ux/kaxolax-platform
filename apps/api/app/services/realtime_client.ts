@@ -2,6 +2,8 @@ import { signRealtimeToken } from '@kaxolax/collab/token'
 import {
   closeDocumentResponseSchema,
   INTERNAL_TOKEN_HEADER,
+  type ProjectSnapshot,
+  projectSnapshotSchema,
   type ProjectRole,
   REALTIME_TOKEN_TTL_SECONDS,
   type RealtimeTokenResponse,
@@ -47,5 +49,26 @@ export default class RealtimeClient {
         }
       }),
     )
+  }
+
+  /**
+   * Texte courant de chaque document, modifications pas encore enregistrées comprises. Null si le
+   * service ne répond pas : l'appelant se rabat alors sur l'état enregistré en base.
+   */
+  async snapshot(projectId: string): Promise<ProjectSnapshot | null> {
+    try {
+      const response = await fetch(
+        `${realtimeConfig.internalUrl}/internal/projects/${projectId}/snapshot`,
+        {
+          headers: { [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release() },
+          signal: AbortSignal.timeout(realtimeConfig.snapshotTimeoutMs),
+        },
+      )
+      if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+      return projectSnapshotSchema.parse(await response.json())
+    } catch (error) {
+      logger.warn({ err: error, projectId }, 'realtime snapshot unavailable, using stored content')
+      return null
+    }
   }
 }

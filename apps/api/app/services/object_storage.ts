@@ -48,14 +48,14 @@ export const fileKey = (projectId: string, fileId: string) =>
   `${projectPrefix(projectId)}files/${fileId}`
 
 /** Nom de fichier pour Content-Disposition (RFC 6266), sans caractère qui casserait l'en-tête. */
-function contentDisposition(mode: 'inline' | 'attachment', filename: string): string {
+export function contentDisposition(mode: 'inline' | 'attachment', filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7e]|["\\]/g, '_')
   return `${mode}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`
 }
 
-/** Bucket des fichiers de projet (uploads en attente, binaires des projets). */
-export default class ObjectStorage implements UploadSource {
-  readonly bucket = storageConfig.projectFilesBucket
+/** Opérations sur un bucket S3. */
+export class BucketStorage implements UploadSource {
+  constructor(readonly bucket: string) {}
 
   /** URL de PUT présignée ; la taille est signée, S3 refuse un contenu d'une autre taille. */
   async presignUpload(key: string, sizeBytes: number): Promise<string> {
@@ -72,7 +72,7 @@ export default class ObjectStorage implements UploadSource {
   async presignDownload(
     key: string,
     filename: string,
-    options: { mode: 'inline' | 'attachment'; contentType: string },
+    options: { mode: 'inline' | 'attachment'; contentType: string; expiresIn?: number },
   ): Promise<string> {
     return getSignedUrl(
       s3().presigner,
@@ -82,7 +82,7 @@ export default class ObjectStorage implements UploadSource {
         ResponseContentDisposition: contentDisposition(options.mode, filename),
         ResponseContentType: options.contentType,
       }),
-      { expiresIn: storageConfig.downloadUrlTtlSeconds },
+      { expiresIn: options.expiresIn ?? storageConfig.downloadUrlTtlSeconds },
     )
   }
 
@@ -142,6 +142,18 @@ export default class ObjectStorage implements UploadSource {
     }
   }
 
+  async putBuffer(key: string, content: Buffer, contentType: string): Promise<void> {
+    await s3().internal.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: content,
+        ContentLength: content.byteLength,
+        ContentType: contentType,
+      }),
+    )
+  }
+
   async copy(from: string, to: string, contentType: string): Promise<void> {
     await s3().internal.send(
       new CopyObjectCommand({
@@ -189,5 +201,19 @@ export default class ObjectStorage implements UploadSource {
     } catch (error) {
       logger.warn({ err: error, prefix }, 'could not delete S3 prefix')
     }
+  }
+}
+
+/** Bucket des fichiers de projet (uploads en attente, binaires des projets). */
+export default class ObjectStorage extends BucketStorage {
+  constructor() {
+    super(storageConfig.projectFilesBucket)
+  }
+}
+
+/** Bucket des sorties de compilation (PDF, log ; expiration à 7 jours). */
+export class CompileOutputStorage extends BucketStorage {
+  constructor() {
+    super(storageConfig.compileOutputsBucket)
   }
 }

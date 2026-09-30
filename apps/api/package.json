@@ -44,7 +44,8 @@
     "@vinejs/vine": "catalog:",
     "luxon": "catalog:",
     "pg": "catalog:",
-    "reflect-metadata": "catalog:"
+    "reflect-metadata": "catalog:",
+    "yazl": "catalog:"
   },
   "devDependencies": {
     "@adonisjs/assembler": "catalog:",
@@ -61,8 +62,7 @@
     "eslint": "catalog:",
     "hot-hook": "catalog:",
     "pino-pretty": "catalog:",
-    "typescript": "catalog:",
-    "yazl": "catalog:"
+    "typescript": "catalog:"
   },
   "hotHook": {
     "boundaries": [

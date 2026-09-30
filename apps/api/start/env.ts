@@ -89,4 +89,6 @@ export default await Env.create(new URL('../', import.meta.url), {
   REALTIME_PUBLIC_URL: urlWith('ws', 'wss'),
   /** URL HTTP du service temps réel pour les routes /internal. */
   REALTIME_INTERNAL_URL: urlWith('http', 'https'),
+  /** URL HTTP du compile-gateway (réseau interne). */
+  COMPILE_GATEWAY_URL: urlWith('http', 'https'),
 })

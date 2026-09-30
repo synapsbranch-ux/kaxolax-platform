@@ -147,6 +147,41 @@ describe.skipIf(!available)(`compile agent with real Docker (${RUNTIME})`, () =>
     expect(second.status).toBe('success')
   })
 
+  it('never returns the PDF of an earlier compile', async () => {
+    const projectId = randomUUID()
+    const ok = await agent.compiler.compile(
+      compileRequest(
+        projectId,
+        textResources({ 'main.tex': '\\documentclass{article}\\begin{document}ok\\end{document}' }),
+      ),
+    )
+    expect(ok.outputFiles.map((file) => file.name)).toContain('output.pdf')
+
+    // Erreur fatale avant la première page : l'ancien output.pdf reste dans le répertoire.
+    const noPages = await agent.compiler.compile(
+      compileRequest(
+        projectId,
+        textResources({ 'main.tex': '\\documentclass{article}\\begin{document}\\input{missing}' }),
+      ),
+    )
+    expect(noPages.status).toBe('failure')
+    expect(noPages.outputFiles.map((file) => file.name)).not.toContain('output.pdf')
+    expect(noPages.outputFiles.map((file) => file.name)).toContain('output.log')
+
+    // Compilation arrêtée : pas de PDF non plus.
+    const loop = agent.compiler.compile(
+      compileRequest(
+        projectId,
+        textResources({
+          'main.tex': '\\documentclass{article}\\begin{document}\\def\\x{\\x}\\x\\end{document}',
+        }),
+      ),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    await agent.compiler.stop(projectId)
+    expect((await loop).outputFiles.map((file) => file.name)).not.toContain('output.pdf')
+  })
+
   it('goes from code to PDF and back with SyncTeX', async () => {
     const projectId = randomUUID()
     const resources = await resourcesFromDirectory(agent, projectId, demoDir)

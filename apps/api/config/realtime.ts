@@ -8,6 +8,8 @@ const realtimeConfig = {
   internalUrl: env.get('REALTIME_INTERNAL_URL'),
   /** Au-delà, un appel interne est abandonné : la suppression d'un document ne doit pas bloquer. */
   internalTimeoutMs: 2_000,
+  /** L'instantané charge les documents fermés : jusqu'à quelques secondes pour un gros projet. */
+  snapshotTimeoutMs: 15_000,
 }
 
 export default realtimeConfig

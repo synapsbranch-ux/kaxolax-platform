@@ -5,3 +5,5 @@ build/
 .turbo/
 coverage/
 **/fixtures/**
+# Fichiers générés par AdonisJS (codegen).
+.adonisjs/

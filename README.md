@@ -65,6 +65,7 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 apps/
   api/                API REST AdonisJS (comptes, projets, arborescence)
   compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
+  compile-gateway/    verrous Redis, affinité et bascule entre agents
   realtime/           édition collaborative (Hocuspocus + Yjs, persistance PostgreSQL)
 functions/
   upload-processor/   vérification et classement d'un fichier uploadé
@@ -79,7 +80,7 @@ docker/        configuration des services locaux
 scripts/       outils de développement
 ```
 
-Les autres apps (web, compile-gateway) arrivent au fil des tâches de l'étape 1.
+L'application web (apps/web) arrive avec la tâche 9.
 
 ## Image TeX Live
 

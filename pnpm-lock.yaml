@@ -111,6 +111,9 @@ catalogs:
     hot-hook:
       specifier: 1.0.0
       version: 1.0.0
+    ioredis:
+      specifier: 5.11.1
+      version: 5.11.1
     luxon:
       specifier: 3.7.2
       version: 3.7.2
@@ -236,6 +239,9 @@ importers:
       reflect-metadata:
         specifier: 'catalog:'
         version: 0.2.2
+      yazl:
+        specifier: 'catalog:'
+        version: 3.3.1
     devDependencies:
       '@adonisjs/assembler':
         specifier: 'catalog:'
@@ -282,9 +288,6 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
-      yazl:
-        specifier: 'catalog:'
-        version: 3.3.1
 
   apps/compile-agent:
     dependencies:
@@ -300,6 +303,43 @@ importers:
       fastify:
         specifier: 'catalog:'
         version: 5.12.5
+      pino:
+        specifier: 'catalog:'
+        version: 10.3.1
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
+    devDependencies:
+      '@kaxolax/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+      eslint:
+        specifier: 'catalog:'
+        version: 10.11.0(jiti@2.6.1)(supports-color@10.2.2)
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.15
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.2(@types/node@24.19.0)(vite@8.3.1(@types/node@24.19.0)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.15))
+
+  apps/compile-gateway:
+    dependencies:
+      '@kaxolax/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      fastify:
+        specifier: 'catalog:'
+        version: 5.12.5
+      ioredis:
+        specifier: 'catalog:'
+        version: 5.11.1(supports-color@10.2.2)
       pino:
         specifier: 'catalog:'
         version: 10.3.1

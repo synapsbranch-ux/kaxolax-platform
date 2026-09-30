@@ -36,6 +36,9 @@ const ENGINE_FLAGS: Record<CompilerName, string> = {
 }
 
 /** Sorties envoyées vers S3 (le fichier SyncTeX reste sur l'agent, qui répond aux requêtes). */
+/** Fin du log d'un moteur qui a écrit des pages (XeLaTeX écrit un .xdv, converti ensuite en PDF). */
+const PDF_WRITTEN = /Output written on output\.(pdf|xdv)\b/
+
 const UPLOADED_OUTPUTS: { name: string; contentType: string }[] = [
   { name: 'output.pdf', contentType: 'application/pdf' },
   { name: 'output.log', contentType: 'text/plain; charset=utf-8' },
@@ -284,7 +287,17 @@ export class Compiler {
     const blgPath = join(outputDir, 'output.blg')
     const pdfSize = await fileSize(pdfPath)
     const logSize = await fileSize(logPath)
-    let uploadPdf = pdfSize !== null
+    // Le répertoire garde les sorties précédentes (compilation incrémentale) : le PDF n'est envoyé
+    // que si latexmk est allé au bout et que la dernière passe du moteur l'a bien produit. Sinon
+    // (arrêt, timeout, erreur fatale sans page), ce serait le PDF d'une compilation antérieure.
+    const log =
+      logSize !== null && logSize <= OUTPUT_LIMITS.logBytes ? await readFile(logPath) : null
+    const pdfIsCurrent =
+      result.outcome === 'exited' &&
+      !result.oomKilled &&
+      log !== null &&
+      PDF_WRITTEN.test(log.subarray(-64 * 1024).toString('latin1'))
+    let uploadPdf = pdfSize !== null && pdfIsCurrent
     if (pdfSize !== null && pdfSize > OUTPUT_LIMITS.pdfBytes) {
       status = 'error'
       uploadPdf = false
@@ -296,12 +309,12 @@ export class Compiler {
       uploadLog = false
       entries.push(agentEntry('Log file exceeds the 10 MB limit'))
     }
-    if (status === 'success' && pdfSize === null) status = 'failure'
+    if (status === 'success' && !uploadPdf) status = 'failure'
 
-    if (uploadLog) {
+    if (uploadLog && log !== null) {
       const blg = await readFile(blgPath).catch(() => null)
       const parsed = parseCompileLogs(
-        { log: await readFile(logPath), blg },
+        { log, blg },
         { rootDir: rootDir === '' ? SANDBOX_WORKDIR : `${SANDBOX_WORKDIR}/${rootDir}` },
       )
       entries.unshift(
