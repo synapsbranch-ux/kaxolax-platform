@@ -51,6 +51,43 @@ describe.skipIf(!available)(`compile agent with real Docker (${RUNTIME})`, () =>
     expect(hot.durationMs).toBeLessThan(cold.durationMs * 0.7)
   })
 
+  // Définition de terminé : recompilation à chaud d'un document simple de 10 pages en moins de 3 s.
+  it('recompiles a simple 10-page document in under 3 s once warm', async () => {
+    const paragraph = 'A simple paragraph of text that fills the page. '.repeat(40)
+    const document = (edit: string) =>
+      [
+        '\\documentclass{article}',
+        '\\begin{document}',
+        ...Array.from({ length: 10 }, (_, index) => [
+          `\\section{Part ${String(index + 1)}}`,
+          index === 0 ? edit : '',
+          paragraph,
+          '\\clearpage',
+        ]).flat(),
+        '\\end{document}',
+        '',
+      ].join('\n')
+    const projectId = randomUUID()
+    const cold = await agent.compiler.compile(
+      compileRequest(projectId, textResources({ 'main.tex': document('First version.') })),
+    )
+    expect(cold.status).toBe('success')
+    const warm = await agent.compiler.compile(
+      compileRequest(projectId, textResources({ 'main.tex': document('Edited version.') })),
+    )
+    expect(warm.status).toBe('success')
+    const log = warm.outputFiles.find((file) => file.name === 'output.log')
+    const logText = await readFile(
+      join(agent.outputsDir, 'test-outputs', log?.s3Key ?? ''),
+      'latin1',
+    )
+    expect(logText).toMatch(/Output written on output\.pdf \(10 pages/)
+    console.log(
+      `10-page document: cold ${String(cold.durationMs)} ms, warm ${String(warm.durationMs)} ms`,
+    )
+    expect(warm.durationMs).toBeLessThan(3_000)
+  })
+
   it('reports an error with its file and line', async () => {
     const projectId = randomUUID()
     const result = await agent.compiler.compile(

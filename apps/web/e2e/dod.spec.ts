@@ -4,7 +4,8 @@ import { testAddress, waitForLink } from './mail'
 
 /**
  * « Définition de terminé » de l'étape 1, automatisée : compte, projet, upload, écriture,
- * compilations pdfLaTeX et XeLaTeX, erreur, SyncTeX, export et réimport, reconnexion.
+ * compilations pdfLaTeX et XeLaTeX, erreur, SyncTeX, export et réimport, reconnexion, puis
+ * recompilation à chaud d'un document de 10 pages en moins de 3 s.
  */
 
 const fixtures = join(import.meta.dirname, 'fixtures')
@@ -35,6 +36,22 @@ const MAIN = [
 ].join('\n')
 const SYNCTEX_LINE = 9
 
+/** Document simple de 10 pages (une section par page) pour la recompilation à chaud. */
+function tenPages(edit: string): string {
+  const paragraph = 'A simple paragraph of text that fills the page. '.repeat(40)
+  const sections = Array.from({ length: 10 }, (_, index) =>
+    [
+      `\\section{Part ${String(index + 1)}}`,
+      index === 0 ? edit : '',
+      paragraph,
+      '\\clearpage',
+    ].join('\n'),
+  )
+  return ['\\documentclass{article}', '\\begin{document}', ...sections, '\\end{document}', ''].join(
+    '\n',
+  )
+}
+
 async function replaceEditorContent(page: Page, text: string): Promise<void> {
   const content = page.locator('.cm-content')
   await content.click()
@@ -56,13 +73,18 @@ async function compile(page: Page) {
     (candidate) => candidate.url().endsWith('/compile') && candidate.request().method() === 'POST',
   )
   await page.getByTestId('recompile').click()
-  return (await (await response).json()) as { status: string; pdfUrl: string | null }
+  return (await (await response).json()) as {
+    status: string
+    pdfUrl: string | null
+    durationMs: number
+  }
 }
 
 async function expectPdfText(page: Page, ...texts: string[]): Promise<void> {
   await page.getByTestId('panel-pdf').click()
   const viewer = page.getByTestId('pdf-viewer')
-  for (const text of texts) await expect(viewer.locator('.textLayer')).toContainText(text)
+  // Couches texte de toutes les pages rendues (les pages hors de l'écran le sont à la demande).
+  for (const text of texts) await expect(viewer).toContainText(text)
 }
 
 async function activeLine(page: Page): Promise<string> {
@@ -202,5 +224,24 @@ test('stage 1 definition of done', async ({ page, request }, testInfo) => {
     await expect(page).toHaveURL(projectUrl)
     await expect(page.locator('.cm-content')).toContainText('SyncTeX in both directions')
     await expectPdfText(page, 'A generated plot', 'The TeXbook')
+  })
+
+  await test.step('9. a simple 10-page document recompiles in under 3 s once warm', async () => {
+    await page.getByLabel('Compilateur').selectOption('pdflatex')
+    await expect(page.getByLabel('Compilateur')).toHaveValue('pdflatex')
+    await replaceEditorContent(page, tenPages('First version.'))
+    expect((await compile(page)).status).toBe('success')
+    await expect(page.getByText('10 page(s)')).toBeVisible()
+
+    await replaceEditorContent(page, tenPages('Edited version.'))
+    const warm = await compile(page)
+    expect(warm.status).toBe('success')
+    // Durée mesurée par l'agent de compilation (sur staging : le worker, sous gVisor).
+    testInfo.annotations.push({
+      type: 'warm 10-page recompile',
+      description: `${String(warm.durationMs)} ms`,
+    })
+    expect(warm.durationMs).toBeLessThan(3_000)
+    await expectPdfText(page, 'Edited version.')
   })
 })
