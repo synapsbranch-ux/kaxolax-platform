@@ -21,3 +21,6 @@ test-results/
 .DS_Store
 *.log
 tmp/
+
+# Données locales de l'agent de compilation (répertoires de projets, cache, sorties)
+.data/

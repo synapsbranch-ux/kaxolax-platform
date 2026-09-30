@@ -41,3 +41,34 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Les actions GitHub sont épinglées par SHA de commit (le tag n'est qu'en commentaire).
 - gitleaks tourne sur tout l'historique à chaque push et PR, via l'image Docker (le CLI ne demande aucune licence).
 - commitlint vérifie les commits des PR (Conventional Commits), sans hook git local.
+
+## 2026-09-30 · `latexmk -norc` (écart avec la commande de la spécification)
+
+- Contexte : latexmk exécute, sans aucune restriction TeX, le `latexmkrc` ou `.latexmkrc` (du Perl) d'un projet. Vérifié : il lit `/etc/passwd` malgré `shell_escape = f`.
+- Décision : l'agent ajoute `-norc` à la commande. Le reste est identique à la spécification, et un cas de la suite malveillante le vérifie.
+
+## 2026-09-30 · `openin_any` n'a plus d'effet depuis TeX Live 2026
+
+- Contexte : TeX Live a fait de `openin_any` un no-op (décembre 2025). `\input{/etc/passwd}` et `io.open` lisent tout fichier du conteneur.
+- Décision : la valeur reste dans `texmf.cnf`, mais la lecture est protégée par l'isolation (seul le projet est monté, environnement vide, `/etc/passwd` illisible pour l'UID 1000). Des cas de test vérifient qu'aucun fichier de l'hôte n'est lisible (voir `kaxolax-texlive-images`).
+
+## 2026-09-30 · Agent : API Docker par le socket, sans dépendance
+
+- Décision : un client minimal (`node:http` sur le socket Unix) pour créer, démarrer, attendre, tuer et supprimer les conteneurs.
+- Écartés : la CLI `docker` (un processus par appel, plus lent et plus fragile à parser), dockerode (dépendance lourde pour cinq appels).
+
+## 2026-09-30 · Plafond du répertoire de travail
+
+- `RLIMIT_FSIZE` (101 Mo) borne chaque fichier. Un chien de garde mesure le répertoire toutes les secondes et tue la compilation au-delà de `WORKDIR_MAX_BYTES`.
+- Écartés pour l'étape 1 : quotas XFS par projet, image ext4 montée en boucle (indisponibles sous WSL2). Les quotas XFS restent possibles sur le worker de staging.
+
+## 2026-09-30 · État de l'agent hors du montage et entrées synthétiques
+
+- `state.json` (hash, taille et mtime des ressources écrites, document principal) vit à côté de `files/`, jamais dans le répertoire monté : un document ne peut pas le modifier.
+- Une ressource écrasée par la compilation (`\openout` sur un `.tex`) est détectée par sa taille ou son mtime, puis réécrite.
+- Les erreurs propres à l'agent (timeout, arrêt, plafond dépassé, chemin refusé) sont ajoutées aux `entries` avec `file` et `line` nuls, pour que l'interface les affiche comme les autres.
+
+## 2026-09-30 · Fastify pour les services internes, scripts d'installation refusés
+
+- Fastify 5 (avec pino) pour l'agent et les autres services Node internes : routes JSON typées, logs structurés, `inject` pour les tests sans réseau.
+- pnpm 11 refuse les scripts d'installation par défaut. esbuild (via tsx) est déclaré `allowBuilds: false`, car son binaire vient d'une dépendance optionnelle.

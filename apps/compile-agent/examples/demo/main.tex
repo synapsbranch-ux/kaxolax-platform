@@ -1,0 +1,37 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{Kaxolax demo}
+\author{Kaxolax}
+
+\begin{document}
+\maketitle
+
+\input{chapters/intro}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\linewidth]{figures/plot.png}
+  \caption{A generated figure.}
+  \label{fig:plot}
+\end{figure}
+
+Figure~\ref{fig:plot} illustrates the classic reference~\cite{knuth1984}.
+
+\newcount\paragraphs
+\newcommand\filler{%
+  Kaxolax compiles this paragraph again and again to make a document of about ten pages.
+  The text has no meaning, but it has enough words, commas and sentences to fill the lines,
+  exercise hyphenation and justification, and give SyncTeX a few boxes to point at.\par}
+
+\section{Filler}
+\loop
+  \filler
+  \advance\paragraphs by 1
+\ifnum\paragraphs<110 \repeat
+
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}

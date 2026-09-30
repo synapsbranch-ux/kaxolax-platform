@@ -61,7 +61,8 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 ## Structure
 
 ```
-apps/          services déployables (web, api, realtime, compile-gateway, compile-agent)
+apps/
+  compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
 functions/     fonctions pures + handlers Lambda (upload-processor, zip-importer)
 packages/
   config/             tsconfig, ESLint, Prettier
@@ -72,7 +73,18 @@ docker/        configuration des services locaux
 scripts/       outils de développement
 ```
 
-Les apps et les autres paquets arrivent au fil des tâches de l'étape 1.
+Les autres apps (web, api, realtime, compile-gateway) et paquets arrivent au fil des tâches de
+l'étape 1.
+
+## Image TeX Live
+
+L'agent de compilation utilise l'image `kaxolax-texlive:2026-medium` du repo
+`kaxolax-texlive-images`, à construire ou à récupérer depuis GHCR :
+
+```bash
+docker pull ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium
+docker tag ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium kaxolax-texlive:2026-medium
+```
 
 ## Conventions
 

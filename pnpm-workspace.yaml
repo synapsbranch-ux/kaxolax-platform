@@ -8,16 +8,24 @@ savePrefix: ''
 engineStrict: true
 # Une version publiée depuis moins de 24 h n'est pas installée (protection supply chain).
 minimumReleaseAge: 1440
+# Scripts d'installation : refusés par défaut. esbuild (via tsx) n'en a pas besoin, son binaire
+# vient de la dépendance optionnelle @esbuild/<plateforme>.
+allowBuilds:
+  esbuild: false
 
 catalog:
+  '@aws-sdk/client-s3': 3.1142.0
   '@commitlint/cli': 21.2.3
   '@commitlint/config-conventional': 21.2.3
   '@eslint/js': 10.0.1
   '@types/node': 24.19.0
   eslint: 10.11.0
   eslint-config-prettier: 10.1.8
+  fastify: 5.12.5
   globals: 17.12.0
+  pino: 10.3.1
   prettier: 3.9.9
+  tsx: 4.23.15
   turbo: 2.11.5
   typescript: 6.0.3
   typescript-eslint: 8.71.0

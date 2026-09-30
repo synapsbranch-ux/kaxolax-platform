@@ -1,0 +1,35 @@
+{
+  "name": "@kaxolax/compile-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "kaxolax-compile": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsx watch --env-file=.env.example --env-file-if-exists=.env src/main.ts",
+    "start": "node dist/main.js",
+    "cli": "tsx --env-file=.env.example --env-file-if-exists=.env src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "catalog:",
+    "@kaxolax/contracts": "workspace:*",
+    "@kaxolax/latex-log-parser": "workspace:*",
+    "fastify": "catalog:",
+    "pino": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@kaxolax/config": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
