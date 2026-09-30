@@ -1,0 +1,50 @@
+This is BibTeX, Version 0.99e (TeX Live 2026)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: output.aux
+The style file: plain.bst
+Database file #1: refs.bib
+Warning--I didn't find a database entry for "absent1999"
+Warning--empty journal in incomplete2020
+Warning--empty year in incomplete2020
+You've used 2 entries,
+            2118 wiz_defined-function locations,
+            505 strings with 4106 characters,
+and the built_in function-call counts, 438 in all, are:
+= -- 36
+> -- 14
+< -- 0
++ -- 8
+- -- 4
+* -- 21
+:= -- 83
+add.period$ -- 5
+call.type$ -- 2
+change.case$ -- 7
+chr.to.int$ -- 0
+cite$ -- 4
+duplicate$ -- 22
+empty$ -- 40
+format.name$ -- 4
+if$ -- 85
+int.to.chr$ -- 0
+int.to.str$ -- 2
+missing$ -- 3
+newline$ -- 12
+num.names$ -- 4
+pop$ -- 16
+preamble$ -- 1
+purify$ -- 6
+quote$ -- 0
+skip$ -- 12
+stack$ -- 0
+substring$ -- 12
+swap$ -- 1
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 6
+warning$ -- 2
+while$ -- 4
+width$ -- 3
+write$ -- 19
+(There were 3 warnings)

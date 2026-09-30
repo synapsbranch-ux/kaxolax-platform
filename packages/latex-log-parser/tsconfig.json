@@ -1,0 +1,9 @@
+{
+  "extends": "@kaxolax/config/tsconfig/library.json",
+  "compilerOptions": {
+    // TextDecoder/TextEncoder : disponibles dans Node et le navigateur.
+    "lib": ["es2024", "dom"],
+    "noEmit": true
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

@@ -64,8 +64,9 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 apps/          services déployables (web, api, realtime, compile-gateway, compile-agent)
 functions/     fonctions pures + handlers Lambda (upload-processor, zip-importer)
 packages/
-  config/      tsconfig, ESLint, Prettier
-  contracts/   schémas zod partagés entre services
+  config/             tsconfig, ESLint, Prettier
+  contracts/          schémas zod partagés entre services
+  latex-log-parser/   parsing des logs LaTeX, BibTeX et Biber
 docs/          décisions d'architecture (decisions.md)
 docker/        configuration des services locaux
 scripts/       outils de développement
