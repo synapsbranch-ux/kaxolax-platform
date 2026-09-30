@@ -1,0 +1,23 @@
+# Dépendances et builds
+node_modules/
+dist/
+build/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Environnement : seuls les .env.example sont commités
+.env
+.env.*
+!.env.example
+
+# Tests
+playwright-report/
+test-results/
+
+# Divers
+.DS_Store
+*.log
+tmp/

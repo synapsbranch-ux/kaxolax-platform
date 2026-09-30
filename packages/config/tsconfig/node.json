@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "kaxolax node service",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "sourceMap": true
+  }
+}

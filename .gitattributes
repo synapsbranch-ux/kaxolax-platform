@@ -1,0 +1,8 @@
+# Fins de ligne LF partout, même si un fichier est modifié côté Windows.
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.zip binary
+*.gz binary

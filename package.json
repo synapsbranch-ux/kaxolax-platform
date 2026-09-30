@@ -1,0 +1,30 @@
+{
+  "name": "kaxolax-platform",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.28.2",
+  "engines": {
+    "node": "^24.21.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "check": "turbo run lint typecheck test build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "stack:up": "docker compose up -d --wait",
+    "stack:down": "docker compose down",
+    "stack:check": "node scripts/check-local-stack.mjs",
+    "commitlint": "commitlint"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "catalog:",
+    "@commitlint/config-conventional": "catalog:",
+    "@kaxolax/config": "workspace:*",
+    "prettier": "catalog:",
+    "turbo": "catalog:"
+  }
+}
