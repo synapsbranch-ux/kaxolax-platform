@@ -201,3 +201,9 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 ## 2026-10-01 · Auth : CSRF limité aux sessions de l'étape 1
 
 - Un jeton dans un en-tête n'est jamais envoyé d'office par le navigateur, et l'API n'a pas de CORS : une requête Bearer et le webhook (signé) sont exemptés du CSRF. Le CSRF disparaît avec les sessions.
+
+## 2026-10-01 · Auth : import des comptes de l'étape 1 dans Clerk
+
+- `node ace clerk:import-users` relie chaque compte vérifié à un compte Clerk (`external_id` = id local), en le créant s'il n'existe ni par `external_id` ni par email. Idempotent : un compte relié n'est plus traité, un échec est rejoué au passage suivant ; `--dry-run` ne change rien.
+- Mots de passe : AdonisJS hache en scrypt avec un sel binaire ; Clerk n'importe le scrypt qu'aux formats Firebase et Werkzeug, dont le sel est un texte. Un test montre qu'un vérificateur Werkzeug fidèle ne retrouve pas le mot de passe. Les comptes sont donc créés sans mot de passe et le choisissent à la première connexion (« Mot de passe oublié ») ; `--probe-hash` le confirme contre une vraie instance Clerk.
+- Les comptes jamais vérifiés ne sont pas importés (ils ne pouvaient pas se connecter).
