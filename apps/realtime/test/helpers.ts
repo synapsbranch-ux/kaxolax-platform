@@ -95,13 +95,14 @@ export async function seedProject(pool: pg.Pool, text = 'Bonjour') {
 export function tokenFor(
   userId: string,
   projectId: string,
-  options: { role?: ProjectRole; secret?: string; expiresIn?: number } = {},
+  options: { role?: ProjectRole; secret?: string; expiresIn?: number; issuedIn?: number } = {},
 ): string {
   return signRealtimeToken(
     {
       sub: userId,
       projectId,
       role: options.role ?? 'owner',
+      iat: Math.floor(Date.now() / 1000) + (options.issuedIn ?? 0),
       exp: Math.floor(Date.now() / 1000) + (options.expiresIn ?? REALTIME_TOKEN_TTL_SECONDS),
     },
     options.secret ?? TOKEN_SECRET,

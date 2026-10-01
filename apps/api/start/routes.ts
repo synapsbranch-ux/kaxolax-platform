@@ -4,6 +4,7 @@
 |--------------------------------------------------------------------------
 */
 import router from '@adonisjs/core/services/router'
+import { registerAdminRoutes } from '#start/admin_routes'
 import { middleware } from '#start/kernel'
 
 const MeController = () => import('#controllers/me_controller')
@@ -17,6 +18,7 @@ const ImportsController = () => import('#controllers/imports_controller')
 const FilesController = () => import('#controllers/files_controller')
 const CompilesController = () => import('#controllers/compiles_controller')
 const ExportsController = () => import('#controllers/exports_controller')
+const BannersController = () => import('#controllers/banners_controller')
 
 router
   .group(() => {
@@ -30,6 +32,8 @@ router
     router
       .group(() => {
         router.get('me', [MeController, 'show'])
+        // Bannières système actives (affichées en haut de l'application).
+        router.get('banners/active', [BannersController, 'active'])
 
         router.get('workspaces', [WorkspacesController, 'index'])
 
@@ -67,5 +71,7 @@ router
         router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })
       .use(middleware.auth())
+
+    registerAdminRoutes()
   })
   .prefix('/api/v1')

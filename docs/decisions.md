@@ -258,3 +258,54 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - `next typegen` (typecheck) et `next build` écrivent tous deux dans `apps/web/.next` ; lancés en parallèle sans cache, le build effaçait `.next/types/routes.d.ts` pendant `tsc` (échec intermittent de `pnpm check`).
 - `apps/web/turbo.json` : `build` dépend du `typecheck` du même paquet. Même règle pour `apps/admin` à sa création.
+
+## 2026-10-01 · Admin : accès par rôle Clerk et MFA vérifiée deux fois
+
+- Rôle `admin` lu dans le claim `metadata.role` et second facteur vérifié dans la session (`fva[1] !== -1`) : un non-admin est refusé sans appel réseau.
+- Puis l'API Backend de Clerk confirme le rôle et `twoFactorEnabled` (MFA retirée ou rôle enlevé depuis l'émission du jeton), en cache mémoire 60 s par instance ; une erreur de Clerk n'est pas mise en cache.
+- `ClerkBackend` (service résolu par le conteneur) isole `@clerk/backend` : les tests le remplacent par un faux, sans réseau. Le guard expose les claims vérifiés (`getClaimsOrFail()`).
+
+## 2026-10-01 · Bannissement : `users.banned_at` local en plus de Clerk
+
+- Clerk révoque les sessions d'un compte banni, mais ses jetons déjà émis restent valides jusqu'à 60 s : l'API refuse tout compte avec `banned_at` (401 `E_ACCOUNT_BANNED`, remonté même par `check()`).
+- Posé par l'action de l'admin et par le webhook `user.updated` (`banned`) ; `ban_state_updated_at` garde le `updated_at` Clerk de l'état reflété, un webhook plus ancien arrivé en retard est ignoré.
+- Le service temps réel ferme toutes les connexions du compte (`POST /internal/users/:id/disconnect`, code 4403) et `memberRole` ignore les comptes bannis ou supprimés : pas de reconnexion. Les liens de téléchargement déjà émis sont refusés aussi.
+
+## 2026-10-01 · Révocation des sessions : coupure locale `users.sessions_revoked_at`
+
+- Clerk révoque les sessions, mais le jeton déjà émis reste valide jusqu'à 60 s et le web demande un jeton temps réel à chaque reconnexion : fermer les connexions ne suffisait pas.
+- L'action pose `sessions_revoked_at` ; l'API refuse un jeton Clerk émis avant (`iat`), le service temps réel un jeton temps réel émis avant (nouveau claim `iat`, obligatoire).
+- `iat` est à la seconde : un jeton émis dans la seconde de la coupure est refusé (le suivant passe). La colonne n'est jamais remise à zéro.
+
+## 2026-10-01 · Journal de l'admin : même transaction que l'effet
+
+- Chaque action écrit `admin_audit_log` dans la transaction de son effet : l'entrée n'existe que si l'effet a eu lieu. Pour les actions via Clerk, l'appel Clerk précède la transaction locale.
+- Un échec significatif (Clerk en erreur, erreur interne) est journalisé hors transaction avec `metadata.outcome = failure` et le code d'erreur ; un refus 4xx (cible absente, action sur soi-même) ne l'est pas. Une action sans effet (projet déjà archivé) n'écrit rien.
+- La suppression d'un compte anonymise tout de suite après l'appel Clerk réussi ; le webhook `user.deleted` qui suit ne change plus rien.
+- Les entrées des actions sur un compte ne gardent que ses identifiants (uuid, id Clerk), jamais l'email : le journal, sans durée de conservation, ne défait pas l'anonymisation.
+
+## 2026-10-01 · Admin : déconnexion temps réel vérifiée et journalisée
+
+- Bannir, révoquer les sessions, supprimer : la déconnexion temps réel suit la validation en base ; son résultat est une entrée `user.realtime_disconnect` à part (`connectionsClosed`, `failure` si le service n'a pas répondu), l'entrée de l'action restant immuable.
+- La réponse porte `realtimeDisconnected` ; l'admin affiche un avertissement et propose « Révoquer les sessions ».
+- Le service temps réel revérifie le compte dans `connected` (connexion attachée au document) : une connexion authentifiée juste avant le bannissement n'échappe plus à la fermeture.
+
+## 2026-10-01 · Statistiques de l'admin : définitions
+
+- Utilisateur actif sur N jours : compte non supprimé qui a lancé une compilation, est auteur d'une version, ou possède un projet modifié (`projects.updated_at`) dans la fenêtre ; fenêtres de 7 et 30 jours qui finissent à la fin de la période.
+- Échec de compilation : tout statut autre que `success`. Abonnés Pro : comptes distincts avec un abonnement `pro` au statut `active` (`past_due` compté à part).
+- Inscriptions par jour UTC ; période de 30 jours par défaut, 366 au plus. Requêtes SQL à la suite (pas de `Promise.all`) : une seule connexion, page peu consultée.
+
+## 2026-10-01 · Bannière système : sondage en attendant le document meta
+
+- `GET /banners/active` (tout compte connecté, `no-store`) ; le web la relit toutes les 60 s et au retour sur l'onglet.
+- `RealtimeClient.notifyBannerChanged` est appelée après chaque création, modification ou suppression ; elle ne fait que journaliser et sera branchée sur le document meta des projets (tâche 5).
+- Terminer une bannière : `POST /admin/banners/:id/end`, fin à l'heure du serveur (pas celle du navigateur de l'admin). Fermeture côté web mémorisée par id, niveau et message : une bannière modifiée réapparaît.
+- Affichage en haut de l'application (bandeau fixe pleine largeur, refermable), sans hauteur ajoutée à l'éditeur plein écran ; la nouvelle interface (tâche 3) pourra lui réserver une place.
+
+## 2026-10-01 · Admin : application Next.js séparée, sans accès direct aux données
+
+- `apps/admin` : Next.js 16 à part (domaine propre, port 3001, image `standalone`), même pile que `apps/web` ; une faille ou une dépendance de l'admin ne touche pas l'application, et inversement.
+- Aucune lecture de base : tout passe par `/api/v1/admin/*` (réécriture `/api`), réponses validées par les schémas zod de `@kaxolax/contracts`.
+- Layout serveur : session, claim `metadata.role` et `fva[1] !== -1`, sinon page « Accès refusé » identique quelle que soit la raison ; l'API reste seule juge (MFA activée vérifiée chez Clerk).
+- Sous-domaine du domaine principal Clerk : session partagée sans instance satellite. Actions irréversibles : confirmation avec texte à recopier.

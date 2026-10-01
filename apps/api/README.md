@@ -18,6 +18,11 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   - Compte supprimé dans Clerk : ligne anonymisée, retrait des projets partagés, suppression de
     ses projets.
   - `GET /me` : l'utilisateur local de la session.
+  - Compte banni (`users.banned_at`, migration `…0023`, posé par l'admin ou par le webhook
+    `user.updated` qui porte `banned`) : ses jetons encore valides sont refusés (401
+    `E_ACCOUNT_BANNED`). Un webhook daté d'avant l'état reflété (`ban_state_updated_at`) est
+    ignoré.
+  - Les jetons émis pour l'admin (origine `ADMIN_URL`) sont aussi acceptés (claim `azp`).
 - **Workspaces** : tout projet appartient à un workspace. Chaque compte reçoit un workspace
   personnel (« Personal workspace », un seul par propriétaire, index unique partiel), créé par
   `ensurePersonalWorkspace` (`app/services/workspace_service.ts`, idempotent) à chaque
@@ -57,6 +62,54 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
 - **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel ; ou
   `POST /projects/:id/download-url`, un lien chiffré de 60 s pour télécharger par simple
   navigation (`GET /downloads/:token`, rôle revérifié au téléchargement).
+
+- **Bannière système** : `GET /banners/active` (tout compte connecté) renvoie les bannières
+  commencées et pas encore terminées, maintenance d'abord. Le web la relit toutes les 60 s et au
+  retour sur l'onglet ; `RealtimeClient.notifyBannerChanged`, appelée à chaque création,
+  modification ou suppression, sera branchée sur le document meta des projets (tâche 5).
+- **Admin** (`/admin/*`, pour `apps/admin`) : middleware `auth` puis `admin`
+  (`app/middleware/admin_middleware.ts`) : claim `metadata.role` = `admin` (sinon 403
+  `E_ADMIN_REQUIRED`), second facteur vérifié dans la session (claim `fva[1] !== -1`) et MFA
+  activée confirmée par l'API Backend de Clerk (`twoFactorEnabled`, rôle relu aussi), en cache
+  60 s (sinon 403 `E_ADMIN_MFA_REQUIRED`). Le guard expose les claims vérifiés
+  (`auth.use('clerk').getClaimsOrFail()`). Contrats zod : `packages/contracts/src/admin.ts`.
+  - Utilisateurs : `GET /admin/users?q=&page=&perPage=` (email, nom, uuid ou id Clerk),
+    `GET /admin/users/:id` (plan et limites, projets possédés et partagés, stockage = fichiers
+    de ses projets, dernière connexion lue chez Clerk), `POST …/ban`, `…/unban`,
+    `…/revoke-sessions`, `DELETE /admin/users/:id` (supprimé chez Clerk puis anonymisé tout de
+    suite ; le webhook `user.deleted` qui suit n'a plus d'effet). Bannir : Clerk révoque les
+    sessions, `banned_at` est posé et les connexions temps réel fermées
+    (`RealtimeClient.disconnectUser`) ; un lien de téléchargement déjà émis ne sert plus.
+    Révoquer les sessions : Clerk les révoque, `sessions_revoked_at` est posé (l'API refuse les
+    jetons Clerk émis avant, le service temps réel les jetons temps réel émis avant) et les
+    connexions temps réel sont fermées. Un admin n'agit pas sur son propre compte (409).
+  - Projets : `GET /admin/projects?q=&view=` (nom, email du propriétaire, uuid du projet ou du
+    propriétaire), `GET /admin/projects/:id` (tailles, nombres de fichiers, documents et
+    dossiers, membres, dernière compilation, workspace ; aucun nom de fichier ni contenu),
+    `POST …/transfer` (`newOwnerId`, compte ni supprimé ni banni, sinon 422
+    `E_INVALID_NEW_OWNER` : l'ancien propriétaire devient éditeur, le projet rejoint le workspace
+    personnel du nouveau), `…/archive`, `…/unarchive`, `…/trash`, `…/restore`,
+    `DELETE /admin/projects/:id` (depuis la corbeille).
+  - Bannières : `GET/POST /admin/banners`, `PATCH/DELETE /admin/banners/:id` (message, `level`
+    info|warning|maintenance, `startsAt` par défaut maintenant, `endsAt` facultative et après
+    le début ; dates ISO avec fuseau), `POST /admin/banners/:id/end` (fin à l'heure du serveur ;
+    sans effet si déjà terminée, 422 si pas encore commencée).
+  - Statistiques : `GET /admin/stats?from=&to=` (30 derniers jours par défaut, 366 au plus) :
+    inscriptions par jour UTC, utilisateurs actifs sur 7 et 30 jours (compilation lancée, auteur
+    d'une version ou propriétaire d'un projet modifié), abonnés par plan (`active`, `past_due`),
+    compilations (volume, statuts, durée moyenne, taux d'échec = statut autre que `success`,
+    par agent).
+  - Journal : chaque action écrit `admin_audit_log` dans la transaction de son effet ; un échec
+    significatif (Clerk en erreur, erreur interne) de toute action (comptes, projets, bannières)
+    est journalisé avec `outcome: failure`. Les actions sur un compte n'y gardent que ses
+    identifiants (uuid, id Clerk), jamais l'email, que la suppression anonymise. Bannir,
+    révoquer les sessions et supprimer un compte ferment ensuite ses connexions temps réel :
+    le résultat est une entrée `user.realtime_disconnect` à part (`connectionsClosed`, échec si le
+    service n'a pas répondu) et `realtimeDisconnected` dans la réponse (avertissement dans l'admin).
+    `GET /admin/audit-log` filtre par `adminId`, `action`, `targetType`, `targetId`, `outcome`,
+    `from`, `to`.
+  - L'API Backend de Clerk passe par `ClerkBackend` (`app/services/clerk_backend.ts`,
+    `CLERK_SECRET_KEY`), résolue par le conteneur : les tests la remplacent par un faux.
 
 ## Schéma
 
@@ -110,3 +163,9 @@ même nom ne réussissent jamais toutes les deux, que des appels simultanés ne 
 workspace personnel, qu'un projet inséré sans `workspace_id` (ancienne API) rejoint le
 workspace personnel de son propriétaire, et que `save()` ou `delete()` sur une ligne
 d'association ne touche qu'elle.
+
+Admin (`tests/functional/admin_*.spec.ts`, faux Clerk et faux service temps réel dans
+`tests/admin.ts`) : refus sans rôle, sans second facteur, sans MFA activée chez Clerk ; journal
+de chaque action, échec de Clerk compris ; compte banni refusé (401), webhook `banned` en
+retard ignoré ; transfert de propriété ; bannières actives selon leurs dates ; statistiques sur
+un jeu de données daté.

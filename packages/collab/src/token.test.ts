@@ -6,6 +6,7 @@ const claims = {
   sub: '6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f',
   projectId: '0b8f7e6d-5c4b-4a39-8281-7f6e5d4c3b2a',
   role: 'owner' as const,
+  iat: 900,
   exp: 2_000_000_000,
 }
 

@@ -30,6 +30,10 @@ export interface ClerkUserJson {
   first_name?: string | null
   last_name?: string | null
   image_url?: string | null
+  /** Compte banni dans Clerk (Dashboard ou API Backend). */
+  banned?: boolean | null
+  /** Dernière modification du compte chez Clerk, en millisecondes. */
+  updated_at?: number | null
   primary_email_address_id?: string | null
   email_addresses?: {
     id: string
@@ -151,4 +155,46 @@ export async function deleteClerkUser(
   })
   await user.save()
   return deleted
+}
+
+/** État de bannissement d'un compte, daté par Clerk (`updated_at` du compte) si connu. */
+export interface ClerkBanState {
+  banned: boolean
+  changedAt: DateTime | null
+}
+
+/** État de bannissement porté par un webhook `user.*`, ou null s'il n'en porte pas. */
+export function banStateFromWebhook(user: ClerkUserJson): ClerkBanState | null {
+  if (typeof user.banned !== 'boolean') return null
+  return {
+    banned: user.banned,
+    changedAt:
+      typeof user.updated_at === 'number'
+        ? DateTime.fromMillis(user.updated_at, { zone: 'utc' })
+        : null,
+  }
+}
+
+/**
+ * Reflète le bannissement d'un compte (action de l'admin ou webhook). Un état daté d'avant celui
+ * déjà reflété (webhook en retard, ou rejoué après une action de l'admin) est ignoré ; un compte
+ * supprimé ne change plus. Renvoie vrai si le compte vient d'être banni : l'appelant ferme alors
+ * ses connexions temps réel, une fois la transaction validée.
+ */
+export async function applyBanState(
+  user: User,
+  state: ClerkBanState,
+  trx: TransactionClientContract,
+): Promise<boolean> {
+  if (user.deletedAt) return false
+  const known = user.banStateUpdatedAt
+  if (state.changedAt && known && state.changedAt <= known) return false
+  const newlyBanned = state.banned && user.bannedAt === null
+  user.useTransaction(trx)
+  user.merge({
+    bannedAt: state.banned ? (user.bannedAt ?? DateTime.utc()) : null,
+    banStateUpdatedAt: state.changedAt ?? known,
+  })
+  await user.save()
+  return newlyBanned
 }

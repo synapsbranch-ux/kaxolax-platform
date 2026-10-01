@@ -24,6 +24,21 @@ export default class User extends UuidModel {
   @column.dateTime()
   declare deletedAt: DateTime | null
 
+  /** Compte banni : ses jetons de session sont refusés, même encore valides. */
+  @column.dateTime()
+  declare bannedAt: DateTime | null
+
+  /** Date Clerk (`updated_at` du compte) de l'état de bannissement reflété. */
+  @column.dateTime()
+  declare banStateUpdatedAt: DateTime | null
+
+  /**
+   * Dernière révocation des sessions par l'admin : les jetons (Clerk et temps réel) émis avant
+   * sont refusés, même encore valides.
+   */
+  @column.dateTime()
+  declare sessionsRevokedAt: DateTime | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

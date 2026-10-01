@@ -13,6 +13,7 @@ import { importZip } from '@kaxolax/zip-importer'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
 import { type ApiClient, ApiRequest } from '@japa/api-client'
 import Compile from '#models/compile'
 import Document from '#models/document'
@@ -417,5 +418,12 @@ test.group('export', (group) => {
     theirs.assertStatus(200)
     await ProjectMember.query().where({ projectId, userId: stranger.id }).delete()
     ;(await client.get(String(theirs.body().url))).assertStatus(404)
+
+    // Compte banni après l'émission du lien : le lien ne sert plus.
+    const mine = await client.post(`/api/v1/projects/${projectId}/download-url`).loginAs(user)
+    mine.assertStatus(200)
+    user.bannedAt = DateTime.utc()
+    await user.save()
+    ;(await client.get(String(mine.body().url))).assertStatus(410)
   })
 })

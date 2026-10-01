@@ -1,4 +1,5 @@
 import type {
+  ActiveBanner,
   CodePosition,
   Compiler,
   CompileResult,
@@ -127,6 +128,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 /** Appels de l'API REST (même origine, jeton de session Clerk dans `Authorization`). */
 export const api = {
   me: () => request<{ user: User }>('GET', '/me'),
+  /** Bannières système affichées maintenant (tout compte connecté). */
+  activeBanners: () => request<{ banners: ActiveBanner[] }>('GET', '/banners/active'),
 
   workspaces: () => request<{ workspaces: Workspace[] }>('GET', '/workspaces'),
 

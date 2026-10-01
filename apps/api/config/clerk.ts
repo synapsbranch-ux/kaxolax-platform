@@ -10,8 +10,12 @@ const clerkConfig = {
   jwtKey: pem(env.get('CLERK_JWT_KEY')),
   secretKey: env.get('CLERK_SECRET_KEY'),
   webhookSigningSecret: env.get('CLERK_WEBHOOK_SIGNING_SECRET'),
-  /** Origines autorisées à émettre un jeton (claim `azp`) : l'application elle-même. */
-  authorizedParties: [new URL(env.get('APP_URL')).origin],
+  /** Origines autorisées à émettre un jeton (claim `azp`) : l'application et l'admin. */
+  authorizedParties: [env.get('APP_URL'), env.get('ADMIN_URL')]
+    .filter((url) => url !== undefined)
+    .map((url) => new URL(url).origin),
+  /** Durée de cache de l'état Clerk d'un admin (rôle, MFA activée), lu par l'API Backend. */
+  adminStatusCacheMs: 60_000,
 }
 
 export default clerkConfig

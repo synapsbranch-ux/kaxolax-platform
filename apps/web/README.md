@@ -13,6 +13,11 @@ l'API).
   compte (`<UserButton />`). Les pages du groupe `(app)` exigent une session ; sans elle, retour
   sur `/sign-in?redirect_url=…`. Les clés Clerk sont lues à l'exécution (voir le README racine).
 - 404, et `/healthz` (sonde publique).
+- **Bannière système** (`components/system-banner.tsx`) : annonces publiées depuis l'admin, sur
+  toutes les pages connectées, en bandeau fixe en haut de l'écran (aucune hauteur ajoutée à
+  l'éditeur plein écran ; la nouvelle interface de la tâche 3 pourra leur réserver une place),
+  couleur selon le niveau, fermables pour la session jusqu'à leur prochaine modification ;
+  `GET /api/v1/banners/active` relu toutes les 60 s et au retour sur l'onglet.
 - **Tableau de bord** : projets actifs, archivés et corbeille ; filtre par workspace (sélecteur
   minimal, « Tous les workspaces » par défaut) ; recherche ; tri par date ou par nom ; créer,
   renommer, archiver, mettre à la corbeille, restaurer, supprimer, importer un zip (dans le
