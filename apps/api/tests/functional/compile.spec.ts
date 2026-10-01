@@ -126,27 +126,17 @@ let gateway: FakeGateway
 let realtime: FakeRealtime
 
 async function setupProject(client: ApiClient, user: User) {
-  const created = await client
-    .post('/api/v1/projects')
-    .json({ name: 'Thèse' })
-    .loginAs(user)
-    .withCsrfToken()
+  const created = await client.post('/api/v1/projects').json({ name: 'Thèse' }).loginAs(user)
   const projectId = created.body().project.id as string
   const folder = await client
     .post(`/api/v1/projects/${projectId}/folders`)
     .json({ name: 'chapters' })
     .loginAs(user)
-    .withCsrfToken()
   const intro = await client
     .post(`/api/v1/projects/${projectId}/documents`)
     .json({ name: 'intro.tex', folderId: folder.body().folder.id, content: 'stored intro' })
     .loginAs(user)
-    .withCsrfToken()
-  await client
-    .post(`/api/v1/projects/${projectId}/folders`)
-    .json({ name: 'empty' })
-    .loginAs(user)
-    .withCsrfToken()
+  await client.post(`/api/v1/projects/${projectId}/folders`).json({ name: 'empty' }).loginAs(user)
   // Un binaire directement en base et dans S3 (le parcours d'upload est testé ailleurs).
   const storage = new ObjectStorage()
   const fileId = randomUUID()
@@ -196,10 +186,7 @@ test.group('compile', (group) => {
     })
     const before = await Project.findOrFail(projectId)
 
-    const response = await client
-      .post(`/api/v1/projects/${projectId}/compile`)
-      .loginAs(user)
-      .withCsrfToken()
+    const response = await client.post(`/api/v1/projects/${projectId}/compile`).loginAs(user)
     response.assertStatus(200)
     const result = compileResultSchema.parse(response.body())
 
@@ -253,10 +240,7 @@ test.group('compile', (group) => {
     const empty = await client.get(`/api/v1/projects/${projectId}/compile/last`).loginAs(user)
     empty.assertBody({ compile: null })
 
-    const compiled = await client
-      .post(`/api/v1/projects/${projectId}/compile`)
-      .loginAs(user)
-      .withCsrfToken()
+    const compiled = await client.post(`/api/v1/projects/${projectId}/compile`).loginAs(user)
     const last = await client.get(`/api/v1/projects/${projectId}/compile/last`).loginAs(user)
     const result = compileResultSchema.parse(last.body().compile)
     assert.equal(result.buildId, compiled.body().buildId)
@@ -273,10 +257,7 @@ test.group('compile', (group) => {
     const user = await createUser()
     const { projectId } = await setupProject(client, user)
     gateway.unavailable = true
-    const response = await client
-      .post(`/api/v1/projects/${projectId}/compile`)
-      .loginAs(user)
-      .withCsrfToken()
+    const response = await client.post(`/api/v1/projects/${projectId}/compile`).loginAs(user)
     response.assertStatus(200)
     const result = compileResultSchema.parse(response.body())
     assert.equal(result.status, 'error')
@@ -291,7 +272,7 @@ test.group('compile', (group) => {
   }) => {
     const user = await createUser()
     const { projectId, mainId } = await setupProject(client, user)
-    await client.post(`/api/v1/projects/${projectId}/compile`).loginAs(user).withCsrfToken()
+    await client.post(`/api/v1/projects/${projectId}/compile`).loginAs(user)
     const main = gateway.requests[0]?.resources.find((resource) => resource.path === 'main.tex')
     const stored = await Document.findOrFail(mainId)
     assert.equal(main?.kind, 'text')
@@ -299,10 +280,7 @@ test.group('compile', (group) => {
     assert.isNotNull(stored.contentSha256)
 
     await Project.query().where('id', projectId).update({ mainDocumentId: null })
-    const response = await client
-      .post(`/api/v1/projects/${projectId}/compile`)
-      .loginAs(user)
-      .withCsrfToken()
+    const response = await client.post(`/api/v1/projects/${projectId}/compile`).loginAs(user)
     response.assertStatus(422)
     response.assertBodyContains({ code: 'E_NO_MAIN_DOCUMENT' })
   })
@@ -314,10 +292,10 @@ test.group('compile', (group) => {
     const user = await createUser()
     const { projectId } = await setupProject(client, user)
     const base = `/api/v1/projects/${projectId}`
-    ;(await client.post(`${base}/compile/stop`).loginAs(user).withCsrfToken()).assertBody({
+    ;(await client.post(`${base}/compile/stop`).loginAs(user)).assertBody({
       stopped: true,
     })
-    ;(await client.post(`${base}/compile/clear-cache`).loginAs(user).withCsrfToken()).assertBody({
+    ;(await client.post(`${base}/compile/clear-cache`).loginAs(user)).assertBody({
       cleared: true,
     })
 
@@ -358,7 +336,7 @@ test.group('compile', (group) => {
     missing.assertBodyContains({ code: 'E_NO_COMPILE_OUTPUT' })
 
     const stranger = await createUser()
-    ;(await client.post(`${base}/compile`).loginAs(stranger).withCsrfToken()).assertStatus(404)
+    ;(await client.post(`${base}/compile`).loginAs(stranger)).assertStatus(404)
   })
 })
 

@@ -9,7 +9,7 @@ import ProjectMember from '#models/project_member'
 import User from '#models/user'
 import RealtimeClient from '#services/realtime_client'
 import { signWebhook } from '#tests/clerk_keys'
-import { createUser, uniqueEmail } from '#tests/helpers'
+import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
 
 class FakeRealtimeClient extends RealtimeClient {
   closed: string[] = []
@@ -20,8 +20,6 @@ class FakeRealtimeClient extends RealtimeClient {
   }
 }
 
-const newClerkId = () => `user_${randomUUID().replaceAll('-', '')}`
-
 /** Objet `user` d'un webhook Clerk, email principal vérifié par défaut. */
 function clerkUser(id: string, email: string, extra: Record<string, unknown> = {}) {
   return {
@@ -30,7 +28,6 @@ function clerkUser(id: string, email: string, extra: Record<string, unknown> = {
     first_name: 'Ada',
     last_name: 'Lovelace',
     image_url: 'https://img.clerk.com/ada.png',
-    external_id: null,
     primary_email_address_id: 'idn_1',
     email_addresses: [{ id: 'idn_1', email_address: email, verification: { status: 'verified' } }],
     ...extra,
@@ -60,7 +57,7 @@ test.group('clerk: webhooks', (group) => {
   })
 
   test('refuses a missing or wrong signature', async ({ client, assert }) => {
-    const data = clerkUser(newClerkId(), uniqueEmail())
+    const data = clerkUser(newClerkUserId(), uniqueEmail())
     const unsigned = await client
       .post('/api/v1/webhooks/clerk')
       .json({ type: 'user.created', data })
@@ -75,13 +72,12 @@ test.group('clerk: webhooks', (group) => {
   })
 
   test('mirrors a created then updated user', async ({ client, assert }) => {
-    const clerkUserId = newClerkId()
+    const clerkUserId = newClerkUserId()
     const email = uniqueEmail('mirror')
     ;(await send(client, 'user.created', clerkUser(clerkUserId, email))).assertStatus(204)
     const created = await User.findByOrFail('clerkUserId', clerkUserId)
     assert.equal(created.email, email)
     assert.equal(created.fullName, 'Ada Lovelace')
-    assert.isNull(created.passwordHash)
 
     const newEmail = uniqueEmail('renamed')
     const updated = clerkUser(clerkUserId, newEmail, { first_name: 'Augusta', image_url: '' })
@@ -91,18 +87,8 @@ test.group('clerk: webhooks', (group) => {
     assert.equal(created.fullName, 'Augusta Lovelace')
   })
 
-  test('links an imported stage 1 account through external_id', async ({ client, assert }) => {
-    const existing = await createUser()
-    const clerkUserId = newClerkId()
-    const data = clerkUser(clerkUserId, existing.email, { external_id: existing.id })
-    ;(await send(client, 'user.created', data)).assertStatus(204)
-    await existing.refresh()
-    assert.equal(existing.clerkUserId, clerkUserId)
-    assert.equal((await User.query().where('email', existing.email)).length, 1)
-  })
-
   test('ignores a user without a verified primary email', async ({ client, assert }) => {
-    const data = clerkUser(newClerkId(), uniqueEmail(), {
+    const data = clerkUser(newClerkUserId(), uniqueEmail(), {
       email_addresses: [
         { id: 'idn_1', email_address: uniqueEmail(), verification: { status: 'unverified' } },
       ],
@@ -112,7 +98,7 @@ test.group('clerk: webhooks', (group) => {
   })
 
   test('a replayed event has no effect', async ({ client, assert }) => {
-    const clerkUserId = newClerkId()
+    const clerkUserId = newClerkUserId()
     const messageId = `msg_${randomUUID()}`
     ;(
       await send(client, 'user.created', clerkUser(clerkUserId, uniqueEmail()), messageId)
@@ -132,7 +118,7 @@ test.group('clerk: webhooks', (group) => {
     client,
     assert,
   }) => {
-    const clerkUserId = newClerkId()
+    const clerkUserId = newClerkUserId()
     ;(await send(client, 'user.updated', clerkUser(clerkUserId, uniqueEmail()))).assertStatus(204)
     ;(await send(client, 'user.created', clerkUser(clerkUserId, uniqueEmail()))).assertStatus(204)
     assert.equal((await User.query().where('clerkUserId', clerkUserId)).length, 1)
@@ -143,9 +129,7 @@ test.group('clerk: webhooks', (group) => {
     assert,
   }) => {
     const user = await createUser()
-    const clerkUserId = newClerkId()
-    user.clerkUserId = clerkUserId
-    await user.save()
+    const clerkUserId = user.clerkUserId
     const other = await createUser()
 
     const own = await client.post('/api/v1/projects').json({ name: 'Mine' }).loginAs(user)
@@ -160,7 +144,6 @@ test.group('clerk: webhooks', (group) => {
     assert.isNotNull(user.deletedAt)
     assert.equal(user.email, `deleted+${user.id}@users.invalid`)
     assert.isNull(user.fullName)
-    assert.isNull(user.passwordHash)
     assert.equal(user.clerkUserId, clerkUserId)
     assert.isNull(await Project.find(ownId))
     assert.isNotNull(await Project.find(sharedId))

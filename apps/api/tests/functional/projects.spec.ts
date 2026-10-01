@@ -15,7 +15,6 @@ test.group('projects', (group) => {
       .post('/api/v1/projects')
       .json({ name: 'Thèse & résultats #1' })
       .loginAs(user)
-      .withCsrfToken()
     response.assertStatus(201)
     const body = response.body() as {
       project: { id: string; mainDocumentId: string; role: string; compiler: string }
@@ -41,13 +40,13 @@ test.group('projects', (group) => {
   }) => {
     const user = await createUser()
     const create = async (name: string) =>
-      (await client.post('/api/v1/projects').json({ name }).loginAs(user).withCsrfToken()).body()
-        .project.id as string
+      (await client.post('/api/v1/projects').json({ name }).loginAs(user)).body().project
+        .id as string
     const active = await create('Active paper')
     const archived = await create('Archived notes')
     const trashed = await create('Trashed draft 100%')
-    await client.post(`/api/v1/projects/${archived}/archive`).loginAs(user).withCsrfToken()
-    await client.post(`/api/v1/projects/${trashed}/trash`).loginAs(user).withCsrfToken()
+    await client.post(`/api/v1/projects/${archived}/archive`).loginAs(user)
+    await client.post(`/api/v1/projects/${trashed}/trash`).loginAs(user)
 
     const ids = async (query: string) =>
       (
@@ -68,18 +67,16 @@ test.group('projects', (group) => {
   test('renames, changes the compiler and the main document', async ({ client, assert }) => {
     const user = await createUser()
     const project = (
-      await client.post('/api/v1/projects').json({ name: 'Paper' }).loginAs(user).withCsrfToken()
+      await client.post('/api/v1/projects').json({ name: 'Paper' }).loginAs(user)
     ).body().project as { id: string }
     const doc = await client
       .post(`/api/v1/projects/${project.id}/documents`)
       .json({ name: 'other.tex' })
       .loginAs(user)
-      .withCsrfToken()
     const response = await client
       .patch(`/api/v1/projects/${project.id}`)
       .json({ name: 'Renamed', compiler: 'xelatex', mainDocumentId: doc.body().document.id })
       .loginAs(user)
-      .withCsrfToken()
     response.assertStatus(200)
     response.assertBodyContains({
       project: { name: 'Renamed', compiler: 'xelatex', mainDocumentId: doc.body().document.id },
@@ -89,24 +86,21 @@ test.group('projects', (group) => {
       .patch(`/api/v1/projects/${project.id}`)
       .json({ name: '', compiler: 'tex' })
       .loginAs(user)
-      .withCsrfToken()
     invalid.assertStatus(422)
     const control = await client
       .patch(`/api/v1/projects/${project.id}`)
       .json({ name: 'bad\u0007name' })
       .loginAs(user)
-      .withCsrfToken()
     control.assertStatus(422)
 
     const other = await createUser()
     const foreign = (
-      await client.post('/api/v1/projects').json({ name: 'Foreign' }).loginAs(other).withCsrfToken()
+      await client.post('/api/v1/projects').json({ name: 'Foreign' }).loginAs(other)
     ).body().project as { mainDocumentId: string }
     const foreignMain = await client
       .patch(`/api/v1/projects/${project.id}`)
       .json({ mainDocumentId: foreign.mainDocumentId })
       .loginAs(user)
-      .withCsrfToken()
     foreignMain.assertStatus(422)
     assert.equal((await Project.findOrFail(project.id)).mainDocumentId, doc.body().document.id)
   })
@@ -114,23 +108,16 @@ test.group('projects', (group) => {
   test('archives, restores and deletes only from the trash', async ({ client, assert }) => {
     const user = await createUser()
     const id = (
-      await client
-        .post('/api/v1/projects')
-        .json({ name: 'Lifecycle' })
-        .loginAs(user)
-        .withCsrfToken()
+      await client.post('/api/v1/projects').json({ name: 'Lifecycle' }).loginAs(user)
     ).body().project.id as string
     for (const action of ['archive', 'unarchive', 'trash', 'restore']) {
-      const response = await client
-        .post(`/api/v1/projects/${id}/${action}`)
-        .loginAs(user)
-        .withCsrfToken()
+      const response = await client.post(`/api/v1/projects/${id}/${action}`).loginAs(user)
       response.assertStatus(200)
     }
-    const notTrashed = await client.delete(`/api/v1/projects/${id}`).loginAs(user).withCsrfToken()
+    const notTrashed = await client.delete(`/api/v1/projects/${id}`).loginAs(user)
     notTrashed.assertStatus(409)
-    await client.post(`/api/v1/projects/${id}/trash`).loginAs(user).withCsrfToken()
-    const deleted = await client.delete(`/api/v1/projects/${id}`).loginAs(user).withCsrfToken()
+    await client.post(`/api/v1/projects/${id}/trash`).loginAs(user)
+    const deleted = await client.delete(`/api/v1/projects/${id}`).loginAs(user)
     deleted.assertStatus(204)
     assert.isNull(await Project.find(id))
     assert.lengthOf(await Document.query().where('projectId', id), 0)
@@ -139,11 +126,7 @@ test.group('projects', (group) => {
 
   test('shows a project with the role of the current user', async ({ client }) => {
     const user = await createUser()
-    const created = await client
-      .post('/api/v1/projects')
-      .json({ name: 'Seul' })
-      .loginAs(user)
-      .withCsrfToken()
+    const created = await client.post('/api/v1/projects').json({ name: 'Seul' }).loginAs(user)
     const id = created.body().project.id as string
     const shown = await client.get(`/api/v1/projects/${id}`).loginAs(user)
     shown.assertStatus(200)
@@ -156,23 +139,15 @@ test.group('projects', (group) => {
     const owner = await createUser()
     const intruder = await createUser()
     const id = (
-      await client.post('/api/v1/projects').json({ name: 'Private' }).loginAs(owner).withCsrfToken()
+      await client.post('/api/v1/projects').json({ name: 'Private' }).loginAs(owner)
     ).body().project.id as string
     const attempts = [
       client.get(`/api/v1/projects/${id}/tree`).loginAs(intruder),
-      client
-        .patch(`/api/v1/projects/${id}`)
-        .json({ name: 'Mine' })
-        .loginAs(intruder)
-        .withCsrfToken(),
-      client.post(`/api/v1/projects/${id}/archive`).loginAs(intruder).withCsrfToken(),
-      client.post(`/api/v1/projects/${id}/trash`).loginAs(intruder).withCsrfToken(),
-      client.delete(`/api/v1/projects/${id}`).loginAs(intruder).withCsrfToken(),
-      client
-        .post(`/api/v1/projects/${id}/folders`)
-        .json({ name: 'x' })
-        .loginAs(intruder)
-        .withCsrfToken(),
+      client.patch(`/api/v1/projects/${id}`).json({ name: 'Mine' }).loginAs(intruder),
+      client.post(`/api/v1/projects/${id}/archive`).loginAs(intruder),
+      client.post(`/api/v1/projects/${id}/trash`).loginAs(intruder),
+      client.delete(`/api/v1/projects/${id}`).loginAs(intruder),
+      client.post(`/api/v1/projects/${id}/folders`).json({ name: 'x' }).loginAs(intruder),
       client.get('/api/v1/projects/not-a-uuid/tree').loginAs(intruder),
     ]
     for (const attempt of attempts) (await attempt).assertStatus(404)
@@ -184,24 +159,18 @@ test.group('projects', (group) => {
     const owner = await createUser()
     const viewer = await createUser()
     const id = (
-      await client.post('/api/v1/projects').json({ name: 'Shared' }).loginAs(owner).withCsrfToken()
+      await client.post('/api/v1/projects').json({ name: 'Shared' }).loginAs(owner)
     ).body().project.id as string
     await ProjectMember.create({ projectId: id, userId: viewer.id, role: 'viewer' })
     ;(await client.get(`/api/v1/projects/${id}/tree`).loginAs(viewer)).assertStatus(200)
     ;(
-      await client
-        .post(`/api/v1/projects/${id}/folders`)
-        .json({ name: 'x' })
-        .loginAs(viewer)
-        .withCsrfToken()
+      await client.post(`/api/v1/projects/${id}/folders`).json({ name: 'x' }).loginAs(viewer)
     ).assertStatus(403)
-    ;(
-      await client.post(`/api/v1/projects/${id}/trash`).loginAs(viewer).withCsrfToken()
-    ).assertStatus(403)
+    ;(await client.post(`/api/v1/projects/${id}/trash`).loginAs(viewer)).assertStatus(403)
   })
 
-  test('requires a session', async ({ client }) => {
+  test('requires a Clerk session token', async ({ client }) => {
     ;(await client.get('/api/v1/projects')).assertStatus(401)
-    ;(await client.post('/api/v1/projects').json({ name: 'x' }).withCsrfToken()).assertStatus(401)
+    ;(await client.post('/api/v1/projects').json({ name: 'x' })).assertStatus(401)
   })
 })

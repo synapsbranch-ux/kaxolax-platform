@@ -9,11 +9,7 @@ import { createUser } from '#tests/helpers'
 import type { ApiClient } from '@japa/api-client'
 
 async function newProject(client: ApiClient, user: User): Promise<string> {
-  const response = await client
-    .post('/api/v1/projects')
-    .json({ name: 'Tree' })
-    .loginAs(user)
-    .withCsrfToken()
+  const response = await client.post('/api/v1/projects').json({ name: 'Tree' }).loginAs(user)
   return response.body().project.id as string
 }
 
@@ -27,19 +23,16 @@ test.group('project tree', (group) => {
       .post(`/api/v1/projects/${id}/folders`)
       .json({ name: 'chapters' })
       .loginAs(user)
-      .withCsrfToken()
     chapters.assertStatus(201)
     const chaptersId = chapters.body().folder.id as string
     const nested = await client
       .post(`/api/v1/projects/${id}/folders`)
       .json({ name: 'appendix', parentId: chaptersId })
       .loginAs(user)
-      .withCsrfToken()
     const intro = await client
       .post(`/api/v1/projects/${id}/documents`)
       .json({ name: 'intro.tex', folderId: chaptersId, content: '\\section{Intro}' })
       .loginAs(user)
-      .withCsrfToken()
     intro.assertStatus(201)
 
     const tree = await client.get(`/api/v1/projects/${id}/tree`).loginAs(user)
@@ -70,27 +63,23 @@ test.group('project tree', (group) => {
       .post(`/api/v1/projects/${id}/folders`)
       .json({ name: 'notes.tex' })
       .loginAs(user)
-      .withCsrfToken()
     folder.assertStatus(201)
     const sameName = await client
       .post(`/api/v1/projects/${id}/documents`)
       .json({ name: 'notes.tex' })
       .loginAs(user)
-      .withCsrfToken()
     sameName.assertStatus(409)
     sameName.assertBodyContains({ code: 'E_NAME_TAKEN' })
     const mainAgain = await client
       .post(`/api/v1/projects/${id}/documents`)
       .json({ name: 'main.tex' })
       .loginAs(user)
-      .withCsrfToken()
     mainAgain.assertStatus(409)
     // Le même nom est permis dans un autre dossier.
     const elsewhere = await client
       .post(`/api/v1/projects/${id}/documents`)
       .json({ name: 'main.tex', folderId: folder.body().folder.id })
       .loginAs(user)
-      .withCsrfToken()
     elsewhere.assertStatus(201)
   })
 
@@ -111,14 +100,12 @@ test.group('project tree', (group) => {
         .post(`/api/v1/projects/${id}/folders`)
         .json({ name })
         .loginAs(user)
-        .withCsrfToken()
       response.assertStatus(422)
     }
     const noExtension = await client
       .post(`/api/v1/projects/${id}/documents`)
       .json({ name: 'picture.png' })
       .loginAs(user)
-      .withCsrfToken()
     noExtension.assertStatus(422)
   })
 
@@ -129,7 +116,6 @@ test.group('project tree', (group) => {
       .post(`/api/v1/projects/${id}/documents`)
       .json({ name: 'big.tex', content: 'é'.repeat(MAX_TEXT_DOCUMENT_BYTES / 2) })
       .loginAs(user)
-      .withCsrfToken()
     response.assertStatus(422)
   })
 
@@ -137,32 +123,22 @@ test.group('project tree', (group) => {
     const user = await createUser()
     const id = await newProject(client, user)
     const a = (
-      await client
-        .post(`/api/v1/projects/${id}/folders`)
-        .json({ name: 'a' })
-        .loginAs(user)
-        .withCsrfToken()
+      await client.post(`/api/v1/projects/${id}/folders`).json({ name: 'a' }).loginAs(user)
     ).body().folder.id as string
     const b = (
       await client
         .post(`/api/v1/projects/${id}/folders`)
         .json({ name: 'b', parentId: a })
         .loginAs(user)
-        .withCsrfToken()
     ).body().folder.id as string
     const doc = (
-      await client
-        .post(`/api/v1/projects/${id}/documents`)
-        .json({ name: 'x.tex' })
-        .loginAs(user)
-        .withCsrfToken()
+      await client.post(`/api/v1/projects/${id}/documents`).json({ name: 'x.tex' }).loginAs(user)
     ).body().document.id as string
 
     const moved = await client
       .patch(`/api/v1/projects/${id}/entities/document/${doc}`)
       .json({ name: 'y.tex', folderId: b })
       .loginAs(user)
-      .withCsrfToken()
     moved.assertStatus(200)
     const tree = (await client.get(`/api/v1/projects/${id}/tree`).loginAs(user)).body() as {
       documents: { path: string }[]
@@ -176,38 +152,32 @@ test.group('project tree', (group) => {
       .patch(`/api/v1/projects/${id}/entities/document/${doc}`)
       .json({ folderId: null })
       .loginAs(user)
-      .withCsrfToken()
     back.assertStatus(200)
 
     const cycle = await client
       .patch(`/api/v1/projects/${id}/entities/folder/${a}`)
       .json({ folderId: b })
       .loginAs(user)
-      .withCsrfToken()
     cycle.assertStatus(422)
     const self = await client
       .patch(`/api/v1/projects/${id}/entities/folder/${a}`)
       .json({ folderId: a })
       .loginAs(user)
-      .withCsrfToken()
     self.assertStatus(422)
     const missing = await client
       .patch(`/api/v1/projects/${id}/entities/folder/${b}`)
       .json({ folderId: '00000000-0000-4000-8000-000000000000' })
       .loginAs(user)
-      .withCsrfToken()
     missing.assertStatus(404)
     const clash = await client
       .patch(`/api/v1/projects/${id}/entities/document/${doc}`)
       .json({ name: 'main.tex' })
       .loginAs(user)
-      .withCsrfToken()
     clash.assertStatus(409)
     const badType = await client
       .patch(`/api/v1/projects/${id}/entities/widget/${doc}`)
       .json({ name: 'z.tex' })
       .loginAs(user)
-      .withCsrfToken()
     badType.assertStatus(422)
   })
 
@@ -218,29 +188,22 @@ test.group('project tree', (group) => {
     const user = await createUser()
     const id = await newProject(client, user)
     const folder = (
-      await client
-        .post(`/api/v1/projects/${id}/folders`)
-        .json({ name: 'chapters' })
-        .loginAs(user)
-        .withCsrfToken()
+      await client.post(`/api/v1/projects/${id}/folders`).json({ name: 'chapters' }).loginAs(user)
     ).body().folder.id as string
     const sub = (
       await client
         .post(`/api/v1/projects/${id}/folders`)
         .json({ name: 'sub', parentId: folder })
         .loginAs(user)
-        .withCsrfToken()
     ).body().folder.id as string
     await client
       .post(`/api/v1/projects/${id}/documents`)
       .json({ name: 'deep.tex', folderId: sub })
       .loginAs(user)
-      .withCsrfToken()
 
     const deleted = await client
       .delete(`/api/v1/projects/${id}/entities/folder/${folder}`)
       .loginAs(user)
-      .withCsrfToken()
     deleted.assertStatus(204)
     const tree = (await client.get(`/api/v1/projects/${id}/tree`).loginAs(user)).body() as {
       folders: unknown[]
@@ -256,7 +219,6 @@ test.group('project tree', (group) => {
     const main = await client
       .delete(`/api/v1/projects/${id}/entities/document/${tree.mainDocumentId}`)
       .loginAs(user)
-      .withCsrfToken()
     main.assertStatus(204)
     assert.isNull((await Project.findOrFail(id)).mainDocumentId)
   })
@@ -266,28 +228,21 @@ test.group('project tree', (group) => {
     const mine = await newProject(client, user)
     const other = await newProject(client, user)
     const foreignFolder = (
-      await client
-        .post(`/api/v1/projects/${other}/folders`)
-        .json({ name: 'f' })
-        .loginAs(user)
-        .withCsrfToken()
+      await client.post(`/api/v1/projects/${other}/folders`).json({ name: 'f' }).loginAs(user)
     ).body().folder.id as string
     const rename = await client
       .patch(`/api/v1/projects/${mine}/entities/folder/${foreignFolder}`)
       .json({ name: 'g' })
       .loginAs(user)
-      .withCsrfToken()
     rename.assertStatus(404)
     const remove = await client
       .delete(`/api/v1/projects/${mine}/entities/folder/${foreignFolder}`)
       .loginAs(user)
-      .withCsrfToken()
     remove.assertStatus(404)
     const into = await client
       .post(`/api/v1/projects/${mine}/documents`)
       .json({ name: 'a.tex', folderId: foreignFolder })
       .loginAs(user)
-      .withCsrfToken()
     into.assertStatus(404)
   })
 })
@@ -305,11 +260,7 @@ test.group('project tree concurrency', () => {
     const id = await newProject(client, user)
     const statuses = await Promise.all(
       Array.from({ length: 5 }, () =>
-        client
-          .post(`/api/v1/projects/${id}/documents`)
-          .json({ name: 'race.tex' })
-          .loginAs(user)
-          .withCsrfToken(),
+        client.post(`/api/v1/projects/${id}/documents`).json({ name: 'race.tex' }).loginAs(user),
       ),
     ).then((responses) => responses.map((response) => response.status()))
     assert.equal(statuses.filter((status) => status === 201).length, 1)

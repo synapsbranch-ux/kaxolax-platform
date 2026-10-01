@@ -28,4 +28,3 @@ export const singleLineRule = vine.createRule((value, _options, field) => {
 })
 
 export const email = () => vine.string().trim().toLowerCase().email().maxLength(254)
-export const newPassword = () => vine.string().minLength(8).maxLength(128)

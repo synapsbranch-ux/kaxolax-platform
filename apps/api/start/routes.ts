@@ -5,9 +5,7 @@
 */
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
-import { emailThrottle, loginIpThrottle, loginThrottle, registerThrottle } from '#start/limiter'
 
-const AuthController = () => import('#controllers/auth_controller')
 const MeController = () => import('#controllers/me_controller')
 const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
@@ -27,21 +25,6 @@ router
     router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
     // Lien chiffré de 60 s, lié à l'utilisateur et au projet (navigation sans en-tête Authorization).
     router.get('downloads/:token', [ExportsController, 'downloadWithLink'])
-
-    router
-      .group(() => {
-        router.post('register', [AuthController, 'register']).use(registerThrottle)
-        router.post('login', [AuthController, 'login']).use([loginIpThrottle, loginThrottle])
-        router.post('logout', [AuthController, 'logout']).use(middleware.auth())
-        router.get('me', [AuthController, 'me']).use(middleware.auth())
-        router.post('verify-email', [AuthController, 'verifyEmail'])
-        router
-          .post('resend-verification', [AuthController, 'resendVerification'])
-          .use(emailThrottle)
-        router.post('forgot-password', [AuthController, 'forgotPassword']).use(emailThrottle)
-        router.post('reset-password', [AuthController, 'resetPassword'])
-      })
-      .prefix('auth')
 
     router
       .group(() => {

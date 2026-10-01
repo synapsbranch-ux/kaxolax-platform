@@ -7,7 +7,6 @@ function pem(value: string | undefined): string | undefined {
 }
 
 const clerkConfig = {
-  authMode: env.get('AUTH_MODE', 'dual'),
   jwtKey: pem(env.get('CLERK_JWT_KEY')),
   secretKey: env.get('CLERK_SECRET_KEY'),
   webhookSigningSecret: env.get('CLERK_WEBHOOK_SIGNING_SECRET'),

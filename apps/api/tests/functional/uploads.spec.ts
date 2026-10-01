@@ -16,11 +16,7 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0
 const storage = new ObjectStorage()
 
 async function newProject(client: ApiClient, user: User): Promise<string> {
-  const response = await client
-    .post('/api/v1/projects')
-    .json({ name: 'Uploads' })
-    .loginAs(user)
-    .withCsrfToken()
+  const response = await client.post('/api/v1/projects').json({ name: 'Uploads' }).loginAs(user)
   return response.body().project.id as string
 }
 
@@ -37,15 +33,11 @@ async function upload(
     .post(`/api/v1/projects/${projectId}/uploads`)
     .json({ filename, folderId, sizeBytes: content.length })
     .loginAs(user)
-    .withCsrfToken()
   started.assertStatus(201)
   const { uploadId, url } = started.body() as { uploadId: string; url: string }
   const put = await fetch(url, { method: 'PUT', body: content })
   if (!put.ok) throw new Error(`S3 PUT failed: ${String(put.status)}`)
-  return client
-    .post(`/api/v1/projects/${projectId}/uploads/${uploadId}/complete`)
-    .loginAs(user)
-    .withCsrfToken()
+  return client.post(`/api/v1/projects/${projectId}/uploads/${uploadId}/complete`).loginAs(user)
 }
 
 test.group('uploads', (group) => {
@@ -61,7 +53,6 @@ test.group('uploads', (group) => {
       .post(`/api/v1/projects/${projectId}/folders`)
       .json({ name: 'figures' })
       .loginAs(user)
-      .withCsrfToken()
     const folderId = folder.body().folder.id as string
 
     const completed = await upload(client, user, projectId, 'plot.png', PNG, folderId)
@@ -115,7 +106,6 @@ test.group('uploads', (group) => {
       .post(`/api/v1/projects/${projectId}/uploads`)
       .json({ filename: 'plot.png', sizeBytes: 4 })
       .loginAs(user)
-      .withCsrfToken()
     const put = await fetch(started.body().url as string, { method: 'PUT', body: PNG })
     assert.equal(put.status, 403)
   })
@@ -127,12 +117,11 @@ test.group('uploads', (group) => {
       .post(`/api/v1/projects/${projectId}/uploads`)
       .json({ filename: 'never-sent.png', sizeBytes: 10 })
       .loginAs(user)
-      .withCsrfToken()
     const path = `/api/v1/projects/${projectId}/uploads/${String(started.body().uploadId)}/complete`
-    const completed = await client.post(path).loginAs(user).withCsrfToken()
+    const completed = await client.post(path).loginAs(user)
     completed.assertStatus(422)
     completed.assertBodyContains({ code: 'E_UPLOAD_MISSING' })
-    const again = await client.post(path).loginAs(user).withCsrfToken()
+    const again = await client.post(path).loginAs(user)
     again.assertStatus(409)
     assert.equal((await Upload.findOrFail(started.body().uploadId)).status, 'failed')
   })
@@ -143,7 +132,7 @@ test.group('uploads', (group) => {
     const user = await createUser()
     const projectId = await newProject(client, user)
     const start = (who: User, body: Record<string, unknown>) =>
-      client.post(`/api/v1/projects/${projectId}/uploads`).json(body).loginAs(who).withCsrfToken()
+      client.post(`/api/v1/projects/${projectId}/uploads`).json(body).loginAs(who)
 
     ;(await start(user, { filename: 'main.tex', sizeBytes: 10 })).assertStatus(409)
     ;(await start(user, { filename: 'big.bin', sizeBytes: MAX_UPLOAD_BYTES + 1 })).assertStatus(422)
@@ -160,7 +149,6 @@ test.group('uploads', (group) => {
     const foreign = await client
       .post(`/api/v1/projects/${strangerProject}/uploads/${uploadId}/complete`)
       .loginAs(stranger)
-      .withCsrfToken()
     foreign.assertStatus(404)
 
     await Upload.query()
@@ -169,7 +157,6 @@ test.group('uploads', (group) => {
     const expired = await client
       .post(`/api/v1/projects/${projectId}/uploads/${uploadId}/complete`)
       .loginAs(user)
-      .withCsrfToken()
     expired.assertStatus(410)
   })
 
@@ -182,7 +169,6 @@ test.group('uploads', (group) => {
     const deleted = await client
       .delete(`/api/v1/projects/${projectId}/entities/file/${file.id}`)
       .loginAs(user)
-      .withCsrfToken()
     deleted.assertStatus(204)
     assert.isNull(await storage.size(file.s3Key))
   })

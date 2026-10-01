@@ -1,5 +1,4 @@
 import { defineConfig } from '@adonisjs/auth'
-import { sessionGuard, sessionUserProvider } from '@adonisjs/auth/session'
 import type { Authenticators, InferAuthenticators, InferAuthEvents } from '@adonisjs/auth/types'
 import { ClerkGuard } from '#auth/clerk_guard'
 import clerkConfig from '#config/clerk'
@@ -18,11 +17,6 @@ const authConfig = defineConfig({
             }),
         ),
     },
-    /** Session de l'étape 1, acceptée seulement pendant la migration (AUTH_MODE session ou dual). */
-    web: sessionGuard({
-      useRememberMeTokens: false,
-      provider: sessionUserProvider({ model: () => import('#models/user') }),
-    }),
   },
 })
 

@@ -52,8 +52,9 @@ export function openPool(): pg.Pool {
 export async function seedProject(pool: pg.Pool, text = 'Bonjour') {
   const addUser = async () => {
     const id = randomUUID()
-    await pool.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')`, [
+    await pool.query(`INSERT INTO users (id, clerk_user_id, email) VALUES ($1, $2, $3)`, [
       id,
+      `user_${id.replaceAll('-', '')}`,
       `${id}@example.test`,
     ])
     return id

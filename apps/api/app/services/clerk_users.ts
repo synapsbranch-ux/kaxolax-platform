@@ -5,7 +5,6 @@ import { DateTime } from 'luxon'
 import Project from '#models/project'
 import ProjectMember from '#models/project_member'
 import User from '#models/user'
-import { isUuid } from '#services/project_access'
 import { type DeletedProject, deleteProjectRows } from '#services/project_service'
 
 /** Ce que Kaxolax garde d'un compte Clerk (miroir local, jamais de mot de passe ni de jeton). */
@@ -15,8 +14,6 @@ export interface ClerkProfile {
   email: string
   fullName: string | null
   avatarUrl: string | null
-  /** `external_id` du compte Clerk : l'id local d'un compte de l'étape 1 importé. */
-  externalId?: string | null
 }
 
 export class ClerkEmailConflictException extends Exception {
@@ -28,7 +25,6 @@ export class ClerkEmailConflictException extends Exception {
 /** Sous-ensemble de l'objet `user` des webhooks Clerk utilisé ici. */
 export interface ClerkUserJson {
   id: string
-  external_id?: string | null
   first_name?: string | null
   last_name?: string | null
   image_url?: string | null
@@ -59,7 +55,6 @@ export function profileFromWebhook(user: ClerkUserJson): ClerkProfile | null {
     email: primary.email_address,
     fullName: nameOf(user.first_name, user.last_name),
     avatarUrl: user.image_url ?? null,
-    externalId: user.external_id ?? null,
   }
 }
 
@@ -80,15 +75,9 @@ export function profileFromClaims(claims: Record<string, unknown>): ClerkProfile
   }
 }
 
-/** Compte local actif (non supprimé) qui n'est encore relié à aucun compte Clerk. */
-function unlinked(trx: TransactionClientContract) {
-  return User.query({ client: trx }).whereNull('clerkUserId').whereNull('deletedAt')
-}
-
 /**
- * Crée ou met à jour le miroir local d'un compte Clerk. Ordre de rattachement : compte déjà relié,
- * puis `external_id` (compte importé), puis email vérifié d'un compte de l'étape 1. Un compte
- * supprimé n'est jamais recréé ni modifié (événement rejoué ou en retard).
+ * Crée ou met à jour le miroir local d'un compte Clerk. Un compte supprimé n'est jamais recréé ni
+ * modifié (événement rejoué ou en retard).
  */
 export async function upsertClerkUser(
   profile: ClerkProfile,
@@ -101,10 +90,6 @@ export async function upsertClerkUser(
       .forUpdate()
       .first()
     if (user?.deletedAt) return user
-    if (!user && profile.externalId && isUuid(profile.externalId)) {
-      user = await unlinked(trx).where('id', profile.externalId).forUpdate().first()
-    }
-    user ??= await unlinked(trx).where('email', email).forUpdate().first()
 
     const taken = await User.query({ client: trx })
       .where('email', email)
@@ -120,7 +105,6 @@ export async function upsertClerkUser(
       fullName: profile.fullName,
       avatarUrl: profile.avatarUrl,
     })
-    // Pas de mot de passe : la colonne reste nulle (le mixin de l'étape 1 hacherait toute valeur).
     await user.save()
     return user
   }
@@ -152,11 +136,8 @@ export async function deleteClerkUser(
     email: `deleted+${user.id}@users.invalid`,
     fullName: null,
     avatarUrl: null,
-    emailVerifiedAt: null,
     deletedAt: DateTime.utc(),
   })
   await user.save()
-  // Hors du modèle : le mixin de l'étape 1 hacherait la valeur nulle.
-  await trx.from('users').where('id', user.id).update({ password_hash: null })
   return deleted
 }

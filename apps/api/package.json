@@ -30,11 +30,8 @@
   "dependencies": {
     "@adonisjs/auth": "catalog:",
     "@adonisjs/core": "catalog:",
-    "@adonisjs/limiter": "catalog:",
     "@adonisjs/lucid": "catalog:",
     "@adonisjs/mail": "catalog:",
-    "@adonisjs/redis": "catalog:",
-    "@adonisjs/session": "catalog:",
     "@adonisjs/shield": "catalog:",
     "@aws-sdk/client-s3": "catalog:",
     "@aws-sdk/s3-request-presigner": "catalog:",

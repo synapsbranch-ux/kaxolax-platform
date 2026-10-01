@@ -43,16 +43,11 @@ export default await Env.create(new URL('../', import.meta.url), {
   ] as const),
 
   APP_KEY: Env.schema.secret(),
-  /** Origine publique de l'application (liens des emails). */
+  /** Origine publique de l'application (claim `azp` des jetons Clerk, liens des emails). */
   APP_URL: Env.schema.string({ format: 'url', tld: false }),
-  /** Nombre de proxys de confiance devant l'API (Next.js en local, CloudFront en staging). */
+  /** Nombre de proxys de confiance devant l'API (Next.js en local, CDN en production). */
   TRUSTED_PROXY_HOPS: Env.schema.number.optional(),
 
-  /**
-   * Authentification acceptée, le temps de la migration vers Clerk : sessions seules (étape 1),
-   * Clerk puis sessions (dual), ou Clerk seul.
-   */
-  AUTH_MODE: Env.schema.enum.optional(['session', 'dual', 'clerk'] as const),
   /** Clé publique PEM de l'instance Clerk : vérification des jetons de session sans réseau. */
   CLERK_JWT_KEY: Env.schema.string.optional(),
   /** Clé secrète Clerk (API Backend : import des comptes). */
@@ -60,19 +55,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   /** Secret de signature des webhooks Clerk (Standard Webhooks). */
   CLERK_WEBHOOK_SIGNING_SECRET: Env.schema.secret.optional(),
 
-  SESSION_DRIVER: Env.schema.enum(['redis', 'memory'] as const),
-  LIMITER_STORE: Env.schema.enum(['redis', 'memory'] as const),
-
   DB_HOST: Env.schema.string({ format: 'host' }),
   DB_PORT: Env.schema.number(),
   DB_USER: Env.schema.string(),
   DB_PASSWORD: Env.schema.secret(),
   DB_DATABASE: Env.schema.string(),
   DB_SSL: Env.schema.boolean.optional(),
-
-  REDIS_HOST: Env.schema.string({ format: 'host' }),
-  REDIS_PORT: Env.schema.number(),
-  REDIS_PASSWORD: Env.schema.secret.optional(),
 
   SMTP_HOST: Env.schema.string({ format: 'host' }),
   SMTP_PORT: Env.schema.number(),

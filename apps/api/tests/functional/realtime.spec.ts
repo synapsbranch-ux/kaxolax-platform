@@ -23,11 +23,7 @@ class FakeRealtimeClient extends RealtimeClient {
 }
 
 async function newProject(client: ApiClient, user: User): Promise<string> {
-  const response = await client
-    .post('/api/v1/projects')
-    .json({ name: 'Temps réel' })
-    .loginAs(user)
-    .withCsrfToken()
+  const response = await client.post('/api/v1/projects').json({ name: 'Temps réel' }).loginAs(user)
   return response.body().project.id as string
 }
 
@@ -37,10 +33,7 @@ test.group('realtime: connection tokens', (group) => {
   test('issues a short-lived token carrying the member role', async ({ client, assert }) => {
     const user = await createUser()
     const projectId = await newProject(client, user)
-    const response = await client
-      .post(`/api/v1/projects/${projectId}/realtime-token`)
-      .loginAs(user)
-      .withCsrfToken()
+    const response = await client.post(`/api/v1/projects/${projectId}/realtime-token`).loginAs(user)
     response.assertStatus(200)
     const body = realtimeTokenResponseSchema.parse(response.body())
     assert.equal(body.url, realtimeConfig.publicUrl)
@@ -61,21 +54,18 @@ test.group('realtime: connection tokens', (group) => {
     const response = await client
       .post(`/api/v1/projects/${projectId}/realtime-token`)
       .loginAs(viewer)
-      .withCsrfToken()
     response.assertStatus(200)
     const { token } = realtimeTokenResponseSchema.parse(response.body())
     assert.equal(verifyRealtimeToken(token, realtimeConfig.tokenSecret.release())?.role, 'viewer')
   })
 
-  test('refuses anonymous users, missing CSRF tokens and non-members', async ({ client }) => {
+  test('refuses anonymous users and non-members', async ({ client }) => {
     const owner = await createUser()
     const stranger = await createUser()
     const projectId = await newProject(client, owner)
     const path = `/api/v1/projects/${projectId}/realtime-token`
-    ;(await client.post(path).withCsrfToken()).assertStatus(401)
-    // Le CSRF ne protège plus que les sessions de l'étape 1 (un jeton Clerk n'en a pas besoin).
-    ;(await client.post(path).withGuard('web').loginAs(owner)).assertStatus(403)
-    ;(await client.post(path).loginAs(stranger).withCsrfToken()).assertStatus(404)
+    ;(await client.post(path)).assertStatus(401)
+    ;(await client.post(path).loginAs(stranger)).assertStatus(404)
   })
 })
 
@@ -97,7 +87,6 @@ test.group('realtime: closing deleted documents', (group) => {
       .post(`/api/v1/projects/${projectId}/folders`)
       .json({ name: 'chapitres' })
       .loginAs(user)
-      .withCsrfToken()
     const folderId = folder.body().folder.id as string
     const ids: string[] = []
     for (const name of ['a.tex', 'b.tex']) {
@@ -105,13 +94,11 @@ test.group('realtime: closing deleted documents', (group) => {
         .post(`/api/v1/projects/${projectId}/documents`)
         .json({ name, folderId })
         .loginAs(user)
-        .withCsrfToken()
       ids.push(created.body().document.id as string)
     }
     const deleted = await client
       .delete(`/api/v1/projects/${projectId}/entities/folder/${folderId}`)
       .loginAs(user)
-      .withCsrfToken()
     deleted.assertStatus(204)
     assert.sameMembers(fake.closed, ids)
   })
@@ -121,11 +108,8 @@ test.group('realtime: closing deleted documents', (group) => {
     const projectId = await newProject(client, user)
     const tree = await client.get(`/api/v1/projects/${projectId}/tree`).loginAs(user)
     const mainDocumentId = tree.body().mainDocumentId as string
-    await client.post(`/api/v1/projects/${projectId}/trash`).loginAs(user).withCsrfToken()
-    const deleted = await client
-      .delete(`/api/v1/projects/${projectId}`)
-      .loginAs(user)
-      .withCsrfToken()
+    await client.post(`/api/v1/projects/${projectId}/trash`).loginAs(user)
+    const deleted = await client.delete(`/api/v1/projects/${projectId}`).loginAs(user)
     deleted.assertStatus(204)
     assert.deepEqual(fake.closed, [mainDocumentId])
   })

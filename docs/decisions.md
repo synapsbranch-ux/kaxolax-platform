@@ -214,3 +214,10 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Pas de `createRouteMatcher` (déprécié par Clerk) : le layout serveur du groupe `(app)` exige une session et renvoie vers `/sign-in?redirect_url=…`. Le proxy ne fait que préparer l'état d'auth ; `/api` (vérifié par l'API) et `/healthz` en sont exclus.
 - Le client API attend que Clerk soit chargé, puis envoie un jeton frais à chaque requête, sans cookie (`credentials: 'omit'`). Écrans Clerk en français (`@clerk/localizations`), télémétrie Clerk désactivée.
 - Zip : `POST /projects/:id/download-url` émet un lien chiffré par `APP_KEY` (60 s, lié à l'utilisateur et au projet, rôle revérifié au téléchargement), car une navigation ne porte pas l'en-tête `Authorization`.
+
+## 2026-10-01 · Auth : bascule et nettoyage en un seul commit
+
+- La bascule (Clerk seul) et le nettoyage forment un commit : basculer seul aurait cassé les tests de l'auth par session, que le nettoyage supprime.
+- Retirés : routes `/auth/*`, guard de session, CSRF, limiteur, Redis côté API, `@adonisjs/session|limiter|redis`, hachage, emails d'auth, `auth_tokens`, `password_hash`, `email_verified_at`, le flag `AUTH_MODE`.
+- La migration `…0012` supprime les comptes jamais vérifiés, puis refuse de s'appliquer s'il reste un compte vérifié non relié à Clerk, au lieu de le perdre. Répétée sur une copie de données créées par l'API de l'étape 1 : projets et documents conservés ; sans import préalable, elle s'arrête et annule tout.
+- `clerk:import-users` disparaît avec les colonnes qu'il lisait : sur un environnement qui a des comptes de l'étape 1, déployer d'abord le commit 56e4814, lancer l'import, puis déployer la suite.

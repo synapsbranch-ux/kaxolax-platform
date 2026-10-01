@@ -15,21 +15,12 @@ catalogs:
     '@adonisjs/core':
       specifier: 7.5.2
       version: 7.5.2
-    '@adonisjs/limiter':
-      specifier: 3.0.1
-      version: 3.0.1
     '@adonisjs/lucid':
       specifier: 22.4.2
       version: 22.4.2
     '@adonisjs/mail':
       specifier: 10.4.0
       version: 10.4.0
-    '@adonisjs/redis':
-      specifier: 10.0.2
-      version: 10.0.2
-    '@adonisjs/session':
-      specifier: 8.1.0
-      version: 8.1.0
     '@adonisjs/shield':
       specifier: 9.0.0
       version: 9.0.0
@@ -45,54 +36,6 @@ catalogs:
     '@clerk/backend':
       specifier: 3.21.0
       version: 3.21.0
-    '@clerk/localizations':
-      specifier: 4.21.0
-      version: 4.21.0
-    '@clerk/nextjs':
-      specifier: 7.9.8
-      version: 7.9.8
-    '@clerk/testing':
-      specifier: 2.2.40
-      version: 2.2.40
-    '@codemirror/autocomplete':
-      specifier: 6.20.3
-      version: 6.20.3
-    '@codemirror/commands':
-      specifier: 6.11.1
-      version: 6.11.1
-    '@codemirror/language':
-      specifier: 6.12.4
-      version: 6.12.4
-    '@codemirror/legacy-modes':
-      specifier: 6.5.4
-      version: 6.5.4
-    '@codemirror/search':
-      specifier: 6.7.2
-      version: 6.7.2
-    '@codemirror/state':
-      specifier: 6.7.6
-      version: 6.7.6
-    '@codemirror/view':
-      specifier: 6.43.13
-      version: 6.43.13
-    '@commitlint/cli':
-      specifier: 21.2.3
-      version: 21.2.3
-    '@commitlint/config-conventional':
-      specifier: 21.2.3
-      version: 21.2.3
-    '@eslint/js':
-      specifier: 10.0.1
-      version: 10.0.1
-    '@hocuspocus/extension-database':
-      specifier: 4.7.0
-      version: 4.7.0
-    '@hocuspocus/provider':
-      specifier: 4.7.0
-      version: 4.7.0
-    '@hocuspocus/server':
-      specifier: 4.7.0
-      version: 4.7.0
     '@japa/api-client':
       specifier: 3.2.1
       version: 3.2.1
@@ -105,159 +48,45 @@ catalogs:
     '@japa/runner':
       specifier: 5.3.0
       version: 5.3.0
-    '@lezer/highlight':
-      specifier: 1.2.5
-      version: 1.2.5
-    '@next/eslint-plugin-next':
-      specifier: 16.3.7
-      version: 16.3.7
-    '@playwright/test':
-      specifier: 1.63.0
-      version: 1.63.0
     '@poppinss/ts-exec':
       specifier: 1.4.4
       version: 1.4.4
-    '@tailwindcss/postcss':
-      specifier: 4.3.3
-      version: 4.3.3
     '@types/luxon':
       specifier: 3.7.6
       version: 3.7.6
     '@types/node':
       specifier: 24.19.0
       version: 24.19.0
-    '@types/pg':
-      specifier: 8.23.1
-      version: 8.23.1
-    '@types/react':
-      specifier: 19.3.0
-      version: 19.3.0
-    '@types/react-dom':
-      specifier: 19.3.0
-      version: 19.3.0
-    '@types/ws':
-      specifier: 8.18.2
-      version: 8.18.2
-    '@types/yauzl':
-      specifier: 3.4.0
-      version: 3.4.0
     '@types/yazl':
       specifier: 3.3.1
       version: 3.3.1
     '@vinejs/vine':
       specifier: 4.4.0
       version: 4.4.0
-    class-variance-authority:
-      specifier: 0.7.1
-      version: 0.7.1
-    clsx:
-      specifier: 2.1.1
-      version: 2.1.1
     eslint:
       specifier: 10.11.0
       version: 10.11.0
-    eslint-config-prettier:
-      specifier: 10.1.8
-      version: 10.1.8
-    eslint-plugin-react-hooks:
-      specifier: 7.1.1
-      version: 7.1.1
-    fastify:
-      specifier: 5.12.5
-      version: 5.12.5
-    globals:
-      specifier: 17.12.0
-      version: 17.12.0
     hot-hook:
       specifier: 1.0.0
       version: 1.0.0
-    ioredis:
-      specifier: 5.11.1
-      version: 5.11.1
-    lucide-react:
-      specifier: 1.48.0
-      version: 1.48.0
     luxon:
       specifier: 3.7.2
       version: 3.7.2
-    next:
-      specifier: 16.3.7
-      version: 16.3.7
-    otpauth:
-      specifier: 9.5.2
-      version: 9.5.2
-    pdfjs-dist:
-      specifier: 6.3.289
-      version: 6.3.289
     pg:
       specifier: 8.23.0
       version: 8.23.0
-    pino:
-      specifier: 10.3.1
-      version: 10.3.1
     pino-pretty:
       specifier: 13.1.3
       version: 13.1.3
-    postcss:
-      specifier: 8.5.28
-      version: 8.5.28
-    prettier:
-      specifier: 3.9.9
-      version: 3.9.9
-    radix-ui:
-      specifier: 1.6.7
-      version: 1.6.7
-    react:
-      specifier: 19.3.0
-      version: 19.3.0
-    react-dom:
-      specifier: 19.3.0
-      version: 19.3.0
-    react-resizable-panels:
-      specifier: 4.14.1
-      version: 4.14.1
     reflect-metadata:
       specifier: 0.2.2
       version: 0.2.2
-    tailwind-merge:
-      specifier: 3.7.0
-      version: 3.7.0
-    tailwindcss:
-      specifier: 4.3.3
-      version: 4.3.3
-    tsx:
-      specifier: 4.23.15
-      version: 4.23.15
-    turbo:
-      specifier: 2.11.5
-      version: 2.11.5
     typescript:
       specifier: 6.0.3
       version: 6.0.3
-    typescript-eslint:
-      specifier: 8.71.0
-      version: 8.71.0
-    vitest:
-      specifier: 5.0.2
-      version: 5.0.2
-    ws:
-      specifier: 8.22.0
-      version: 8.22.0
-    y-codemirror.next:
-      specifier: 0.3.6
-      version: 0.3.6
-    yauzl:
-      specifier: 3.4.0
-      version: 3.4.0
     yazl:
       specifier: 3.3.1
       version: 3.3.1
-    yjs:
-      specifier: 13.6.33
-      version: 13.6.33
-    zod:
-      specifier: 4.6.5
-      version: 4.6.5
 
 importers:
 
@@ -287,21 +116,12 @@ importers:
       '@adonisjs/core':
         specifier: 'catalog:'
         version: 7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1)
-      '@adonisjs/limiter':
-        specifier: 'catalog:'
-        version: 3.0.1(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(luxon@3.7.2)(pg@8.23.0)(supports-color@10.2.2))(@adonisjs/redis@10.0.2(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(supports-color@10.2.2))
       '@adonisjs/lucid':
         specifier: 'catalog:'
         version: 22.4.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(luxon@3.7.2)(pg@8.23.0)(supports-color@10.2.2)
       '@adonisjs/mail':
         specifier: 'catalog:'
         version: 10.4.0(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@types/luxon@3.7.6)(@types/node@24.19.0)(dayjs@1.11.23)(luxon@3.7.2)
-      '@adonisjs/redis':
-        specifier: 'catalog:'
-        version: 10.0.2(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(supports-color@10.2.2)
-      '@adonisjs/session':
-        specifier: 'catalog:'
-        version: 8.1.0(0f1e1a091b92b723e4cabae40c033076)
       '@adonisjs/shield':
         specifier: 'catalog:'
         version: 9.0.0(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/session@8.1.0(0f1e1a091b92b723e4cabae40c033076))(@japa/api-client@3.2.1(@japa/assert@4.2.0(@japa/runner@5.3.0))(@japa/runner@5.3.0)(supports-color@10.2.2))(@japa/plugin-adonisjs@5.2.0(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@japa/api-client@3.2.1(@japa/assert@4.2.0(@japa/runner@5.3.0))(@japa/runner@5.3.0)(supports-color@10.2.2))(@japa/runner@5.3.0)(playwright@1.63.0))
@@ -377,7 +197,7 @@ importers:
         version: 3.3.1
       eslint:
         specifier: 'catalog:'
-        version: 10.11.0(jiti@2.6.1)(supports-color@10.2.2)
+        version: 10.11.0(jiti@2.7.0)(supports-color@10.2.2)
       hot-hook:
         specifier: 'catalog:'
         version: 1.0.0
@@ -1006,24 +826,6 @@ packages:
     engines: {node: '>=24.0.0'}
     peerDependencies:
       '@adonisjs/fold': ^11.0.0-next.2
-
-  '@adonisjs/limiter@3.0.1':
-    resolution: {integrity: sha512-U7drt/FPlB5PV84dnxQQSFGk75fDxgEHSkfT/eGwx/+Z4re7XlkVU4oros/VGefD72JTgXp7Kz97tS1XW7eEXA==}
-    peerDependencies:
-      '@adonisjs/assembler': ^8.0.0-next.9 || ^8.0.0
-      '@adonisjs/core': ^7.0.0-next.1 || ^7.0.0
-      '@adonisjs/i18n': ^3.0.0-next.0 || ^3.0.0
-      '@adonisjs/lucid': ^22.0.0-next.0 || ^22.0.0
-      '@adonisjs/redis': ^10.0.0-next.1 || ^10.0.0
-    peerDependenciesMeta:
-      '@adonisjs/assembler':
-        optional: true
-      '@adonisjs/i18n':
-        optional: true
-      '@adonisjs/lucid':
-        optional: true
-      '@adonisjs/redis':
-        optional: true
 
   '@adonisjs/logger@7.1.1':
     resolution: {integrity: sha512-MmUlp8xBMT6zZy0+vnQcQjHIlNfU4pUJARlINr7Bqha9BvhIn03QZgJL5QJ+kJe1tl6ZpNAryoRTJUiOk/wINQ==}
@@ -5182,9 +4984,6 @@ packages:
     resolution: {integrity: sha512-iv7LhNVO047HzYR3InF6pUcUsPQiHTM1Qal51DcGSuZFBil1aBBWG5eHPNek7bvILMaYJ/8RU1e8w1AMdHmLQQ==}
     engines: {node: '>= 0.8'}
 
-  rate-limiter-flexible@9.1.1:
-    resolution: {integrity: sha512-imxFjzPCmvDLMe7d2tsgiSQvs5EI2fI9SNymmslAfOqznZhsZ+PqbIjIYKpuSbd3pKovR1aMG47qfCLIO/adVg==}
-
   raw-body@3.0.2:
     resolution: {integrity: sha512-K5zQjDllxWkf7Z5xJdV0/B0WTNqx6vxG70zJE4N0kBs4LovmEYWJzQGxC9bS9RAKu3bgM40lrd5zoLJ12MQ5BA==}
     engines: {node: '>= 0.10'}
@@ -6088,15 +5887,6 @@ snapshots:
       '@poppinss/exception': 1.2.3
       '@poppinss/types': 1.2.1
 
-  '@adonisjs/limiter@3.0.1(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(luxon@3.7.2)(pg@8.23.0)(supports-color@10.2.2))(@adonisjs/redis@10.0.2(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(supports-color@10.2.2))':
-    dependencies:
-      '@adonisjs/core': 7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1)
-      rate-limiter-flexible: 9.1.1
-    optionalDependencies:
-      '@adonisjs/assembler': 8.5.2(typescript@6.0.3)
-      '@adonisjs/lucid': 22.4.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(luxon@3.7.2)(pg@8.23.0)(supports-color@10.2.2)
-      '@adonisjs/redis': 10.0.2(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@6.0.3))(@vinejs/vine@4.4.0)(pino-pretty@13.1.3)(supports-color@10.2.2)(youch@4.1.1))(supports-color@10.2.2)
-
   '@adonisjs/logger@7.1.1(pino-pretty@13.1.3)':
     dependencies:
       '@poppinss/utils': 7.1.1
@@ -6176,6 +5966,7 @@ snapshots:
       ioredis: 5.11.1(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@adonisjs/repl@5.0.0':
     dependencies:
@@ -10158,8 +9949,6 @@ snapshots:
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
   random-bytes@1.0.0: {}
-
-  rate-limiter-flexible@9.1.1: {}
 
   raw-body@3.0.2:
     dependencies:

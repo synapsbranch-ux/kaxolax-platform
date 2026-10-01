@@ -1,16 +1,23 @@
 # @kaxolax/api
 
 API REST de Kaxolax (AdonisJS 7, Lucid, VineJS), sous `/api/v1`. Le navigateur l'appelle par la
-même origine que l'application (rewrites Next.js en local, CloudFront en staging) : pas de CORS.
+même origine que l'application (rewrites Next.js en local, CDN en production) : pas de CORS.
 
-## Fonctionnalités (étape 1)
+## Fonctionnalités
 
-- **Comptes** :
-  - sessions dans Redis, cookie `kaxolax-session` httpOnly ;
-  - protection CSRF de Shield (le navigateur renvoie le cookie `XSRF-TOKEN` dans l'en-tête `X-XSRF-TOKEN`) ;
-  - vérification de l'email obligatoire avant la connexion ;
-  - mot de passe oublié par lien à usage unique ; seul le hash des jetons est stocké ;
-  - limitation de débit sur la connexion, l'inscription, le renvoi de vérification et le mot de passe oublié.
+- **Comptes (Clerk)** : inscription, connexion, MFA, sessions et suppression du compte sont gérées
+  par Clerk ; Kaxolax ne stocke ni mot de passe ni jeton d'authentification.
+  - Chaque requête porte le jeton de session Clerk (`Authorization: Bearer`), vérifié sans appel
+    réseau (`CLERK_JWT_KEY`, claim `azp` égal à l'origine de `APP_URL`) par le guard `clerk`
+    (`app/auth/clerk_guard.ts`). Pas de cookie, donc pas de CSRF.
+  - La table `users` est le miroir local des comptes (id interne pour toutes les clés étrangères,
+    `clerk_user_id`, email, nom, avatar), alimenté par les webhooks Clerk
+    (`POST /webhooks/clerk` : `user.created`, `user.updated`, `user.deleted`, signature vérifiée,
+    chaque événement traité une fois). Un jeton valide arrivé avant le webhook crée le miroir
+    depuis ses claims, si l'email est vérifié.
+  - Compte supprimé dans Clerk : ligne anonymisée, retrait des projets partagés, suppression de
+    ses projets.
+  - `GET /me` : l'utilisateur local de la session.
 - **Projets** : liste (`view` = active, archived, trashed ; `q`), création avec un `main.tex`
   minimal qui compile, renommage, compilateur, document principal, archive, corbeille,
   suppression depuis la corbeille.
@@ -37,19 +44,27 @@ même origine que l'application (rewrites Next.js en local, CloudFront en stagin
   `POST /projects/:id/compile/clear-cache`.
 - **SyncTeX** : `GET /projects/:id/synctex/code` (`file`, `line`, `column`) et
   `GET /projects/:id/synctex/pdf` (`page`, `h`, `v`).
-- **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel.
+- **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel ; ou
+  `POST /projects/:id/download-url`, un lien chiffré de 60 s pour télécharger par simple
+  navigation (`GET /downloads/:token`, rôle revérifié au téléchargement).
 
 ## Développement
 
-Prérequis : la stack locale (`docker compose up -d` à la racine) : PostgreSQL, Redis, S3
-(SeaweedFS) et Mailpit.
+Prérequis : la stack locale (`docker compose up -d` à la racine) : PostgreSQL, S3 (SeaweedFS)
+et Mailpit ; et les clés d'une instance Clerk de développement dans `.env` (`CLERK_JWT_KEY`,
+`CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, voir le README racine).
 
 ```bash
 pnpm --filter @kaxolax/api migrate   # applique les migrations (crée .env depuis .env.example au besoin)
 pnpm --filter @kaxolax/api dev       # http://localhost:3333/api/v1/health
 ```
 
-Les emails arrivent dans Mailpit : http://localhost:8025.
+Les emails de l'application arrivent dans Mailpit : http://localhost:8025 (ceux de l'auth sont
+envoyés par Clerk).
+
+Webhooks Clerk en local (facultatif : le miroir est aussi créé depuis les claims du jeton) :
+`cloudflared tunnel --url http://localhost:3333`, puis déclarer
+`https://<tunnel>/api/v1/webhooks/clerk` dans le Dashboard Clerk.
 
 ## Tests
 
@@ -58,6 +73,8 @@ pnpm --filter @kaxolax/api test      # Japa : unitaires + fonctionnels (base kax
 ```
 
 Les tests fonctionnels couvrent chaque endpoint, y compris les refus : projet d'un autre
-utilisateur, nom en double, nom invalide, rôle insuffisant, jeton expiré ou réutilisé, CSRF
-manquant, limitation de débit. Un test vérifie aussi que deux créations simultanées du même nom
-ne réussissent jamais toutes les deux.
+utilisateur, nom en double, nom invalide, rôle insuffisant, jeton Clerk expiré, falsifié ou
+d'une autre application, webhook mal signé ou rejoué. Ils signent de vrais jetons au format
+Clerk avec une paire RSA générée à chaque lancement (`tests/clerk_keys.ts`), vérifiés par
+`@clerk/backend` ; `.loginAs(user)` envoie un tel jeton. Un test vérifie aussi que deux
+créations simultanées du même nom ne réussissent jamais toutes les deux.

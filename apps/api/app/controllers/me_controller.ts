@@ -7,7 +7,6 @@ export function serializeUser(user: User) {
     email: user.email,
     fullName: user.fullName,
     avatarUrl: user.avatarUrl,
-    emailVerifiedAt: user.emailVerifiedAt?.toUTC().toISO() ?? null,
     createdAt: user.createdAt.toUTC().toISO(),
   }
 }

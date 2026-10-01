@@ -1,13 +1,11 @@
-import { randomUUID } from 'node:crypto'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import User from '#models/user'
 import { clerkTokenFor } from '#tests/clerk'
 import { generateClerkKeys, sessionClaims, signJwt } from '#tests/clerk_keys'
-import { createUser, PASSWORD, uniqueEmail } from '#tests/helpers'
+import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
 
-const newClerkId = () => `user_${randomUUID().replaceAll('-', '')}`
 const bearer = (token: string) => `Bearer ${token}`
 
 test.group('clerk: session tokens', (group) => {
@@ -15,26 +13,26 @@ test.group('clerk: session tokens', (group) => {
 
   test('a valid token authenticates its local user', async ({ client, assert }) => {
     const user = await createUser()
-    const token = await clerkTokenFor(user)
-    const response = await client.get('/api/v1/me').header('authorization', bearer(token))
+    const response = await client
+      .get('/api/v1/me')
+      .header('authorization', bearer(clerkTokenFor(user)))
     response.assertStatus(200)
     assert.equal(response.body().user.id, user.id)
     assert.equal(response.body().user.email, user.email)
   })
 
-  test('mutations with a token need no CSRF token', async ({ client }) => {
+  test('mutations need no CSRF token and no cookie', async ({ client }) => {
     const user = await createUser()
     const response = await client
       .post('/api/v1/projects')
-      .header('authorization', bearer(await clerkTokenFor(user)))
+      .header('authorization', bearer(clerkTokenFor(user)))
       .json({ name: 'Sans CSRF' })
     response.assertStatus(201)
   })
 
-  test('refuses expired, not yet valid, forged and foreign tokens', async ({ client }) => {
+  test('refuses a missing, expired, not yet valid, forged or foreign token', async ({ client }) => {
     const user = await createUser()
-    await clerkTokenFor(user) // relie l'utilisateur à un compte Clerk
-    const sub = String(user.clerkUserId)
+    const sub = user.clerkUserId
     const now = Math.floor(Date.now() / 1000)
     const otherInstance = generateClerkKeys()
     const refused = [
@@ -51,20 +49,11 @@ test.group('clerk: session tokens', (group) => {
       const response = await client.get('/api/v1/me').header('authorization', bearer(token))
       response.assertStatus(401)
     }
-  })
-
-  test('a bearer request never falls back to the session cookie', async ({ client }) => {
-    const user = await createUser()
-    const response = await client
-      .get('/api/v1/me')
-      .withGuard('web')
-      .loginAs(user)
-      .header('authorization', bearer('not-a-jwt'))
-    response.assertStatus(401)
+    ;(await client.get('/api/v1/me')).assertStatus(401)
   })
 
   test('creates the local user on first sight from verified claims', async ({ client, assert }) => {
-    const clerkUserId = newClerkId()
+    const clerkUserId = newClerkUserId()
     const email = uniqueEmail('first-sight').toUpperCase()
     const token = signJwt(
       sessionClaims(clerkUserId, {
@@ -80,63 +69,50 @@ test.group('clerk: session tokens', (group) => {
     assert.equal(user.email, email.toLowerCase())
     assert.equal(user.fullName, 'Grace Hopper')
     assert.equal(user.avatarUrl, 'https://img.clerk.com/grace.png')
-    assert.isNull(user.passwordHash)
-  })
+    assert.equal(response.body().user.id, user.id)
 
-  test('links a stage 1 account by verified email', async ({ client, assert }) => {
-    const existing = await createUser()
-    const clerkUserId = newClerkId()
-    // Booléen rendu en texte par le modèle de claims : accepté aussi.
-    const token = signJwt(
-      sessionClaims(clerkUserId, { email: existing.email, email_verified: 'true' }),
+    // Booléen rendu en texte par le modèle de claims du Dashboard : accepté aussi.
+    const textual = signJwt(
+      sessionClaims(newClerkUserId(), { email: uniqueEmail(), email_verified: 'true' }),
     )
-    const response = await client.get('/api/v1/me').header('authorization', bearer(token))
-    response.assertStatus(200)
-    assert.equal(response.body().user.id, existing.id)
-    await existing.refresh()
-    assert.equal(existing.clerkUserId, clerkUserId)
+    ;(await client.get('/api/v1/me').header('authorization', bearer(textual))).assertStatus(200)
   })
 
-  test('refuses an unknown user whose email is missing or unverified', async ({
+  test('refuses an unknown user whose email is missing, unverified or already used', async ({
     client,
     assert,
   }) => {
     const existing = await createUser()
-    for (const extra of [
-      {},
-      { email: existing.email, email_verified: false },
-      { email: existing.email, email_verified: 'false' },
-      { email: existing.email },
-    ]) {
-      const token = signJwt(sessionClaims(newClerkId(), extra))
+    const fresh = uniqueEmail()
+    const cases: [Record<string, unknown>, number][] = [
+      [{}, 401],
+      [{ email: fresh, email_verified: false }, 401],
+      [{ email: fresh, email_verified: 'false' }, 401],
+      [{ email: fresh }, 401],
+      // Email déjà pris par un autre compte Clerk : aucun rattachement implicite.
+      [{ email: existing.email, email_verified: true }, 409],
+    ]
+    for (const [claims, status] of cases) {
+      const token = signJwt(sessionClaims(newClerkUserId(), claims))
       const response = await client.get('/api/v1/me').header('authorization', bearer(token))
-      response.assertStatus(401)
+      response.assertStatus(status)
     }
-    await existing.refresh()
-    assert.isNull(existing.clerkUserId)
+    assert.lengthOf(await User.query().where('email', fresh), 0)
   })
 
   test('refuses a deleted user', async ({ client }) => {
     const user = await createUser()
-    const token = await clerkTokenFor(user)
+    const token = clerkTokenFor(user)
     user.deletedAt = DateTime.utc()
     await user.save()
     const response = await client.get('/api/v1/me').header('authorization', bearer(token))
     response.assertStatus(401)
   })
 
-  test('a session login is refused for an account without password', async ({ client }) => {
-    const email = uniqueEmail('clerk-only')
-    await User.create({
-      email,
-      clerkUserId: newClerkId(),
-      fullName: null,
-      emailVerifiedAt: DateTime.utc(),
-    })
-    const response = await client
-      .post('/api/v1/auth/login')
-      .json({ email, password: PASSWORD })
-      .withCsrfToken()
-    response.assertStatus(400)
+  test('the stage 1 session routes are gone', async ({ client }) => {
+    for (const path of ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/logout']) {
+      ;(await client.post(path).json({})).assertStatus(404)
+    }
+    ;(await client.get('/api/v1/auth/me')).assertStatus(404)
   })
 })

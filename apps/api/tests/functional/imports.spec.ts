@@ -41,15 +41,11 @@ async function importArchive(client: ApiClient, user: User, filename: string, co
     .post('/api/v1/imports')
     .json({ filename, sizeBytes: content.length })
     .loginAs(user)
-    .withCsrfToken()
   started.assertStatus(201)
   const { uploadId, url } = started.body() as { uploadId: string; url: string }
   const put = await fetch(url, { method: 'PUT', body: content })
   if (!put.ok) throw new Error(`S3 PUT failed: ${String(put.status)}`)
-  const completed = await client
-    .post(`/api/v1/imports/${uploadId}/complete`)
-    .loginAs(user)
-    .withCsrfToken()
+  const completed = await client.post(`/api/v1/imports/${uploadId}/complete`).loginAs(user)
   return { completed, uploadId }
 }
 
@@ -161,7 +157,6 @@ test.group('zip import', (group) => {
       .post('/api/v1/imports')
       .json({ filename: 'project.tar.gz', sizeBytes: 100 })
       .loginAs(user)
-      .withCsrfToken()
     wrongName.assertStatus(422)
     const { completed } = await importArchive(client, user, 'fake.zip', Buffer.from('not a zip'))
     completed.assertStatus(422)
