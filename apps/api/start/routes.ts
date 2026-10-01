@@ -25,6 +25,8 @@ router
 
     // Signé par Clerk (Standard Webhooks) : ni session ni jeton.
     router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
+    // Lien chiffré de 60 s, lié à l'utilisateur et au projet (navigation sans en-tête Authorization).
+    router.get('downloads/:token', [ExportsController, 'downloadWithLink'])
 
     router
       .group(() => {
@@ -76,6 +78,7 @@ router
         router.get('projects/:id/synctex/code', [CompilesController, 'synctexCode'])
         router.get('projects/:id/synctex/pdf', [CompilesController, 'synctexPdf'])
         router.get('projects/:id/download.zip', [ExportsController, 'download'])
+        router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })
       .use(middleware.auth())
   })

@@ -1,12 +1,15 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useClerk } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
 import { api, ApiError, type User } from '@/lib/api'
 
-/** Utilisateur connecté ; redirige vers /login si la session a expiré. */
+/**
+ * Utilisateur local de la session Clerk (id interne). La page est déjà protégée par le proxy ; si
+ * l'API refuse quand même la session (révoquée, compte supprimé), elle est fermée.
+ */
 export function useRequiredUser(): User | null {
-  const router = useRouter()
+  const clerk = useClerk()
   const [user, setUser] = useState<User | null>(null)
   useEffect(() => {
     let active = true
@@ -16,13 +19,13 @@ export function useRequiredUser(): User | null {
       },
       (error: unknown) => {
         if (error instanceof ApiError && error.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent(window.location.pathname)}`)
+          void clerk.signOut({ redirectUrl: '/sign-in' })
         }
       },
     )
     return () => {
       active = false
     }
-  }, [router])
+  }, [clerk])
   return user
 }

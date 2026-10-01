@@ -24,7 +24,7 @@ export interface User {
   id: string
   email: string
   fullName: string | null
-  emailVerifiedAt: string | null
+  avatarUrl: string | null
 }
 
 export interface Project {
@@ -76,13 +76,17 @@ export interface StartedUpload {
   expiresAt: string
 }
 
-/** Jeton CSRF posé par l'API (Shield) dans un cookie lisible, renvoyé dans X-XSRF-TOKEN. */
-export function xsrfToken(cookies: string): string | null {
-  for (const cookie of cookies.split(';')) {
-    const [name, ...value] = cookie.trim().split('=')
-    if (name === 'XSRF-TOKEN') return decodeURIComponent(value.join('='))
-  }
-  return null
+/** Fournit le jeton de session Clerk ; enregistré par `ClerkApiBridge` une fois Clerk chargé. */
+export type TokenGetter = () => Promise<string | null>
+
+let resolveTokenGetter: (getter: TokenGetter) => void = () => undefined
+let tokenGetter = new Promise<TokenGetter>((resolve) => {
+  resolveTokenGetter = resolve
+})
+
+export function setTokenGetter(getter: TokenGetter): void {
+  resolveTokenGetter(getter)
+  tokenGetter = Promise.resolve(getter)
 }
 
 function errorFrom(status: number, body: unknown): ApiError {
@@ -97,18 +101,15 @@ function errorFrom(status: number, body: unknown): ApiError {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const mutation = method !== 'GET'
-  // Le cookie XSRF-TOKEN est posé par la première réponse de l'API.
-  if (mutation && xsrfToken(document.cookie) === null)
-    await fetch('/api/v1/health', { credentials: 'same-origin' })
   const headers: Record<string, string> = { accept: 'application/json' }
   if (body !== undefined) headers['content-type'] = 'application/json'
-  const token = mutation ? xsrfToken(document.cookie) : null
-  if (token !== null) headers['x-xsrf-token'] = token
+  // Jeton de session Clerk frais (Clerk le renouvelle avant son expiration, environ 60 s).
+  const token = await (await tokenGetter)()
+  if (token !== null) headers.authorization = `Bearer ${token}`
   const response = await fetch(`/api/v1${path}`, {
     method,
     headers,
-    credentials: 'same-origin',
+    credentials: 'omit',
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const text = await response.text()
@@ -117,20 +118,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T
 }
 
-/** Appels de l'API REST (même origine, cookie de session httpOnly). */
+/** Appels de l'API REST (même origine, jeton de session Clerk dans `Authorization`). */
 export const api = {
-  me: () => request<{ user: User }>('GET', '/auth/me'),
-  register: (input: { email: string; password: string; fullName?: string }) =>
-    request<{ user: User }>('POST', '/auth/register', input),
-  login: (input: { email: string; password: string }) =>
-    request<{ user: User }>('POST', '/auth/login', input),
-  logout: () => request<null>('POST', '/auth/logout'),
-  verifyEmail: (token: string) => request<{ user: User }>('POST', '/auth/verify-email', { token }),
-  resendVerification: (email: string) =>
-    request<null>('POST', '/auth/resend-verification', { email }),
-  forgotPassword: (email: string) => request<null>('POST', '/auth/forgot-password', { email }),
-  resetPassword: (token: string, password: string) =>
-    request<null>('POST', '/auth/reset-password', { token, password }),
+  me: () => request<{ user: User }>('GET', '/me'),
 
   projects: (view: ProjectView, q: string) =>
     request<{ projects: Project[] }>(
@@ -180,6 +170,9 @@ export const api = {
     request<StartedUpload>('POST', '/imports', input),
   completeImport: (uploadId: string) =>
     request<{ project: Project }>('POST', `/imports/${uploadId}/complete`),
+
+  downloadUrl: (id: string) =>
+    request<{ url: string; expiresAt: string }>('POST', `/projects/${id}/download-url`),
 
   realtimeToken: (id: string) =>
     request<RealtimeTokenResponse>('POST', `/projects/${id}/realtime-token`),

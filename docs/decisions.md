@@ -207,3 +207,10 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `node ace clerk:import-users` relie chaque compte vérifié à un compte Clerk (`external_id` = id local), en le créant s'il n'existe ni par `external_id` ni par email. Idempotent : un compte relié n'est plus traité, un échec est rejoué au passage suivant ; `--dry-run` ne change rien.
 - Mots de passe : AdonisJS hache en scrypt avec un sel binaire ; Clerk n'importe le scrypt qu'aux formats Firebase et Werkzeug, dont le sel est un texte. Un test montre qu'un vérificateur Werkzeug fidèle ne retrouve pas le mot de passe. Les comptes sont donc créés sans mot de passe et le choisissent à la première connexion (« Mot de passe oublié ») ; `--probe-hash` le confirme contre une vraie instance Clerk.
 - Les comptes jamais vérifiés ne sont pas importés (ils ne pouvaient pas se connecter).
+
+## 2026-10-01 · Web : Clerk lu à l'exécution, pages protégées par layout
+
+- La clé publishable (passée au `ClerkProvider` et à `clerkMiddleware`), `CLERK_SECRET_KEY` (lue par Clerk) et `CLERK_JWT_KEY` sont lues à l'exécution : la même image sert tous les environnements, et `next build` passe sans clé (layout `force-dynamic`).
+- Pas de `createRouteMatcher` (déprécié par Clerk) : le layout serveur du groupe `(app)` exige une session et renvoie vers `/sign-in?redirect_url=…`. Le proxy ne fait que préparer l'état d'auth ; `/api` (vérifié par l'API) et `/healthz` en sont exclus.
+- Le client API attend que Clerk soit chargé, puis envoie un jeton frais à chaque requête, sans cookie (`credentials: 'omit'`). Écrans Clerk en français (`@clerk/localizations`), télémétrie Clerk désactivée.
+- Zip : `POST /projects/:id/download-url` émet un lien chiffré par `APP_KEY` (60 s, lié à l'utilisateur et au projet, rôle revérifié au téléchargement), car une navigation ne porte pas l'en-tête `Authorization`.

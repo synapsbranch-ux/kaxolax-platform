@@ -13,6 +13,8 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@clerk/localizations": "catalog:",
+    "@clerk/nextjs": "catalog:",
     "@codemirror/state": "catalog:",
     "@codemirror/view": "catalog:",
     "@hocuspocus/provider": "catalog:",

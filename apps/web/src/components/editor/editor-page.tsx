@@ -237,10 +237,24 @@ export function EditorPage({ projectId }: { projectId: string }) {
           >
             <CrosshairIcon />
           </Button>
-          <Button size="sm" variant="ghost" asChild title="Télécharger le projet (zip)">
-            <a href={`/api/v1/projects/${projectId}/download.zip`} data-testid="download-zip">
-              <DownloadIcon /> Zip
-            </a>
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Télécharger le projet (zip)"
+            data-testid="download-zip"
+            onClick={() => {
+              // Lien signé de 60 s : une navigation ne porte pas le jeton Clerk.
+              api.downloadUrl(projectId).then(
+                ({ url }) => {
+                  window.location.assign(url)
+                },
+                (caught: unknown) => {
+                  setError(errorMessage(caught))
+                },
+              )
+            }}
+          >
+            <DownloadIcon /> Zip
           </Button>
         </div>
       </AppHeader>

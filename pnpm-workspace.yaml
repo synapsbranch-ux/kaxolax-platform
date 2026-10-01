@@ -27,6 +27,7 @@ catalog:
   '@adonisjs/tsconfig': 2.0.0
   '@aws-sdk/client-s3': 3.1142.0
   '@clerk/backend': 3.21.0
+  '@clerk/localizations': 4.21.0
   '@clerk/nextjs': 7.9.8
   '@clerk/testing': 2.2.40
   '@aws-sdk/s3-request-presigner': 3.1142.0

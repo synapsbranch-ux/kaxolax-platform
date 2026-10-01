@@ -18,6 +18,7 @@ import Compile from '#models/compile'
 import Document from '#models/document'
 import File from '#models/file'
 import Project from '#models/project'
+import ProjectMember from '#models/project_member'
 import type User from '#models/user'
 import CompileGateway, {
   CompileServiceUnavailableException,
@@ -404,5 +405,39 @@ test.group('export', (group) => {
     } finally {
       await rm(path, { force: true })
     }
+  })
+
+  test('downloads the zip through a short signed link, role checked again', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUser()
+    const stranger = await createUser()
+    const { projectId } = await setupProject(client, user)
+
+    const link = await client.post(`/api/v1/projects/${projectId}/download-url`).loginAs(user)
+    link.assertStatus(200)
+    const url = String(link.body().url)
+    assert.match(url, /^\/api\/v1\/downloads\/[^/]+$/)
+    assert.isAbove(new Date(String(link.body().expiresAt)).getTime(), Date.now() + 50_000)
+
+    // Simple navigation, sans en-tête Authorization.
+    const downloaded = await client.get(url)
+    downloaded.assertStatus(200)
+    assert.equal(downloaded.header('content-type'), 'application/zip')
+
+    // Lien modifié ou d'un autre usage : refusé.
+    ;(await client.get(`${url.slice(0, -6)}AAAAAA`)).assertStatus(410)
+    ;(await client.get('/api/v1/downloads/not-a-token')).assertStatus(410)
+
+    // Pas de lien pour un non-membre ; un membre retiré après l'émission ne télécharge plus.
+    ;(
+      await client.post(`/api/v1/projects/${projectId}/download-url`).loginAs(stranger)
+    ).assertStatus(404)
+    await ProjectMember.create({ projectId, userId: stranger.id, role: 'viewer' })
+    const theirs = await client.post(`/api/v1/projects/${projectId}/download-url`).loginAs(stranger)
+    theirs.assertStatus(200)
+    await ProjectMember.query().where({ projectId, userId: stranger.id }).delete()
+    ;(await client.get(String(theirs.body().url))).assertStatus(404)
   })
 })

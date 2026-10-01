@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectTree } from './api'
-import { xsrfToken } from './api'
+import { api, ApiError, setTokenGetter } from './api'
 import { groupEntries, locationLabel } from './logs'
 import { documentByPath, isInside, nestTree } from './tree'
 
@@ -53,9 +53,44 @@ describe('logs', () => {
   })
 })
 
-describe('xsrfToken', () => {
-  it('reads and decodes the XSRF-TOKEN cookie', () => {
-    expect(xsrfToken('a=1; XSRF-TOKEN=abc%3D%3D; b=2')).toBe('abc==')
-    expect(xsrfToken('a=1')).toBeNull()
+describe('api client', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('waits for Clerk, then sends a fresh session token and no cookie', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ user: { id: 'u1' } }), { status: 200 })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const pending = api.me()
+    // Pas de requête tant que Clerk n'a pas fourni son jeton.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    let calls = 0
+    setTokenGetter(() => Promise.resolve(`token-${String(++calls)}`))
+    await expect(pending).resolves.toEqual({ user: { id: 'u1' } })
+    await api.me()
+    const requests = fetchMock.mock.calls as unknown as [string, RequestInit][]
+    expect(requests.map(([url]) => url)).toEqual(['/api/v1/me', '/api/v1/me'])
+    expect(
+      requests.map(([, init]) => (init.headers as Record<string, string>).authorization),
+    ).toEqual(['Bearer token-1', 'Bearer token-2'])
+    expect(requests[0]?.[1].credentials).toBe('omit')
+  })
+
+  it('turns an error response into an ApiError', async () => {
+    setTokenGetter(() => Promise.resolve(null))
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ code: 'E_UNAUTHORIZED_ACCESS', message: 'Unauthorized' }), {
+          status: 401,
+        }),
+      ),
+    )
+    const error = await api.me().catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: 401, code: 'E_UNAUTHORIZED_ACCESS' })
   })
 })
