@@ -4,8 +4,8 @@ name: images
 # staging. Toujours construites (le Dockerfile est vérifié) ; poussées vers ECR depuis main
 # seulement quand le rôle OIDC est configuré (variables du dépôt AWS_ECR_PUSH_ROLE_ARN, AWS_REGION).
 # Puis, depuis main : déploiement sur le staging par SSM (AWS_DEPLOY_ROLE_ARN) et parcours
-# Playwright de la « Définition de terminé » sur le staging (E2E_BASE_URL, E2E_MAIL_DOMAIN,
-# E2E_MAIL_S3_BUCKET : sorties Terraform de kaxolax-infra).
+# Playwright de la « Définition de terminé » sur le staging (E2E_BASE_URL, et les secrets
+# CLERK_PUBLISHABLE_KEY et CLERK_SECRET_KEY de l'instance Clerk du staging).
 
 on:
   push:
@@ -139,16 +139,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @kaxolax/web exec playwright install --with-deps chromium
 
-      # Le rôle de déploiement lit aussi les emails de test reçus par SES (bucket E2E_MAIL_S3_BUCKET).
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
+      # Comptes créés par Clerk (adresses +clerk_test) : plus d'email de l'application à lire.
       - name: Playwright
         env:
           E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
-          E2E_MAIL_DOMAIN: ${{ vars.E2E_MAIL_DOMAIN }}
-          E2E_MAIL_S3_BUCKET: ${{ vars.E2E_MAIL_S3_BUCKET }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
         run: pnpm --filter @kaxolax/web e2e

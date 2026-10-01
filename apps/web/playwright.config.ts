@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: 'e2e',
   // Les *.test.ts d'e2e/ sont des tests unitaires (Vitest) des utilitaires du parcours.
   testMatch: '**/*.spec.ts',
+  // Jeton de test Clerk (instance de développement), partagé par tous les parcours.
+  globalSetup: './e2e/global-setup.ts',
   timeout: 240_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,

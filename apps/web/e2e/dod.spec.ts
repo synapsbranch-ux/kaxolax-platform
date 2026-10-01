@@ -1,15 +1,15 @@
 import { join } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
-import { testAddress, waitForLink } from './mail'
+import { signIn, signOut, signUp, testEmail } from './clerk'
 
 /**
  * « Définition de terminé » de l'étape 1, automatisée : compte, projet, upload, écriture,
  * compilations pdfLaTeX et XeLaTeX, erreur, SyncTeX, export et réimport, reconnexion, puis
- * recompilation à chaud d'un document de 10 pages en moins de 3 s.
+ * recompilation à chaud d'un document de 10 pages en moins de 3 s. Depuis l'étape 2, le compte est
+ * créé et la connexion faite par Clerk (instance de développement, adresse +clerk_test).
  */
 
 const fixtures = join(import.meta.dirname, 'fixtures')
-const PASSWORD = 'correct horse battery staple'
 
 const INTRO = [
   '\\section{Introduction}',
@@ -91,33 +91,11 @@ async function activeLine(page: Page): Promise<string> {
   return (await page.locator('.cm-activeLineGutter').first().textContent()) ?? ''
 }
 
-async function login(page: Page, email: string): Promise<void> {
-  await page.goto('/login')
-  await page.fill('#email', email)
-  await page.fill('#password', PASSWORD)
-  await page.getByRole('button', { name: 'Se connecter' }).click()
-  await expect(page).toHaveURL(/\/dashboard$/)
-}
+test('stage 1 definition of done', async ({ page }, testInfo) => {
+  const email = testEmail('dod')
 
-test('stage 1 definition of done', async ({ page, request }, testInfo) => {
-  const email = testAddress('dod')
-
-  await test.step('1. create an account, confirm the email, log in', async () => {
-    await page.goto('/register')
-    await page.fill('#fullName', 'Ada Lovelace')
-    await page.fill('#email', email)
-    await page.fill('#password', PASSWORD)
-    await page.getByRole('button', { name: 'Créer mon compte' }).click()
-    await expect(page.getByText('Vérifiez vos emails')).toBeVisible()
-
-    const verification = await waitForLink(
-      request,
-      email,
-      /https?:\/\/\S+\/verify-email\?token=[\w-]+/,
-    )
-    await page.goto(`${verification.pathname}${verification.search}`)
-    await expect(page.getByText('Votre adresse est confirmée.')).toBeVisible()
-    await login(page, email)
+  await test.step('1. create an account (Clerk), confirm the email, land on the dashboard', async () => {
+    await signUp(page, { email, firstName: 'Ada', lastName: 'Lovelace' })
   })
 
   let projectUrl = ''
@@ -217,9 +195,8 @@ test('stage 1 definition of done', async ({ page, request }, testInfo) => {
   })
 
   await test.step('8. log out, log in again, reopen the project: content and last PDF are there', async () => {
-    await page.getByRole('button', { name: 'Se déconnecter' }).click()
-    await expect(page).toHaveURL(/\/login/)
-    await login(page, email)
+    await signOut(page)
+    await signIn(page, email)
     await page.getByRole('link', { name: 'Definition of done' }).first().click()
     await expect(page).toHaveURL(projectUrl)
     await expect(page.locator('.cm-content')).toContainText('SyncTeX in both directions')

@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "catalog:",
+    "@clerk/testing": "catalog:",
     "@kaxolax/config": "workspace:*",
     "@playwright/test": "catalog:",
     "@tailwindcss/postcss": "catalog:",
@@ -40,6 +41,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "eslint": "catalog:",
+    "otpauth": "catalog:",
     "postcss": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",

@@ -86,8 +86,9 @@ test.group('clerk: session tokens', (group) => {
   test('links a stage 1 account by verified email', async ({ client, assert }) => {
     const existing = await createUser()
     const clerkUserId = newClerkId()
+    // Booléen rendu en texte par le modèle de claims : accepté aussi.
     const token = signJwt(
-      sessionClaims(clerkUserId, { email: existing.email, email_verified: true }),
+      sessionClaims(clerkUserId, { email: existing.email, email_verified: 'true' }),
     )
     const response = await client.get('/api/v1/me').header('authorization', bearer(token))
     response.assertStatus(200)
@@ -101,7 +102,12 @@ test.group('clerk: session tokens', (group) => {
     assert,
   }) => {
     const existing = await createUser()
-    for (const extra of [{}, { email: existing.email, email_verified: false }]) {
+    for (const extra of [
+      {},
+      { email: existing.email, email_verified: false },
+      { email: existing.email, email_verified: 'false' },
+      { email: existing.email },
+    ]) {
       const token = signJwt(sessionClaims(newClerkId(), extra))
       const response = await client.get('/api/v1/me').header('authorization', bearer(token))
       response.assertStatus(401)

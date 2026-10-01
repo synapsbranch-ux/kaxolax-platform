@@ -69,7 +69,9 @@ export function profileFromWebhook(user: ClerkUserJson): ClerkProfile | null {
  */
 export function profileFromClaims(claims: Record<string, unknown>): ClerkProfile | null {
   const { sub, email, email_verified: verified, name, picture } = claims
-  if (typeof sub !== 'string' || typeof email !== 'string' || verified !== true) return null
+  // Selon le modèle de claims du Dashboard, le booléen peut arriver sous forme de texte.
+  const isVerified = verified === true || verified === 'true'
+  if (typeof sub !== 'string' || typeof email !== 'string' || !isVerified) return null
   return {
     clerkUserId: sub,
     email,
