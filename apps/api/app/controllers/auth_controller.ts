@@ -6,6 +6,7 @@ import { appUrl } from '#config/app'
 import ResetPasswordNotification from '#mails/reset_password_notification'
 import VerifyEmailNotification from '#mails/verify_email_notification'
 import User from '#models/user'
+import { serializeUser } from '#controllers/me_controller'
 import { consumeToken, issueToken } from '#services/auth_tokens'
 import {
   emailValidator,
@@ -25,16 +26,6 @@ export class InvalidTokenException extends Exception {
   static override status = 400
   static override code = 'E_INVALID_TOKEN'
   static override message = 'This link is invalid or has expired'
-}
-
-export function serializeUser(user: User) {
-  return {
-    id: user.id,
-    email: user.email,
-    fullName: user.fullName,
-    emailVerifiedAt: user.emailVerifiedAt?.toUTC().toISO() ?? null,
-    createdAt: user.createdAt.toUTC().toISO(),
-  }
 }
 
 async function sendVerificationEmail(user: User) {

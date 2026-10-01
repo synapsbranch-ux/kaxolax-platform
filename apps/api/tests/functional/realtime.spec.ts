@@ -73,7 +73,8 @@ test.group('realtime: connection tokens', (group) => {
     const projectId = await newProject(client, owner)
     const path = `/api/v1/projects/${projectId}/realtime-token`
     ;(await client.post(path).withCsrfToken()).assertStatus(401)
-    ;(await client.post(path).loginAs(owner)).assertStatus(403)
+    // Le CSRF ne protège plus que les sessions de l'étape 1 (un jeton Clerk n'en a pas besoin).
+    ;(await client.post(path).withGuard('web').loginAs(owner)).assertStatus(403)
     ;(await client.post(path).loginAs(stranger).withCsrfToken()).assertStatus(404)
   })
 })

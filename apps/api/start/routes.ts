@@ -8,6 +8,8 @@ import { middleware } from '#start/kernel'
 import { emailThrottle, loginIpThrottle, loginThrottle, registerThrottle } from '#start/limiter'
 
 const AuthController = () => import('#controllers/auth_controller')
+const MeController = () => import('#controllers/me_controller')
+const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
 const TreeController = () => import('#controllers/tree_controller')
 const RealtimeController = () => import('#controllers/realtime_controller')
@@ -20,6 +22,9 @@ const ExportsController = () => import('#controllers/exports_controller')
 router
   .group(() => {
     router.get('health', () => ({ status: 'ok' }))
+
+    // Signé par Clerk (Standard Webhooks) : ni session ni jeton.
+    router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
 
     router
       .group(() => {
@@ -38,6 +43,8 @@ router
 
     router
       .group(() => {
+        router.get('me', [MeController, 'show'])
+
         router.get('projects', [ProjectsController, 'index'])
         router.post('projects', [ProjectsController, 'store'])
         router.get('projects/:id', [ProjectsController, 'show'])

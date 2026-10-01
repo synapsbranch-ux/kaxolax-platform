@@ -1,5 +1,13 @@
 process.env.NODE_ENV = 'test'
 
+// Instance Clerk simulée : clé publique pour la vérification, clé privée pour signer les jetons de
+// test. Générées à chaque lancement, jamais écrites sur disque.
+import { generateClerkKeys, TEST_WEBHOOK_SECRET } from '../tests/clerk_keys.js'
+const clerkKeys = generateClerkKeys()
+process.env.CLERK_JWT_KEY = clerkKeys.publicKey
+process.env.KAXOLAX_TEST_CLERK_PRIVATE_KEY = clerkKeys.privateKey
+process.env.CLERK_WEBHOOK_SIGNING_SECRET = TEST_WEBHOOK_SECRET
+
 import 'reflect-metadata'
 import { Ignitor, prettyPrintError } from '@adonisjs/core/ignitor'
 import { configure, processCLIArgs, run } from '@japa/runner'

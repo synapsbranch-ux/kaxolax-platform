@@ -4,9 +4,15 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import Document from '#models/document'
 import { projectFor } from '#services/project_access'
-import ObjectStorage, { projectPrefix } from '#services/object_storage'
+import ObjectStorage from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
-import { createProject, listProjects, serializeProject } from '#services/project_service'
+import {
+  createProject,
+  deleteProjectRows,
+  listProjects,
+  releaseDeletedProject,
+  serializeProject,
+} from '#services/project_service'
 import {
   createProjectValidator,
   listProjectsValidator,
@@ -103,10 +109,8 @@ export default class ProjectsController {
   async destroy({ params, auth, response }: HttpContext) {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'owner')
     if (project.trashedAt === null) throw new ProjectNotTrashedException()
-    const documents = await Document.query().where('projectId', project.id).select('id')
-    await project.delete()
-    await this.realtime.closeDocuments(documents.map((document) => document.id))
-    await this.storage.deletePrefix(projectPrefix(project.id))
+    const deleted = await deleteProjectRows(project)
+    await releaseDeletedProject(deleted, { realtime: this.realtime, storage: this.storage })
     response.noContent()
   }
 }

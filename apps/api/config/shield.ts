@@ -3,12 +3,15 @@ import { defineConfig } from '@adonisjs/shield'
 export default defineConfig({
   csp: { enabled: false, directives: {}, reportOnly: false },
   /**
-   * Protection CSRF : le navigateur lit le cookie XSRF-TOKEN et le renvoie dans l'en-tête
-   * X-XSRF-TOKEN pour chaque requête qui modifie l'état.
+   * Protection CSRF des sessions de l'étape 1 : le navigateur lit le cookie XSRF-TOKEN et le
+   * renvoie dans l'en-tête X-XSRF-TOKEN. Une requête porteuse d'un jeton Clerk (en-tête, jamais
+   * envoyé d'office par le navigateur) n'en a pas besoin, ni un webhook (signé).
    */
   csrf: {
     enabled: true,
-    exceptRoutes: [],
+    exceptRoutes: (ctx) =>
+      /^Bearer\s/i.test(ctx.request.header('authorization') ?? '') ||
+      ctx.request.url() === '/api/v1/webhooks/clerk',
     enableXsrfCookie: true,
     methods: ['POST', 'PUT', 'PATCH', 'DELETE'],
   },

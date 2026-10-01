@@ -48,6 +48,18 @@ export default await Env.create(new URL('../', import.meta.url), {
   /** Nombre de proxys de confiance devant l'API (Next.js en local, CloudFront en staging). */
   TRUSTED_PROXY_HOPS: Env.schema.number.optional(),
 
+  /**
+   * Authentification acceptée, le temps de la migration vers Clerk : sessions seules (étape 1),
+   * Clerk puis sessions (dual), ou Clerk seul.
+   */
+  AUTH_MODE: Env.schema.enum.optional(['session', 'dual', 'clerk'] as const),
+  /** Clé publique PEM de l'instance Clerk : vérification des jetons de session sans réseau. */
+  CLERK_JWT_KEY: Env.schema.string.optional(),
+  /** Clé secrète Clerk (API Backend : import des comptes). */
+  CLERK_SECRET_KEY: Env.schema.secret.optional(),
+  /** Secret de signature des webhooks Clerk (Standard Webhooks). */
+  CLERK_WEBHOOK_SIGNING_SECRET: Env.schema.secret.optional(),
+
   SESSION_DRIVER: Env.schema.enum(['redis', 'memory'] as const),
   LIMITER_STORE: Env.schema.enum(['redis', 'memory'] as const),
 

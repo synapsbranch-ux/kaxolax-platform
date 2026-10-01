@@ -177,3 +177,27 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Décision : après le push des images dans ECR, la CI lance `kaxolax-deploy` sur les deux instances par SSM Run Command (rôle OIDC `kaxolax-github-deploy`, instances étiquetées `Project=kaxolax`), attend le résultat, puis lance le parcours de la « Définition de terminé » contre l'URL CloudFront.
 - Emails de test sur staging : adresses en `@e2e-mail.<domaine>`, reçues par SES et lues dans S3 par `e2e/mail.ts` (Mailpit en local).
 - Écartés : SSH (aucun port ouvert, instances sans IP publique) ; CodeDeploy, une pièce de plus pour deux instances.
+
+## 2026-10-01 · Étape 2 : hébergement visé et staging reporté
+
+- Contexte : l'architecture tout-AWS du prompt (ECS, RDS Multi-AZ, ElastiCache, ASG) coûterait environ 500 $/mois avant tout utilisateur.
+- Décision : Railway (web, admin, api, realtime, PostgreSQL, Redis), Cloudflare (DNS, CDN, WAF, R2, Containers pour les compilations à la demande), Clerk (comptes, abonnements). Environ 35 à 50 $/mois. Détail et preuve de concept à la tâche 14.
+- Pas de staging pour l'instant : validation en local et en CI ; les critères « sur staging » attendent l'hébergement.
+- Écartés : tout AWS (coût), Hetzner (KYC), compilations sur Railway (pas d'isolation possible).
+
+## 2026-10-01 · Auth : Clerk vérifié sans réseau, guard AdonisJS
+
+- L'API vérifie le jeton de session Clerk (`Authorization: Bearer`) avec `verifyToken` et `CLERK_JWT_KEY` (PEM), sans appel réseau ; `azp` doit valoir l'origine de `APP_URL`, une session `sts` non `active` est refusée.
+- Un guard `clerk` dans `@adonisjs/auth` garde `auth.getUserOrFail()` dans tous les contrôleurs. `AUTH_MODE` (session, dual, clerk) sert de feature flag pendant la migration ; une requête porteuse d'un Bearer ne retombe jamais sur le cookie de session.
+- Note : `verifyToken` exporté par `@clerk/backend` renvoie les claims et lève une erreur, contrairement à ses types internes (`{ data, errors }`).
+
+## 2026-10-01 · Auth : miroir users par webhooks, création à la volée
+
+- Les webhooks `user.created|updated|deleted` sont vérifiés sur le corps brut (Standard Webhooks) et traités une fois : `INSERT … ON CONFLICT DO NOTHING` dans `clerk_webhook_events`, dans la même transaction que leur effet.
+- Rattachement : `clerk_user_id`, puis `external_id` (compte importé), puis email vérifié d'un compte de l'étape 1.
+- Un jeton valide dont le compte n'est pas encore connu (webhook en retard, ou absent en local et en CI) crée le miroir depuis les claims du jeton (`email`, `email_verified`, `name`, `picture`), seulement si l'email est vérifié.
+- `user.deleted` : ligne gardée et anonymisée (auteur des compilations et des futurs messages), retrait des projets partagés, suppression de ses projets ; un événement en retard ne la recrée pas.
+
+## 2026-10-01 · Auth : CSRF limité aux sessions de l'étape 1
+
+- Un jeton dans un en-tête n'est jamais envoyé d'office par le navigateur, et l'API n'a pas de CORS : une requête Bearer et le webhook (signé) sont exemptés du CSRF. Le CSRF disparaît avec les sessions.

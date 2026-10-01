@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { documentName } from '@kaxolax/collab'
 import { closeDocumentResponseSchema, projectSnapshotSchema } from '@kaxolax/contracts'
@@ -197,6 +197,21 @@ describe('collaborative editing', () => {
   })
 })
 
+/** Jeton à la forme d'un jeton de session Clerk (RS256), pour l'utilisateur donné. */
+function clerkSessionJwt(userId: string, expiresIn: number): string {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const now = Math.floor(Date.now() / 1000)
+  const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const unsigned = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({
+    sub: userId,
+    azp: 'http://localhost:3000',
+    iat: now,
+    nbf: now,
+    exp: now + expiresIn,
+  })}`
+  return `${unsigned}.${sign('sha256', Buffer.from(unsigned), privateKey).toString('base64url')}`
+}
+
 describe('authentication', () => {
   it('refuses invalid, expired, foreign and mismatched tokens', async () => {
     const seed = await seedProject(pool)
@@ -225,6 +240,10 @@ describe('authentication', () => {
       connect(running.url, seed.projectId, other.documentId, tokenFor(seed.owner, seed.projectId)),
       // Jeton illisible.
       connect(running.url, seed.projectId, seed.documentId, 'not-a-token'),
+      // Jeton de session Clerk (JWT, valide ou expiré) : seul le jeton court de l'API ouvre une
+      // connexion.
+      connect(running.url, seed.projectId, seed.documentId, clerkSessionJwt(seed.owner, 60)),
+      connect(running.url, seed.projectId, seed.documentId, clerkSessionJwt(seed.owner, -60)),
     ].map(track)
     for (const client of refused) {
       await expect(client.ready).rejects.toThrow('authentication failed')

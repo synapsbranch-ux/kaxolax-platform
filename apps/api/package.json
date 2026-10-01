@@ -13,6 +13,7 @@
     "migrate": "node -e \"const f=require('node:fs');f.existsSync('.env')||f.copyFileSync('.env.example','.env')\" && node ace migration:run"
   },
   "imports": {
+    "#auth/*": "./app/auth/*.js",
     "#controllers/*": "./app/controllers/*.js",
     "#exceptions/*": "./app/exceptions/*.js",
     "#models/*": "./app/models/*.js",
@@ -37,6 +38,7 @@
     "@adonisjs/shield": "catalog:",
     "@aws-sdk/client-s3": "catalog:",
     "@aws-sdk/s3-request-presigner": "catalog:",
+    "@clerk/backend": "catalog:",
     "@kaxolax/collab": "workspace:*",
     "@kaxolax/contracts": "workspace:*",
     "@kaxolax/upload-processor": "workspace:*",

@@ -21,7 +21,14 @@ export const plugins: Config['plugins'] = [
 
 /** Base de test (kaxolax_test) remise à zéro : migrations au début, rollback à la fin. */
 export const runnerHooks: Required<Pick<Config, 'setup' | 'teardown'>> = {
-  setup: [() => testUtils.db().migrate()],
+  setup: [
+    () => testUtils.db().migrate(),
+    // `.loginAs(user)` envoie un jeton Clerk signé par l'instance simulée (tests/clerk_keys.ts).
+    async () => {
+      const { installClerkTestTokens } = await import('#tests/clerk')
+      installClerkTestTokens()
+    },
+  ],
   teardown: [],
 }
 

@@ -1,9 +1,14 @@
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { type DateTime } from 'luxon'
+import Document from '#models/document'
 import Project from '#models/project'
 import ProjectMember, { type ProjectRole } from '#models/project_member'
 import type User from '#models/user'
 import { starterDocument } from '#services/latex'
+import type ObjectStorage from '#services/object_storage'
+import { projectPrefix } from '#services/object_storage'
+import type RealtimeClient from '#services/realtime_client'
 import { createDocument } from '#services/tree_service'
 
 export type ProjectView = 'active' | 'archived' | 'trashed'
@@ -70,4 +75,35 @@ export async function listProjects(user: User, view: ProjectView, search: string
   return projects.map((project) =>
     serializeProject(project, (project.$extras as { member_role: ProjectRole }).member_role),
   )
+}
+
+/** Ce qu'il reste à libérer hors de la base après la suppression d'un projet. */
+export interface DeletedProject {
+  projectId: string
+  documentIds: string[]
+}
+
+/**
+ * Supprime un projet de la base (transaction de l'appelant si fournie). Les connexions temps réel
+ * et les objets S3 se libèrent ensuite avec `releaseDeletedProject`, une fois la transaction validée.
+ */
+export async function deleteProjectRows(
+  project: Project,
+  trx?: TransactionClientContract,
+): Promise<DeletedProject> {
+  const documents = await Document.query({ client: trx })
+    .where('projectId', project.id)
+    .select('id')
+  if (trx) project.useTransaction(trx)
+  await project.delete()
+  return { projectId: project.id, documentIds: documents.map((document) => document.id) }
+}
+
+/** Ferme les documents ouverts et efface les objets S3 d'un projet supprimé (au mieux). */
+export async function releaseDeletedProject(
+  deleted: DeletedProject,
+  services: { realtime: RealtimeClient; storage: ObjectStorage },
+): Promise<void> {
+  await services.realtime.closeDocuments(deleted.documentIds)
+  await services.storage.deletePrefix(projectPrefix(deleted.projectId))
 }
