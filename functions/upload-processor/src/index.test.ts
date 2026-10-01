@@ -6,15 +6,20 @@ import { processUpload, UploadRejectedError, type UploadSource } from './index.j
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 
-/** Stockage en mémoire ; `reportedSize` simule un objet remplacé après la vérification. */
-function memory(objects: Record<string, Uint8Array>, reportedSize?: number): UploadSource {
+/**
+ * Stockage en mémoire ; `reportedSize` simule un objet remplacé après la vérification.
+ * Morceaux de 7 octets par défaut : le calcul du hash ne dépend pas du découpage.
+ */
+function memory(
+  objects: Record<string, Uint8Array>,
+  { reportedSize, chunkSize = 7 }: { reportedSize?: number; chunkSize?: number } = {},
+): UploadSource {
   return {
     size: (key) => Promise.resolve(objects[key] ? (reportedSize ?? objects[key].byteLength) : null),
     read: (key) => {
       const bytes = objects[key] ?? new Uint8Array()
-      // Morceaux de 7 octets : le calcul du hash ne dépend pas du découpage.
-      const chunks = Array.from({ length: Math.ceil(bytes.length / 7) }, (_, index) =>
-        Buffer.from(bytes.subarray(index * 7, index * 7 + 7)),
+      const chunks = Array.from({ length: Math.ceil(bytes.length / chunkSize) }, (_, index) =>
+        Buffer.from(bytes.subarray(index * chunkSize, (index + 1) * chunkSize)),
       )
       return Promise.resolve(Readable.from(chunks))
     },
@@ -61,7 +66,8 @@ describe('processUpload', () => {
     const large = new Uint8Array(MAX_TEXT_DOCUMENT_BYTES).fill(0x61)
     const tooLarge = await processUpload(
       input('big.tex', large.length),
-      memory({ 'uploads/1': large }),
+      // 2 Mio en morceaux de 64 Kio (et non de 7 octets, soit 300 000 morceaux, trop lent en CI).
+      memory({ 'uploads/1': large }, { chunkSize: 64 * 1024 }),
     )
     expect(tooLarge).toMatchObject({ kind: 'binary', mimeType: 'application/octet-stream' })
   })
@@ -82,7 +88,7 @@ describe('processUpload', () => {
   it('rejects an object that changed between the size check and the read', async () => {
     const bytes = new TextEncoder().encode('longer than announced')
     await expect(
-      processUpload(input('a.txt', 5), memory({ 'uploads/1': bytes }, 5)),
+      processUpload(input('a.txt', 5), memory({ 'uploads/1': bytes }, { reportedSize: 5 })),
     ).rejects.toMatchObject({ code: 'E_UPLOAD_SIZE_MISMATCH' })
   })
 })
