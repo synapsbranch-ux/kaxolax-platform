@@ -27,6 +27,37 @@ pnpm --filter @kaxolax/api migrate
 pnpm dev
 ```
 
+## Authentification (Clerk)
+
+Comptes, connexion, OAuth, MFA et abonnements passent par [Clerk](https://clerk.com) ; Kaxolax
+ne stocke ni mot de passe ni jeton d'authentification. En local et en CI : une **instance de
+développement** Clerk (les adresses `+clerk_test` y reçoivent le code `424242`).
+
+Réglages du Dashboard Clerk :
+
+| Où                                         | Réglage                                                                                                                                                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| User & authentication → Email              | Adresse email avec vérification par code ; mot de passe activé                                                                                                                                                                 |
+| User & authentication → Social connections | Google et GitHub (identifiants partagés en développement) ; ORCID en fournisseur OAuth personnalisé, à confirmer                                                                                                               |
+| User & authentication → Multi-factor       | Application d'authentification (TOTP) et codes de secours                                                                                                                                                                      |
+| Sessions → Customize session token         | `{"email": "{{user.primary_email_address}}", "email_verified": "{{user.email_verified}}", "name": "{{user.full_name}}", "picture": "{{user.image_url}}", "metadata": "{{user.public_metadata}}"}` (vérifier l'aperçu du jeton) |
+| Webhooks                                   | Endpoint `https://<domaine>/api/v1/webhooks/clerk`, événements `user.created`, `user.updated`, `user.deleted`                                                                                                                  |
+| API keys                                   | Clé publishable, clé secrète, et « PEM Public Key » (JWT public key)                                                                                                                                                           |
+
+Variables (sans elles, l'application ne démarre pas l'authentification) :
+
+| Variable                                  | `apps/api/.env` | `apps/web/.env` | Secret GitHub (CI) |
+| ----------------------------------------- | --------------- | --------------- | ------------------ |
+| `CLERK_PUBLISHABLE_KEY`                   |                 | oui             | oui                |
+| `CLERK_SECRET_KEY`                        | oui             | oui             | oui                |
+| `CLERK_JWT_KEY` (PEM sur une ligne, `\n`) | oui             | oui             | oui                |
+| `CLERK_WEBHOOK_SIGNING_SECRET`            | oui             |                 |                    |
+
+Les webhooks n'atteignent pas une machine locale ni la CI : l'API crée alors le miroir de
+l'utilisateur depuis les claims de son jeton (d'où le jeton personnalisé ci-dessus). Pour les
+recevoir en local : `cloudflared tunnel --url http://localhost:3333`, puis déclarer l'URL du
+tunnel dans le Dashboard.
+
 ## Services locaux (docker compose)
 
 Tous les ports sont ouverts sur `127.0.0.1` seulement. Les identifiants sont des valeurs de dev locales.
@@ -37,7 +68,7 @@ Tous les ports sont ouverts sur `127.0.0.1` seulement. Les identifiants sont des
 | Redis 8        | `localhost:6379`        | persistance AOF                                                                                        |
 | S3 (SeaweedFS) | `http://localhost:8333` | clés `kaxolax` / `kaxolax-local-secret` ; buckets `kaxolax-project-files` et `kaxolax-compile-outputs` |
 | Mailpit (SMTP) | `localhost:1025`        | accepte tout, n'envoie rien à l'extérieur                                                              |
-| Mailpit (UI)   | http://localhost:8025   | boîte de réception des emails envoyés en local                                                         |
+| Mailpit (UI)   | http://localhost:8025   | boîte de réception des emails de l'application (ceux de l'auth sont envoyés par Clerk)                 |
 
 Le conteneur `s3-init` crée les buckets au démarrage, applique la règle CORS pour
 `http://localhost:3000` et les expirations (sorties de compilation : 7 jours ; uploads en
@@ -64,10 +95,10 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 
 ```
 apps/
-  api/                API REST AdonisJS (comptes, projets, arborescence)
+  api/                API REST AdonisJS (miroir des comptes Clerk, projets, arborescence)
   compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
   compile-gateway/    verrous Redis, affinité et bascule entre agents
-  web/                application Next.js (auth, tableau de bord, éditeur)
+  web/                application Next.js (Clerk, tableau de bord, éditeur)
   realtime/           édition collaborative (Hocuspocus + Yjs, persistance PostgreSQL)
 functions/
   upload-processor/   vérification et classement d'un fichier uploadé
