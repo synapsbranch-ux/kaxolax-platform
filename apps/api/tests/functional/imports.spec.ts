@@ -8,6 +8,7 @@ import File from '#models/file'
 import Project from '#models/project'
 import Upload from '#models/upload'
 import type User from '#models/user'
+import Workspace from '#models/workspace'
 import ObjectStorage from '#services/object_storage'
 import { createUser } from '#tests/helpers'
 
@@ -36,7 +37,13 @@ async function zip(entries: Record<string, string | Buffer>): Promise<Buffer> {
   return Buffer.concat(chunks)
 }
 
-async function importArchive(client: ApiClient, user: User, filename: string, content: Buffer) {
+async function importArchive(
+  client: ApiClient,
+  user: User,
+  filename: string,
+  content: Buffer,
+  body: { workspaceId?: string } = {},
+) {
   const started = await client
     .post('/api/v1/imports')
     .json({ filename, sizeBytes: content.length })
@@ -45,7 +52,10 @@ async function importArchive(client: ApiClient, user: User, filename: string, co
   const { uploadId, url } = started.body() as { uploadId: string; url: string }
   const put = await fetch(url, { method: 'PUT', body: content })
   if (!put.ok) throw new Error(`S3 PUT failed: ${String(put.status)}`)
-  const completed = await client.post(`/api/v1/imports/${uploadId}/complete`).loginAs(user)
+  const completed = await client
+    .post(`/api/v1/imports/${uploadId}/complete`)
+    .json(body)
+    .loginAs(user)
   return { completed, uploadId }
 }
 
@@ -101,6 +111,36 @@ test.group('zip import', (group) => {
     const stored = Buffer.concat(await (await new ObjectStorage().read(file.s3Key)).toArray())
     assert.deepEqual(stored, PNG)
     assert.equal((await Upload.findOrFail(uploadId)).status, 'completed')
+    // Rattaché au workspace personnel de l'utilisateur.
+    const personal = await Workspace.query().where({ ownerId: user.id, type: 'personal' }).first()
+    assert.equal(completed.body().project.workspaceId, personal?.id)
+    assert.equal((await Project.findOrFail(projectId)).workspaceId, personal?.id)
+  })
+
+  test("refuses to import into another user's workspace, then imports into a given one", async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUser()
+    const other = await createUser()
+    const foreign = await Workspace.query().where('ownerId', other.id).firstOrFail()
+    const archive = await zip({ 'main.tex': MAIN })
+    const { completed, uploadId } = await importArchive(client, user, 'paper.zip', archive, {
+      workspaceId: foreign.id,
+    })
+    completed.assertStatus(404)
+    completed.assertBodyContains({ code: 'E_WORKSPACE_NOT_FOUND' })
+    // Refus avant tout travail : l'upload reste utilisable.
+    assert.equal((await Upload.findOrFail(uploadId)).status, 'pending')
+    assert.lengthOf(await Project.query().where('ownerId', user.id), 0)
+
+    const personal = await Workspace.query().where('ownerId', user.id).firstOrFail()
+    const retried = await client
+      .post(`/api/v1/imports/${uploadId}/complete`)
+      .json({ workspaceId: personal.id })
+      .loginAs(user)
+    retried.assertStatus(201)
+    retried.assertBodyContains({ project: { workspaceId: personal.id, spellcheckLanguage: 'en' } })
   })
 
   test('detects XeLaTeX projects and a main document other than main.tex', async ({ client }) => {

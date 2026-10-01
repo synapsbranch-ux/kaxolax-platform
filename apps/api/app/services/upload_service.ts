@@ -3,7 +3,12 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDocumentState } from '@kaxolax/collab'
-import { isValidEntityName, MAX_IMPORT_ZIP_BYTES, MAX_UPLOAD_BYTES } from '@kaxolax/contracts'
+import {
+  DEFAULT_SPELLCHECK_LANGUAGE,
+  isValidEntityName,
+  MAX_IMPORT_ZIP_BYTES,
+  MAX_UPLOAD_BYTES,
+} from '@kaxolax/contracts'
 import { processUpload, UploadRejectedError } from '@kaxolax/upload-processor'
 import { type ImportResult, importZip, ZipImportError } from '@kaxolax/zip-importer'
 import { Exception } from '@adonisjs/core/exceptions'
@@ -28,6 +33,7 @@ import {
   createFile,
   touchProject,
 } from '#services/tree_service'
+import { workspaceFor, workspaceForNewProject } from '#services/workspace_service'
 
 export class UploadNotFoundException extends Exception {
   static override status = 404
@@ -314,15 +320,19 @@ async function insertTree(
 }
 
 /**
- * Importe un zip uploadé comme nouveau projet dont l'utilisateur est propriétaire. Les binaires
+ * Importe un zip uploadé comme nouveau projet dont l'utilisateur est propriétaire, dans le
+ * workspace demandé (dont il doit être membre) ou sinon son workspace personnel. Les binaires
  * vont sous `projects/{id}/files/` ; en cas d'échec, ce préfixe est supprimé.
  */
 export async function completeImport(
   storage: ObjectStorage,
   user: User,
   uploadId: string,
+  workspaceId?: string,
 ): Promise<Project> {
   const upload = await pendingUpload({ id: uploadId, userId: user.id, purpose: 'import' })
+  // Vérifié avant le travail (refait dans la transaction) : un refus laisse l'upload en attente.
+  if (workspaceId !== undefined) await workspaceFor(user, workspaceId)
   const zipPath = join(tmpdir(), `kaxolax-import-${upload.id}.zip`)
   const projectId = randomUUID()
   try {
@@ -354,12 +364,15 @@ export async function completeImport(
     })
 
     const project = await db.transaction(async (trx) => {
+      const workspace = await workspaceForNewProject(user, workspaceId, trx)
       const created = await Project.create(
         {
           id: projectId,
           ownerId: user.id,
+          workspaceId: workspace.id,
           name: projectNameFrom(upload.filename),
           compiler: plan.compiler,
+          spellcheckLanguage: DEFAULT_SPELLCHECK_LANGUAGE,
         },
         { client: trx },
       )

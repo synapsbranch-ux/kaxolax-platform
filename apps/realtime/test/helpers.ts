@@ -60,10 +60,16 @@ export async function seedProject(pool: pg.Pool, text = 'Bonjour') {
     return id
   }
   const owner = await addUser()
+  // Tout projet appartient à un workspace (ici le workspace personnel du propriétaire).
+  const workspaceId = randomUUID()
+  await pool.query(
+    `INSERT INTO workspaces (id, name, type, owner_id) VALUES ($1, 'Personal workspace', 'personal', $2)`,
+    [workspaceId, owner],
+  )
   const projectId = randomUUID()
   await pool.query(
-    `INSERT INTO projects (id, owner_id, name, updated_at) VALUES ($1, $2, 'Projet', now() - interval '1 day')`,
-    [projectId, owner],
+    `INSERT INTO projects (id, owner_id, workspace_id, name, updated_at) VALUES ($1, $2, $3, 'Projet', now() - interval '1 day')`,
+    [projectId, owner, workspaceId],
   )
   const addMember = async (role: ProjectRole) => {
     const id = role === 'owner' ? owner : await addUser()

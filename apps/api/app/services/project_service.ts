@@ -1,3 +1,4 @@
+import { DEFAULT_SPELLCHECK_LANGUAGE } from '@kaxolax/contracts'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { type DateTime } from 'luxon'
@@ -10,6 +11,7 @@ import type ObjectStorage from '#services/object_storage'
 import { projectPrefix } from '#services/object_storage'
 import type RealtimeClient from '#services/realtime_client'
 import { createDocument } from '#services/tree_service'
+import { workspaceFor, workspaceForNewProject } from '#services/workspace_service'
 
 export type ProjectView = 'active' | 'archived' | 'trashed'
 
@@ -21,9 +23,11 @@ function iso(value: DateTime | null | undefined): string | null {
 export function serializeProject(project: Project, role: ProjectRole) {
   return {
     id: project.id,
+    workspaceId: project.workspaceId,
     name: project.name,
     compiler: project.compiler,
     mainDocumentId: project.mainDocumentId,
+    spellcheckLanguage: project.spellcheckLanguage,
     role,
     archivedAt: iso(project.archivedAt),
     trashedAt: iso(project.trashedAt),
@@ -33,11 +37,26 @@ export function serializeProject(project: Project, role: ProjectRole) {
   }
 }
 
-/** Crée un projet, son propriétaire dans project_members et un main.tex minimal qui compile. */
-export async function createProject(user: User, name: string): Promise<Project> {
+/**
+ * Crée un projet, son propriétaire dans project_members et un main.tex minimal qui compile. Le
+ * projet rejoint le workspace demandé (l'utilisateur doit en être membre), sinon son workspace
+ * personnel.
+ */
+export async function createProject(
+  user: User,
+  name: string,
+  workspaceId?: string,
+): Promise<Project> {
   return db.transaction(async (trx) => {
+    const workspace = await workspaceForNewProject(user, workspaceId, trx)
     const project = await Project.create(
-      { ownerId: user.id, name, compiler: 'pdflatex' },
+      {
+        ownerId: user.id,
+        workspaceId: workspace.id,
+        name,
+        compiler: 'pdflatex',
+        spellcheckLanguage: DEFAULT_SPELLCHECK_LANGUAGE,
+      },
       { client: trx },
     )
     await ProjectMember.create(
@@ -55,8 +74,16 @@ export async function createProject(user: User, name: string): Promise<Project> 
   })
 }
 
-/** Projets dont l'utilisateur est membre, filtrés par vue et par nom. */
-export async function listProjects(user: User, view: ProjectView, search: string | undefined) {
+/**
+ * Projets dont l'utilisateur est membre, filtrés par vue, par nom et éventuellement par workspace
+ * (dont il doit être membre, sinon 404). Sans workspace : tous ses projets, partagés compris.
+ */
+export async function listProjects(
+  user: User,
+  filters: { view: ProjectView; search?: string | undefined; workspaceId?: string | undefined },
+) {
+  const { view, search, workspaceId } = filters
+  if (workspaceId !== undefined) await workspaceFor(user, workspaceId)
   const query = Project.query()
     .join('project_members', 'project_members.project_id', 'projects.id')
     .where('project_members.user_id', user.id)
@@ -67,6 +94,7 @@ export async function listProjects(user: User, view: ProjectView, search: string
   if (view === 'archived')
     void query.whereNotNull('projects.archived_at').whereNull('projects.trashed_at')
   if (view === 'trashed') void query.whereNotNull('projects.trashed_at')
+  if (workspaceId !== undefined) void query.where('projects.workspace_id', workspaceId)
   if (search !== undefined && search.trim() !== '') {
     const pattern = `%${search.trim().replace(/[\\%_]/g, (character) => `\\${character}`)}%`
     void query.whereILike('projects.name', pattern)

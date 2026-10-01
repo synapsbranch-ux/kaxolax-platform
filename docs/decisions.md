@@ -221,3 +221,40 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Retirés : routes `/auth/*`, guard de session, CSRF, limiteur, Redis côté API, `@adonisjs/session|limiter|redis`, hachage, emails d'auth, `auth_tokens`, `password_hash`, `email_verified_at`, le flag `AUTH_MODE`.
 - La migration `…0012` supprime les comptes jamais vérifiés, puis refuse de s'appliquer s'il reste un compte vérifié non relié à Clerk, au lieu de le perdre. Répétée sur une copie de données créées par l'API de l'étape 1 : projets et documents conservés ; sans import préalable, elle s'arrête et annule tout.
 - `clerk:import-users` disparaît avec les colonnes qu'il lisait : sur un environnement qui a des comptes de l'étape 1, déployer d'abord le commit 56e4814, lancer l'import, puis déployer la suite.
+
+## 2026-10-01 · Workspaces : modèle et rattachement des projets
+
+- Tables `workspaces` (type `personal` ou `team`, `owner_id`) et `workspace_members` (`owner`, `admin`, `member`) ; un seul workspace personnel par propriétaire, garanti par l'index unique partiel `(owner_id) WHERE type = 'personal'`. Le lien aux Organisations Clerk viendra avec les équipes (étape 3).
+- `ensurePersonalWorkspace` (`INSERT … ON CONFLICT DO NOTHING`, puis relecture) est appelé par `upsertClerkUser` : webhook `user.created`/`user.updated` et création à la volée par le guard. Idempotent et sûr en concurrence ; la création de projet et l'import zip l'appellent aussi, et `GET /workspaces` répare un compte qui n'en a pas (miroir créé par l'ancienne version pendant un déploiement, ligne importée en SQL), sans écriture dans le cas courant.
+- Migration `…0014` : workspace personnel pour chaque ligne de `users` (comptes anonymisés compris), rattachement de chaque projet à celui de son `owner_id` en SQL, puis `workspace_id` NOT NULL (voir l'entrée suivante pour l'ancienne API). Répétée sur une copie (2 comptes, 3 projets, 6 documents) : comptes et sommes de contrôle inchangés, rollback puis réapplication sans perte.
+- `GET /projects?workspaceId=` : projets du workspace dont l'utilisateur est membre (workspace d'autrui : 404) ; sans filtre, tous ses projets, partagés compris. Un projet partagé reste dans le workspace de son propriétaire.
+
+## 2026-10-01 · Migration …0014 : coexistence avec l'API de l'étape 1
+
+- Les migrations passent avant le basculement, pendant que l'API de l'étape 1 sert encore : ses `Project.create` (création, import zip) n'envoient pas `workspace_id` et échouaient sur le NOT NULL.
+- Déclencheur `BEFORE INSERT` `projects_default_workspace_id`, seulement si `workspace_id` est NULL : rattache le projet au workspace personnel du propriétaire, créé au besoin avec son appartenance (même logique que `ensurePersonalWorkspace`). Une insertion reçue pendant la migration attend la fin de sa transaction (verrou sur `projects`), puis réussit : vérifié sur la copie, ancienne forme d'insertion comprise.
+- À retirer par une migration de la version suivante, quand plus aucune instance de l'étape 1 ne tourne ; le code de l'étape 2 renseigne toujours la colonne, et un `workspace_id` fourni n'est jamais remplacé.
+- Écartés : colonne nullable jusqu'à la version suivante (tout le code de l'étape 2 devrait gérer un projet sans workspace) ; arrêter l'ancienne version avant la migration (interruption de service).
+
+## 2026-10-01 · Tables d'association : clé de substitution `id`
+
+- Lucid ne gère qu'une colonne de clé primaire : avec une clé composée, `save()` et `delete()` sur une instance filtraient sur la dernière colonne `isPrimary` (`user_id`, `file_id`), donc touchaient toutes les lignes de l'utilisateur ou du fichier.
+- `project_members`, `workspace_members`, `chat_reads`, `version_files` : clé primaire `id uuid` (`UuidModel`) et contrainte unique sur le couple, qui arbitre aussi les `ON CONFLICT`. Migration `…0022` pour `project_members` (étape 1) : un UUID par ligne existante ; répétée sur la copie, `down` compris, sans perte.
+- Écarté : garder la clé composée et interdire `save()`/`delete()` par un commentaire ; le piège restait silencieux pour les tâches 4, 6 et 8.
+
+## 2026-10-01 · Schéma de l'étape 2 : règles ON DELETE
+
+- CASCADE pour ce qui appartient à un projet (invitations, liens, versions, fils et commentaires, chat, lectures) ou à un compte (préférences, abonnements, appartenances, workspace personnel).
+- RESTRICT pour les auteurs (`invited_by`, `author_id`, `resolved_by`, `created_by`, `admin_id`) : un compte est anonymisé, jamais supprimé, et une suppression accidentelle échoue au lieu d'effacer l'historique. RESTRICT aussi pour `projects.workspace_id` : un workspace qui contient des projets ne se supprime pas.
+- Sans clé étrangère : `version_files.file_id` (le fichier peut quitter l'arborescence, la version garde son binaire), les tableaux `uuid[]` de `project_versions`, `subscriptions.plan_slug` (un plan créé dans Clerk avant sa ligne de limites ne bloque pas le webhook).
+- Enums en texte + CHECK comme à l'étape 1, sauf `subscriptions.status` (liste tenue par Clerk). Langues du correcteur figées par CHECK (`en`, `fr`) : en ajouter une demande une migration.
+
+## 2026-10-01 · Abonnements : valeurs de départ de plan_limits
+
+- `free` : 20 s de compilation, 1 collaborateur en plus du propriétaire, 1 jour d'historique, 500 Mio. `pro` : 240 s, collaborateurs et historique illimités (NULL), 20 Gio. Tailles en binaire, comme les autres limites du code.
+- La clé est le slug du plan Clerk : `free` et `pro` doivent correspondre aux slugs du Dashboard Clerk, à vérifier à la tâche 12.
+
+## 2026-10-01 · Turbo : typecheck du web avant son build
+
+- `next typegen` (typecheck) et `next build` écrivent tous deux dans `apps/web/.next` ; lancés en parallèle sans cache, le build effaçait `.next/types/routes.d.ts` pendant `tsc` (échec intermittent de `pnpm check`).
+- `apps/web/turbo.json` : `build` dépend du `typecheck` du même paquet. Même règle pour `apps/admin` à sa création.

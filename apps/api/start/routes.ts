@@ -8,6 +8,7 @@ import { middleware } from '#start/kernel'
 
 const MeController = () => import('#controllers/me_controller')
 const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
+const WorkspacesController = () => import('#controllers/workspaces_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
 const TreeController = () => import('#controllers/tree_controller')
 const RealtimeController = () => import('#controllers/realtime_controller')
@@ -29,6 +30,8 @@ router
     router
       .group(() => {
         router.get('me', [MeController, 'show'])
+
+        router.get('workspaces', [WorkspacesController, 'index'])
 
         router.get('projects', [ProjectsController, 'index'])
         router.post('projects', [ProjectsController, 'store'])

@@ -45,21 +45,30 @@ export default class ProjectsController {
   }
 
   async index({ request, auth }: HttpContext) {
-    const { view, q } = await request.validateUsing(listProjectsValidator, { data: request.qs() })
-    return { projects: await listProjects(auth.getUserOrFail(), view ?? 'active', q) }
+    const { view, q, workspaceId } = await request.validateUsing(listProjectsValidator, {
+      data: request.qs(),
+    })
+    return {
+      projects: await listProjects(auth.getUserOrFail(), {
+        view: view ?? 'active',
+        search: q,
+        workspaceId,
+      }),
+    }
   }
 
   async store({ request, response, auth }: HttpContext) {
-    const { name } = await request.validateUsing(createProjectValidator)
+    const { name, workspaceId } = await request.validateUsing(createProjectValidator)
     const user = auth.getUserOrFail()
-    const project = await createProject(user, name)
+    const project = await createProject(user, name, workspaceId)
     response.created({ project: serializeProject(project, 'owner') })
   }
 
   async update({ request, params, auth }: HttpContext) {
     const changes = await request.validateUsing(updateProjectValidator)
     const user = auth.getUserOrFail()
-    // Renommer est réservé au propriétaire ; compilateur et document principal aux éditeurs.
+    // Renommer est réservé au propriétaire ; compilateur, document principal et langue du
+    // correcteur aux éditeurs.
     const { project, role } = await projectFor(
       user,
       String(params.id),
@@ -74,6 +83,9 @@ export default class ProjectsController {
     }
     if (changes.name !== undefined) project.name = changes.name
     if (changes.compiler !== undefined) project.compiler = changes.compiler
+    if (changes.spellcheckLanguage !== undefined) {
+      project.spellcheckLanguage = changes.spellcheckLanguage
+    }
     await project.save()
     return { project: serializeProject(project, role) }
   }

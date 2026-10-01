@@ -18,6 +18,11 @@ export const createImportValidator = vine.create({
   sizeBytes: vine.number().withoutDecimals().min(1).max(MAX_IMPORT_ZIP_BYTES),
 })
 
+export const completeImportValidator = vine.create({
+  /** Absent : workspace personnel de l'utilisateur. */
+  workspaceId: vine.string().uuid().optional(),
+})
+
 export const fileUrlValidator = vine.create({
   /** Téléchargement (attachment) plutôt qu'affichage dans le navigateur (inline). */
   download: vine.boolean().optional(),

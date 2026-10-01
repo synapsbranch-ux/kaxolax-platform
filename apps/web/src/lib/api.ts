@@ -5,7 +5,11 @@ import type {
   PdfPosition,
   ProjectRole,
   RealtimeTokenResponse,
+  SpellcheckLanguage,
+  Workspace,
 } from '@kaxolax/contracts'
+
+export type { Workspace } from '@kaxolax/contracts'
 
 /** Erreur renvoyée par l'API : statut HTTP, code (`E_…`) et erreurs de validation éventuelles. */
 export class ApiError extends Error {
@@ -29,9 +33,11 @@ export interface User {
 
 export interface Project {
   id: string
+  workspaceId: string
   name: string
   compiler: Compiler
   mainDocumentId: string | null
+  spellcheckLanguage: SpellcheckLanguage
   role: ProjectRole
   archivedAt: string | null
   trashedAt: string | null
@@ -122,16 +128,33 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   me: () => request<{ user: User }>('GET', '/me'),
 
-  projects: (view: ProjectView, q: string) =>
+  workspaces: () => request<{ workspaces: Workspace[] }>('GET', '/workspaces'),
+
+  /** Sans `workspaceId` : tous les projets dont l'utilisateur est membre, partagés compris. */
+  projects: (view: ProjectView, q: string, workspaceId: string | null = null) =>
     request<{ projects: Project[] }>(
       'GET',
-      `/projects?${new URLSearchParams({ view, ...(q.trim() === '' ? {} : { q: q.trim() }) }).toString()}`,
+      `/projects?${new URLSearchParams({
+        view,
+        ...(q.trim() === '' ? {} : { q: q.trim() }),
+        ...(workspaceId === null ? {} : { workspaceId }),
+      }).toString()}`,
     ),
   project: (id: string) => request<{ project: Project }>('GET', `/projects/${id}`),
-  createProject: (name: string) => request<{ project: Project }>('POST', '/projects', { name }),
+  /** Sans `workspaceId` : le projet rejoint le workspace personnel. */
+  createProject: (name: string, workspaceId: string | null = null) =>
+    request<{ project: Project }>('POST', '/projects', {
+      name,
+      ...(workspaceId === null ? {} : { workspaceId }),
+    }),
   updateProject: (
     id: string,
-    changes: { name?: string; compiler?: Compiler; mainDocumentId?: string },
+    changes: {
+      name?: string
+      compiler?: Compiler
+      mainDocumentId?: string
+      spellcheckLanguage?: SpellcheckLanguage
+    },
   ) => request<{ project: Project }>('PATCH', `/projects/${id}`, changes),
   setProjectState: (id: string, action: 'archive' | 'unarchive' | 'trash' | 'restore') =>
     request<{ project: Project }>('POST', `/projects/${id}/${action}`),
@@ -168,8 +191,12 @@ export const api = {
     request<unknown>('POST', `/projects/${id}/uploads/${uploadId}/complete`),
   startImport: (input: { filename: string; sizeBytes: number }) =>
     request<StartedUpload>('POST', '/imports', input),
-  completeImport: (uploadId: string) =>
-    request<{ project: Project }>('POST', `/imports/${uploadId}/complete`),
+  completeImport: (uploadId: string, workspaceId: string | null = null) =>
+    request<{ project: Project }>(
+      'POST',
+      `/imports/${uploadId}/complete`,
+      workspaceId === null ? {} : { workspaceId },
+    ),
 
   downloadUrl: (id: string) =>
     request<{ url: string; expiresAt: string }>('POST', `/projects/${id}/download-url`),
@@ -212,11 +239,12 @@ export async function uploadToProject(
   await api.completeUpload(projectId, started.uploadId)
 }
 
-export async function importZip(file: File): Promise<Project> {
+/** Importe un zip comme nouveau projet (workspace donné, sinon workspace personnel). */
+export async function importZip(file: File, workspaceId: string | null = null): Promise<Project> {
   const started = await api.startImport({ filename: file.name, sizeBytes: file.size })
   const put = await fetch(started.url, { method: 'PUT', body: file })
   if (!put.ok) throw new ApiError(put.status, 'E_UPLOAD_FAILED', `Upload of ${file.name} failed`)
-  return (await api.completeImport(started.uploadId)).project
+  return (await api.completeImport(started.uploadId, workspaceId)).project
 }
 
 /** Valeur texte d'un champ de formulaire (chaîne vide si absent). */

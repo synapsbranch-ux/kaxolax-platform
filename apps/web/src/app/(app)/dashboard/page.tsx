@@ -20,7 +20,14 @@ import { AppHeader } from '@/components/app-header'
 import { useRequiredUser } from '@/components/auth/session'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { NameDialog } from '@/components/name-dialog'
-import { api, errorMessage, importZip, type Project, type ProjectView } from '@/lib/api'
+import {
+  api,
+  errorMessage,
+  importZip,
+  type Project,
+  type ProjectView,
+  type Workspace,
+} from '@/lib/api'
 
 const VIEWS: { id: ProjectView; label: string }[] = [
   { id: 'active', label: 'Actifs' },
@@ -37,6 +44,9 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<'date' | 'name'>('date')
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  // null : tous les workspaces (projets partagés compris).
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -57,16 +67,32 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     try {
-      setProjects((await api.projects(view, query)).projects)
+      setProjects((await api.projects(view, query, workspaceId)).projects)
     } catch (caught) {
       setError(errorMessage(caught))
     }
-  }, [view, query])
+  }, [view, query, workspaceId])
 
   useEffect(() => {
     if (!user) return
     let active = true
-    api.projects(view, query).then(
+    api.workspaces().then(
+      ({ workspaces: loaded }) => {
+        if (active) setWorkspaces(loaded)
+      },
+      (caught: unknown) => {
+        if (active) setError(errorMessage(caught))
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    api.projects(view, query, workspaceId).then(
       ({ projects: loaded }) => {
         if (active) setProjects(loaded)
       },
@@ -77,7 +103,7 @@ export default function DashboardPage() {
     return () => {
       active = false
     }
-  }, [user, view, query])
+  }, [user, view, query, workspaceId])
 
   const sorted = useMemo(
     () =>
@@ -101,7 +127,7 @@ export default function DashboardPage() {
     setImporting(true)
     setError(null)
     try {
-      const project = await importZip(file)
+      const project = await importZip(file, workspaceId)
       router.push(`/project/${project.id}`)
     } catch (caught) {
       setError(errorMessage(caught))
@@ -144,6 +170,21 @@ export default function DashboardPage() {
         </div>
 
         <div className="mb-4 flex flex-wrap items-center gap-3">
+          {/* Sélecteur minimal : la vraie interface (pied de sidebar) arrive avec la tâche 3. */}
+          <NativeSelect
+            value={workspaceId ?? ''}
+            onChange={(event) => {
+              setWorkspaceId(event.target.value === '' ? null : event.target.value)
+            }}
+            aria-label="Workspace"
+          >
+            <option value="">Tous les workspaces</option>
+            {workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+              </option>
+            ))}
+          </NativeSelect>
           <nav className="flex rounded-md border p-0.5" aria-label="Vues">
             {VIEWS.map((item) => (
               <button
@@ -291,7 +332,7 @@ export default function DashboardPage() {
         label="Nom du projet"
         submitLabel="Créer"
         onSubmit={async (name) => {
-          const { project } = await api.createProject(name)
+          const { project } = await api.createProject(name, workspaceId)
           router.push(`/project/${project.id}`)
         }}
       />

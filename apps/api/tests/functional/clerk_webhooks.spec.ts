@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { PERSONAL_WORKSPACE_NAME } from '@kaxolax/contracts'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
@@ -7,6 +8,8 @@ import ClerkWebhookEvent from '#models/clerk_webhook_event'
 import Project from '#models/project'
 import ProjectMember from '#models/project_member'
 import User from '#models/user'
+import Workspace from '#models/workspace'
+import WorkspaceMember from '#models/workspace_member'
 import RealtimeClient from '#services/realtime_client'
 import { signWebhook } from '#tests/clerk_keys'
 import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
@@ -85,6 +88,25 @@ test.group('clerk: webhooks', (group) => {
     await created.refresh()
     assert.equal(created.email, newEmail)
     assert.equal(created.fullName, 'Augusta Lovelace')
+  })
+
+  test('user.created gives the user a single personal workspace', async ({ client, assert }) => {
+    const clerkUserId = newClerkUserId()
+    ;(await send(client, 'user.created', clerkUser(clerkUserId, uniqueEmail()))).assertStatus(204)
+    const user = await User.findByOrFail('clerkUserId', clerkUserId)
+    const workspace = await Workspace.query().where('ownerId', user.id).firstOrFail()
+    assert.equal(workspace.type, 'personal')
+    assert.equal(workspace.name, PERSONAL_WORKSPACE_NAME)
+    const member = await WorkspaceMember.query()
+      .where({ workspaceId: workspace.id, userId: user.id })
+      .firstOrFail()
+    assert.equal(member.role, 'owner')
+
+    // Nouveaux événements (autres svix-id) : toujours un seul workspace.
+    ;(await send(client, 'user.updated', clerkUser(clerkUserId, uniqueEmail()))).assertStatus(204)
+    ;(await send(client, 'user.created', clerkUser(clerkUserId, uniqueEmail()))).assertStatus(204)
+    assert.lengthOf(await Workspace.query().where('ownerId', user.id), 1)
+    assert.lengthOf(await WorkspaceMember.query().where('userId', user.id), 1)
   })
 
   test('ignores a user without a verified primary email', async ({ client, assert }) => {

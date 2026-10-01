@@ -2,6 +2,7 @@ import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import User from '#models/user'
+import Workspace from '#models/workspace'
 import { clerkTokenFor } from '#tests/clerk'
 import { generateClerkKeys, sessionClaims, signJwt } from '#tests/clerk_keys'
 import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
@@ -76,6 +77,28 @@ test.group('clerk: session tokens', (group) => {
       sessionClaims(newClerkUserId(), { email: uniqueEmail(), email_verified: 'true' }),
     )
     ;(await client.get('/api/v1/me').header('authorization', bearer(textual))).assertStatus(200)
+  })
+
+  test('a user created on first sight gets a personal workspace', async ({ client, assert }) => {
+    const clerkUserId = newClerkUserId()
+    const token = signJwt(
+      sessionClaims(clerkUserId, { email: uniqueEmail('first-sight'), email_verified: true }),
+    )
+    const first = await client.get('/api/v1/workspaces').header('authorization', bearer(token))
+    first.assertStatus(200)
+    first.assertBodyContains({ workspaces: [{ type: 'personal', role: 'owner' }] })
+    const user = await User.findByOrFail('clerkUserId', clerkUserId)
+    const workspace = await Workspace.query().where('ownerId', user.id).firstOrFail()
+    assert.equal((first.body().workspaces as { id: string }[])[0]?.id, workspace.id)
+
+    // Son premier projet y est rattaché ; une seconde requête ne crée rien de plus.
+    const project = await client
+      .post('/api/v1/projects')
+      .header('authorization', bearer(token))
+      .json({ name: 'Premier' })
+    project.assertStatus(201)
+    project.assertBodyContains({ project: { workspaceId: workspace.id } })
+    assert.lengthOf(await Workspace.query().where('ownerId', user.id), 1)
   })
 
   test('refuses an unknown user whose email is missing, unverified or already used', async ({

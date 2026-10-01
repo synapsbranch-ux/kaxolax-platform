@@ -5,7 +5,9 @@ import { DateTime } from 'luxon'
 import Project from '#models/project'
 import ProjectMember from '#models/project_member'
 import User from '#models/user'
+import WorkspaceMember from '#models/workspace_member'
 import { type DeletedProject, deleteProjectRows } from '#services/project_service'
+import { ensurePersonalWorkspace } from '#services/workspace_service'
 
 /** Ce que Kaxolax garde d'un compte Clerk (miroir local, jamais de mot de passe ni de jeton). */
 export interface ClerkProfile {
@@ -76,7 +78,8 @@ export function profileFromClaims(claims: Record<string, unknown>): ClerkProfile
 }
 
 /**
- * Crée ou met à jour le miroir local d'un compte Clerk. Un compte supprimé n'est jamais recréé ni
+ * Crée ou met à jour le miroir local d'un compte Clerk, avec son workspace personnel (webhook
+ * user.created ou création à la volée par le guard). Un compte supprimé n'est jamais recréé ni
  * modifié (événement rejoué ou en retard).
  */
 export async function upsertClerkUser(
@@ -106,6 +109,8 @@ export async function upsertClerkUser(
       avatarUrl: profile.avatarUrl,
     })
     await user.save()
+    // Idempotent : rattrape aussi un compte resté sans workspace.
+    await ensurePersonalWorkspace(user, trx)
     return user
   }
   return client ? run(client) : db.transaction(run)
@@ -113,8 +118,9 @@ export async function upsertClerkUser(
 
 /**
  * Compte supprimé dans Clerk : la ligne est gardée et anonymisée (elle reste l'auteur des
- * compilations et des futurs messages), le compte quitte les projets des autres et ses propres
- * projets sont supprimés. Renvoie les projets dont il faut ensuite libérer les ressources.
+ * compilations et des futurs messages), le compte quitte les projets et workspaces des autres et
+ * ses propres projets sont supprimés. Renvoie les projets dont il faut ensuite libérer les
+ * ressources.
  */
 export async function deleteClerkUser(
   clerkUserId: string,
@@ -130,6 +136,11 @@ export async function deleteClerkUser(
   const deleted: DeletedProject[] = []
   for (const project of owned) deleted.push(await deleteProjectRows(project, trx))
   await ProjectMember.query({ client: trx }).where('userId', user.id).delete()
+  // Il quitte aussi les workspaces des autres ; son workspace personnel reste, vide.
+  await WorkspaceMember.query({ client: trx })
+    .where('userId', user.id)
+    .whereNot('role', 'owner')
+    .delete()
 
   user.useTransaction(trx)
   user.merge({

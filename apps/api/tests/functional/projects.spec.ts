@@ -105,6 +105,45 @@ test.group('projects', (group) => {
     assert.equal((await Project.findOrFail(project.id)).mainDocumentId, doc.body().document.id)
   })
 
+  test('changes the spellcheck language with the editor role', async ({ client, assert }) => {
+    const owner = await createUser()
+    const created = await client.post('/api/v1/projects').json({ name: 'Langue' }).loginAs(owner)
+    created.assertBodyContains({ project: { spellcheckLanguage: 'en' } })
+    const id = created.body().project.id as string
+
+    const french = await client
+      .patch(`/api/v1/projects/${id}`)
+      .json({ spellcheckLanguage: 'fr' })
+      .loginAs(owner)
+    french.assertStatus(200)
+    french.assertBodyContains({ project: { spellcheckLanguage: 'fr' } })
+    for (const language of ['de', 'FR', '', 42]) {
+      const invalid = await client
+        .patch(`/api/v1/projects/${id}`)
+        .json({ spellcheckLanguage: language })
+        .loginAs(owner)
+      invalid.assertStatus(422)
+    }
+
+    const editor = await createUser()
+    await ProjectMember.create({ projectId: id, userId: editor.id, role: 'editor' })
+    const byEditor = await client
+      .patch(`/api/v1/projects/${id}`)
+      .json({ spellcheckLanguage: 'en' })
+      .loginAs(editor)
+    byEditor.assertStatus(200)
+    for (const role of ['reviewer', 'viewer'] as const) {
+      const member = await createUser()
+      await ProjectMember.create({ projectId: id, userId: member.id, role })
+      const refused = await client
+        .patch(`/api/v1/projects/${id}`)
+        .json({ spellcheckLanguage: 'fr' })
+        .loginAs(member)
+      refused.assertStatus(403)
+    }
+    assert.equal((await Project.findOrFail(id)).spellcheckLanguage, 'en')
+  })
+
   test('archives, restores and deletes only from the trash', async ({ client, assert }) => {
     const user = await createUser()
     const id = (

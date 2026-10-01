@@ -1,16 +1,21 @@
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { column } from '@adonisjs/lucid/orm'
 import { type DateTime } from 'luxon'
+import UuidModel from '#models/uuid_model'
 
 export type ProjectRole = 'owner' | 'editor' | 'reviewer' | 'viewer'
 
-/** Toutes les permissions passent par cette table (seul « owner » existe à l'étape 1). */
-export default class ProjectMember extends BaseModel {
+/**
+ * Toutes les permissions passent par cette table. Clé de substitution `id` (Lucid ne gère qu'une
+ * colonne de clé primaire) : `save()` et `delete()` sur une instance ne touchent que sa ligne. Le
+ * couple (projectId, userId) est unique.
+ */
+export default class ProjectMember extends UuidModel {
   static override table = 'project_members'
 
-  @column({ isPrimary: true })
+  @column()
   declare projectId: string
 
-  @column({ isPrimary: true })
+  @column()
   declare userId: string
 
   @column()

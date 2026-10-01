@@ -13,8 +13,10 @@ l'API).
   compte (`<UserButton />`). Les pages du groupe `(app)` exigent une session ; sans elle, retour
   sur `/sign-in?redirect_url=…`. Les clés Clerk sont lues à l'exécution (voir le README racine).
 - 404, et `/healthz` (sonde publique).
-- **Tableau de bord** : projets actifs, archivés et corbeille ; recherche ; tri par date ou par
-  nom ; créer, renommer, archiver, mettre à la corbeille, restaurer, supprimer, importer un zip.
+- **Tableau de bord** : projets actifs, archivés et corbeille ; filtre par workspace (sélecteur
+  minimal, « Tous les workspaces » par défaut) ; recherche ; tri par date ou par nom ; créer,
+  renommer, archiver, mettre à la corbeille, restaurer, supprimer, importer un zip (dans le
+  workspace choisi, sinon le workspace personnel).
 - **Éditeur**, trois panneaux redimensionnables :
   - arborescence : créer, renommer, déplacer par glisser-déposer, supprimer, uploader plusieurs
     fichiers par glisser-déposer, définir le document principal, aperçu des images ;

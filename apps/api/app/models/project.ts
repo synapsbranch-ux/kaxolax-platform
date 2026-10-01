@@ -1,4 +1,4 @@
-import { type Compiler } from '@kaxolax/contracts'
+import { type Compiler, type SpellcheckLanguage } from '@kaxolax/contracts'
 import { column } from '@adonisjs/lucid/orm'
 import { type DateTime } from 'luxon'
 import UuidModel from '#models/uuid_model'
@@ -6,6 +6,10 @@ import UuidModel from '#models/uuid_model'
 export default class Project extends UuidModel {
   @column()
   declare ownerId: string
+
+  /** Workspace du projet (à la création : le workspace personnel du créateur). */
+  @column()
+  declare workspaceId: string
 
   @column()
   declare name: string
@@ -15,6 +19,10 @@ export default class Project extends UuidModel {
 
   @column()
   declare mainDocumentId: string | null
+
+  /** Langue du correcteur orthographique. */
+  @column()
+  declare spellcheckLanguage: SpellcheckLanguage
 
   @column.dateTime()
   declare archivedAt: DateTime | null
