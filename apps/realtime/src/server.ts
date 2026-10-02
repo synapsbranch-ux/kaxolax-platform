@@ -177,13 +177,17 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     return { projectId, documents }
   }
 
+  /**
+   * Ferme les connexions d'un document. `closed` ne compte que les documents qui avaient encore des
+   * connexions : un document dont on vient de fermer les connexions peut rester un instant chargé,
+   * le temps que Hocuspocus le décharge, et ne doit pas être compté une seconde fois.
+   */
   const closeDocument = (instance: Hocuspocus, documentId: string): CloseDocumentResponse => {
     let closed = false
-    for (const name of instance.documents.keys()) {
-      if (parseDocumentName(name)?.documentId === documentId) {
-        instance.closeConnections(name)
-        closed = true
-      }
+    for (const [name, document] of instance.documents) {
+      if (parseDocumentName(name)?.documentId !== documentId) continue
+      if (document.getConnectionsCount() > 0) closed = true
+      instance.closeConnections(name)
     }
     return { closed }
   }
