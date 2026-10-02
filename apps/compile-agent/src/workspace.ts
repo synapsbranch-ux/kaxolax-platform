@@ -276,3 +276,34 @@ export async function readRootResourcePath(paths: ProjectPaths): Promise<string 
 export function sha256Hex(data: string | Uint8Array): string {
   return createHash('sha256').update(data).digest('hex')
 }
+
+const SYNCTEX_FILE = 'output.synctex.gz'
+
+/**
+ * Remet en place `output.synctex.gz` d'une compilation précédente (conteneur Cloudflare recyclé
+ * depuis : le fichier vient de R2), à côté du document principal, sans suivre de lien symbolique.
+ * SyncTeX n'a pas besoin du PDF lui-même.
+ */
+export async function restoreSynctex(
+  paths: ProjectPaths,
+  rootResourcePath: string,
+  source: NodeJS.ReadableStream,
+): Promise<void> {
+  const directory = dirname(rootResourcePath)
+  const relative = directory === '.' ? SYNCTEX_FILE : `${directory}/${SYNCTEX_FILE}`
+  await assertSafeTarget(paths.files, relative)
+  await prepareProjectDirectory(paths)
+  await ensureDirectory(paths.files, directory)
+  const target = join(paths.files, relative)
+  const handle = await open(
+    target,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+    0o644,
+  )
+  await pipeline(source, handle.createWriteStream())
+  await makeWritableForSandbox(target, false)
+  const state = await readState(paths.state)
+  state.rootResourcePath = rootResourcePath
+  state.lastUsedAt = Date.now()
+  await writeState(paths.state, state)
+}

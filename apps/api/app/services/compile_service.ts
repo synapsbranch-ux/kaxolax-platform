@@ -4,6 +4,7 @@ import {
   type CompileRequest,
   compileRequestSchema,
   type CompileResult,
+  compileStatusSchema,
   type GatewayCompileResponse,
   type LogEntry,
   logEntrySchema,
@@ -33,11 +34,11 @@ export interface CompileDependencies {
   outputs: CompileOutputStorage
 }
 
-const ENTRIES_FILE = 'entries.json'
+export const ENTRIES_FILE = 'entries.json'
 const entriesSchema = logEntrySchema.array()
 
 /** Entrée affichée dans le panneau de logs quand aucun agent n'a pu compiler. */
-function unavailableEntry(): LogEntry {
+export function unavailableEntry(): LogEntry {
   return {
     level: 'error',
     file: null,
@@ -81,7 +82,12 @@ export async function buildCompileRequest(
   })
 }
 
-async function outputUrls(outputs: CompileOutputStorage, prefix: string, names: Set<string>) {
+/** URL présignées (1 heure) du PDF et du log d'une compilation, parmi les sorties `names`. */
+export async function outputUrls(
+  outputs: CompileOutputStorage,
+  prefix: string,
+  names: Set<string>,
+) {
   const presign = (name: string, contentType: string) =>
     names.has(name)
       ? outputs.presignDownload(`${prefix}${name}`, name, {
@@ -131,6 +137,9 @@ export async function compileProject(
     durationMs: result.durationMs,
     agentId: response?.agentId ?? null,
     outputPrefix: request.output.prefix,
+    backend: 'gateway',
+    timeoutMs: request.timeoutMs,
+    finishedAt: DateTime.utc(),
   })
   // Sans toucher updated_at : le tableau de bord trie par dernière modification du contenu.
   await Project.query().where('id', project.id).update({ lastCompiledAt: DateTime.utc().toSQL() })
@@ -156,11 +165,21 @@ export async function lastCompile(
   outputs: CompileOutputStorage,
   projectId: string,
 ): Promise<CompileResult | null> {
+  // Les compilations en cours ou annulées (mode asynchrone) n'ont pas de résultat à afficher.
   const compile = await Compile.query()
     .where('projectId', projectId)
+    .whereIn('status', compileStatusSchema.options)
     .orderBy('createdAt', 'desc')
     .first()
   if (!compile) return null
+  return compileResultOf(outputs, compile)
+}
+
+/** Résultat d'une compilation terminée (hors annulation) : entrées du log et URL fraîches. */
+export async function compileResultOf(
+  outputs: CompileOutputStorage,
+  compile: Compile,
+): Promise<CompileResult> {
   const prefix = compile.outputPrefix
   const [pdfSize, logSize] = await Promise.all([
     outputs.size(`${prefix}output.pdf`),
@@ -177,7 +196,7 @@ export async function lastCompile(
   ])
   return {
     buildId: compile.id,
-    status: compile.status,
+    status: compileStatusSchema.parse(compile.status),
     durationMs: compile.durationMs,
     entries,
     ...(await outputUrls(outputs, prefix, names)),

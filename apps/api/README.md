@@ -51,7 +51,18 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
 - **Compilation** : `POST /projects/:id/compile` (instantané temps réel + table `files`, envoyé
   au compile-gateway ; résultat enregistré dans `compiles`, URL présignées du PDF et du log),
   `POST /projects/:id/compile/stop`, `GET /projects/:id/compile/last`,
-  `POST /projects/:id/compile/clear-cache`.
+  `POST /projects/:id/compile/clear-cache`. Mode `COMPILE_BACKEND=cloudflare` (production) :
+  `POST /projects/:id/compile` répond 202 `{ buildId, status }` (`queued`, ou `preparing` si le
+  conteneur se réveille ; état initial, que le client ignore s'il a déjà reçu un événement du
+  même `buildId`), le Worker (`apps/compile-worker`) rappelle
+  `POST /internal/compile-callbacks` (HMAC, horodatage, `seq` anti-rejeu) et le service temps
+  réel diffuse l'événement `compile` aux connexions du projet ; repli par sondage
+  `GET /projects/:id/builds/:buildId`, qui clôt aussi en `error` une compilation restée sans
+  nouvelles du Worker au-delà de son timeout + 5 min (entrée de log « The compiler did not
+  respond in time »). `POST /projects/:id/compiler/warm`
+  réveille le conteneur du projet à l'ouverture de l'éditeur. Une compilation active à la fois
+  par projet (409 `E_COMPILE_IN_PROGRESS`) ; au plus 5 projets réveillés par utilisateur sur
+  15 min (429 `E_TOO_MANY_COMPILERS`).
 - **SyncTeX** : `GET /projects/:id/synctex/code` (`file`, `line`, `column`) et
   `GET /projects/:id/synctex/pdf` (`page`, `h`, `v`).
 - **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel ; ou

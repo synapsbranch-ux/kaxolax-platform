@@ -1,11 +1,9 @@
 name: images
 
-# Images Docker des services (docker/Dockerfile), en arm64 comme les instances Graviton du
-# staging. Toujours construites (le Dockerfile est vérifié) ; poussées vers ECR depuis main
-# seulement quand le rôle OIDC est configuré (variables du dépôt AWS_ECR_PUSH_ROLE_ARN, AWS_REGION).
-# Puis, depuis main : déploiement sur le staging par SSM (AWS_DEPLOY_ROLE_ARN) et parcours
-# Playwright de la « Définition de terminé » sur le staging (E2E_BASE_URL, et les secrets
-# CLERK_PUBLISHABLE_KEY et CLERK_SECRET_KEY de l'instance Clerk du staging).
+# Images Docker des services (docker/Dockerfile) : construites et testées (smoke test) pour
+# vérifier le Dockerfile, en linux/amd64 comme Railway, qui les construit lui-même au
+# déploiement. Rien n'est poussé ni déployé d'ici (décisions C.1 et C.2 : pas de staging,
+# plus d'AWS). Le conteneur de compilation Cloudflare est vérifié de la même façon.
 
 on:
   push:
@@ -21,7 +19,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: images-${{ github.ref }}
@@ -29,8 +26,8 @@ concurrency:
 
 jobs:
   build:
-    name: build (arm64)
-    runs-on: ubuntu-24.04-arm
+    name: build (amd64)
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       DOCKER_BUILDKIT: '1'
@@ -40,7 +37,8 @@ jobs:
       - name: Build
         run: |
           for target in web api realtime compile-gateway compile-agent; do
-            docker build -f docker/Dockerfile --target "$target" -t "kaxolax/$target:${GITHUB_SHA}" .
+            docker build --platform linux/amd64 -f docker/Dockerfile --target "$target" \
+              -t "kaxolax/$target:${GITHUB_SHA}" .
           done
           docker images 'kaxolax/*'
 
@@ -52,97 +50,22 @@ jobs:
             docker run --rm "kaxolax/$target:${GITHUB_SHA}" node -e "require('fs').accessSync('dist/main.js')"
           done
 
-      - name: Configure AWS credentials (OIDC)
-        if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != ''
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Log in to ECR
-        id: ecr
-        if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != ''
-        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
-
-      - name: Push to ECR
-        if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != ''
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: |
-          for target in web api realtime compile-gateway compile-agent; do
-            for tag in "${GITHUB_SHA}" staging; do
-              docker tag "kaxolax/$target:${GITHUB_SHA}" "$REGISTRY/kaxolax/$target:$tag"
-              docker push "$REGISTRY/kaxolax/$target:$tag"
-            done
-          done
-
-  deploy:
-    name: deploy (staging)
-    needs: build
-    if: github.event_name == 'push' && vars.AWS_ECR_PUSH_ROLE_ARN != '' && vars.AWS_DEPLOY_ROLE_ARN != ''
+  # Conteneur de compilation Cloudflare (linux/amd64, imposé par Cloudflare Containers) : construit
+  # pour vérifier le Dockerfile ; l'image publiée est construite et poussée par `wrangler deploy`.
+  # Production (Railway) : Railway construit lui-même web, api et realtime depuis docker/Dockerfile.
+  compile-container:
+    name: build compile container (amd64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    environment: staging
-    concurrency:
-      group: deploy-staging
-      cancel-in-progress: false
-    steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      # kaxolax-deploy (kaxolax-infra) sur l'instance applicative et le worker : configuration,
-      # secrets, images :staging, migrations, redémarrage des services.
-      - name: Run kaxolax-deploy through SSM
-        run: |
-          command_id=$(aws ssm send-command \
-            --document-name AWS-RunShellScript \
-            --targets Key=tag:Project,Values=kaxolax Key=tag:Stack,Values=staging \
-            --comment "kaxolax-platform ${GITHUB_SHA::7}" \
-            --parameters 'commands=["/usr/local/bin/kaxolax-deploy"]' \
-            --timeout-seconds 900 \
-            --query Command.CommandId --output text)
-          echo "SSM command ${command_id}"
-          for _ in $(seq 1 120); do
-            statuses=$(aws ssm list-command-invocations --command-id "$command_id" \
-              --query 'CommandInvocations[].Status' --output text)
-            if [ -n "$statuses" ] && ! grep -qE 'Pending|InProgress|Delayed' <<<"$statuses"; then
-              break
-            fi
-            sleep 10
-          done
-          aws ssm list-command-invocations --command-id "$command_id" --details \
-            --query 'CommandInvocations[].[InstanceId,Status,CommandPlugins[0].Output]' --output text
-          test "$(aws ssm list-command-invocations --command-id "$command_id" \
-            --query "length(CommandInvocations[?Status!='Success'])" --output text)" = 0
-          test "$(aws ssm list-command-invocations --command-id "$command_id" \
-            --query 'length(CommandInvocations)' --output text)" = 2
-
-  e2e-staging:
-    name: definition of done (staging)
-    needs: deploy
-    if: vars.E2E_BASE_URL != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    concurrency:
-      group: deploy-staging-e2e
-      cancel-in-progress: false
+    timeout-minutes: 45
+    env:
+      DOCKER_BUILDKIT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @kaxolax/web exec playwright install --with-deps chromium
-
-      # Comptes créés par Clerk (adresses +clerk_test) : plus d'email de l'application à lire.
-      - name: Playwright
-        env:
-          E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
-          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-        run: pnpm --filter @kaxolax/web e2e
+      - name: Build
+        run: >-
+          docker build --platform linux/amd64 -f apps/compile-worker/container/Dockerfile
+          -t kaxolax/compile-container:${{ github.sha }} .
+      - name: Smoke test
+        run: >-
+          docker run --rm --entrypoint node kaxolax/compile-container:${{ github.sha }}
+          -e "require('fs').accessSync('/opt/kaxolax/agent/dist/container-main.js')"

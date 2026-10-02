@@ -1,4 +1,6 @@
+export * from './builds.js'
 export * from './common.js'
+export * from './compile-worker-auth.js'
 export * from './compile.js'
 export * from './files.js'
 export * from './log.js'

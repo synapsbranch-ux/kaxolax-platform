@@ -97,7 +97,8 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 apps/
   api/                API REST AdonisJS (miroir des comptes Clerk, projets, arborescence)
   compile-agent/      agent de compilation (sandbox Docker, latexmk, SyncTeX)
-  compile-gateway/    verrous Redis, affinité et bascule entre agents
+  compile-gateway/    verrous Redis, affinité et bascule entre agents (mode `gateway`)
+  compile-worker/     Worker Cloudflare + Durable Object + Containers (mode `cloudflare`)
   web/                application Next.js (Clerk, tableau de bord, éditeur)
   realtime/           édition collaborative (Hocuspocus + Yjs, persistance PostgreSQL)
 functions/
@@ -110,9 +111,10 @@ packages/
   editor/             extensions CodeMirror (langage LaTeX, repli, raccourcis)
   ui/                 composants shadcn/ui partagés
   latex-log-parser/   parsing des logs LaTeX, BibTeX et Biber
-docs/          décisions d'architecture (decisions.md)
-docker/        configuration des services locaux
-scripts/       outils de développement
+deploy/railway/  configuration des services Railway (config as code)
+docs/          décisions d'architecture (decisions.md), déploiement (deploy.md)
+docker/        configuration des services locaux, Dockerfile des services
+scripts/       outils de développement ; backup/ : sauvegardes PostgreSQL vers R2
 ```
 
 ## Image TeX Live
@@ -125,13 +127,23 @@ docker pull ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium
 docker tag ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium kaxolax-texlive:2026-medium
 ```
 
-## Images et staging
+## Production (Railway + Cloudflare)
 
-`docker/Dockerfile` construit une image par service (`--target web|api|realtime|compile-gateway|compile-agent`).
-La CI (`.github/workflows/images.yml`) les construit en arm64 à chaque push. Depuis `main`, elle
-les pousse dans ECR (`kaxolax/<service>:staging`), déploie le staging par SSM (`kaxolax-deploy`),
-puis lance le parcours Playwright sur le staging. L'infrastructure, sa mise en place et les
-variables du dépôt à poser sont décrites dans `kaxolax-infra`.
+Guide pas à pas : [docs/deploy.md](docs/deploy.md). En résumé :
+
+- **Railway** : web, admin, api, realtime, PostgreSQL, Redis et le job cron de sauvegarde ; un
+  fichier par service dans `deploy/railway/` (Dockerfile, healthcheck, migrations avant
+  déploiement, réplicas). `docker/Dockerfile` choisit son étape finale avec `KAXOLAX_SERVICE`
+  (Railway) ou `--target web|api|realtime|compile-gateway|compile-agent` (CI, local).
+- **Cloudflare** : DNS, CDN, WAF, R2 (SDK S3 existant, `S3_REGION=auto`), Worker de compilation
+  `apps/compile-worker` avec un conteneur par projet (`pnpm --filter @kaxolax/compile-worker deploy`).
+- **Compilation** : `COMPILE_BACKEND=gateway` (défaut local et CI : synchrone, compile-gateway et
+  agents Docker + gVisor) ou `cloudflare` (production : asynchrone, `buildId` puis résultat par
+  le service temps réel).
+- **Sauvegardes** : `scripts/backup/` (dump chiffré vers R2, test de restauration).
+- L'infrastructure as code (Terraform Cloudflare, provisionnement Railway) est dans
+  `kaxolax-infra`. `.github/workflows/images.yml` construit et vérifie les images (amd64) sans
+  rien pousser ni déployer.
 
 ## Conventions
 

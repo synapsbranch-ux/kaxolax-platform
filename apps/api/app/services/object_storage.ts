@@ -10,25 +10,49 @@ import {
   NotFound,
   PutObjectCommand,
   S3Client,
+  type S3ClientConfig,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { UploadSource } from '@kaxolax/upload-processor'
 import logger from '@adonisjs/core/services/logger'
 import storageConfig from '#config/storage'
 
-function createClient(endpoint: string | undefined): S3Client {
-  const { accessKeyId, secretAccessKey } = storageConfig
-  return new S3Client({
-    region: storageConfig.region,
-    ...(endpoint ? { endpoint } : {}),
-    forcePathStyle: storageConfig.forcePathStyle,
+export interface S3Settings {
+  region: string
+  endpoint?: string
+  forcePathStyle: boolean
+  accessKeyId?: string
+  secretAccessKey?: string
+}
+
+/**
+ * Options du client, valables pour AWS S3, SeaweedFS (local) et Cloudflare R2 (production :
+ * `S3_REGION=auto`, endpoint `https://<compte>[.eu].r2.cloudflarestorage.com`). Aucune option
+ * propre à AWS (ACL, chiffrement SSE, classe de stockage) n'est utilisée par l'application.
+ */
+export function s3ClientOptions(settings: S3Settings): S3ClientConfig {
+  const { accessKeyId, secretAccessKey } = settings
+  return {
+    region: settings.region,
+    ...(settings.endpoint ? { endpoint: settings.endpoint } : {}),
+    forcePathStyle: settings.forcePathStyle,
     // Le checksum ajouté par défaut par le SDK n'est pas accepté par tous les stockages S3.
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
-    ...(accessKeyId && secretAccessKey
-      ? { credentials: { accessKeyId, secretAccessKey: secretAccessKey.release() } }
-      : {}),
-  })
+    ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
+  }
+}
+
+function createClient(endpoint: string | undefined): S3Client {
+  return new S3Client(
+    s3ClientOptions({
+      region: storageConfig.region,
+      endpoint,
+      forcePathStyle: storageConfig.forcePathStyle,
+      accessKeyId: storageConfig.accessKeyId,
+      secretAccessKey: storageConfig.secretAccessKey?.release(),
+    }),
+  )
 }
 
 // Deux clients : l'un parle à S3 depuis le serveur, l'autre signe des URL pour le navigateur

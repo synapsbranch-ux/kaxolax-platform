@@ -1,9 +1,17 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
+import compileConfig from '#config/compile'
+import {
+  cancelActiveBuild,
+  enqueueCompile,
+  lastBuildWithOutputs,
+} from '#services/async_compile_service'
 import CompileGateway from '#services/compile_gateway'
 import { compileProject, lastCompile } from '#services/compile_service'
+import CompileWorkerClient from '#services/compile_worker'
 import { CompileOutputStorage } from '#services/object_storage'
 import { projectFor } from '#services/project_access'
+import ProjectEvents from '#services/project_events'
 import RealtimeClient from '#services/realtime_client'
 import { buildTree } from '#services/tree_service'
 import { synctexCodeValidator, synctexPdfValidator } from '#validators/compile'
@@ -14,12 +22,28 @@ export default class CompilesController {
     private readonly gateway: CompileGateway,
     private readonly realtime: RealtimeClient,
     private readonly outputs: CompileOutputStorage,
+    private readonly worker: CompileWorkerClient,
+    private readonly events: ProjectEvents,
   ) {}
 
-  /** Tout membre du projet peut compiler : la compilation ne modifie pas le contenu. */
-  async compile({ params, auth }: HttpContext) {
+  private get async() {
+    return compileConfig.backend === 'cloudflare'
+  }
+
+  /**
+   * Tout membre du projet peut compiler : la compilation ne modifie pas le contenu. En mode
+   * `cloudflare`, réponse 202 `{ buildId, status }` (`queued`, ou `preparing` pendant le réveil du
+   * conteneur) ; le résultat arrive par le service temps réel (ou `GET …/builds/:buildId`).
+   */
+  async compile({ params, auth, response }: HttpContext) {
     const user = auth.getUserOrFail()
     const { project } = await projectFor(user, String(params.id), 'viewer')
+    if (this.async) {
+      const deps = { worker: this.worker, realtime: this.realtime, outputs: this.outputs }
+      const accepted = await enqueueCompile({ ...deps, events: this.events }, user, project)
+      response.status(202)
+      return accepted
+    }
     return compileProject(
       { gateway: this.gateway, realtime: this.realtime, outputs: this.outputs },
       user,
@@ -29,6 +53,11 @@ export default class CompilesController {
 
   async stop({ params, auth }: HttpContext) {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    if (this.async) {
+      return {
+        stopped: await cancelActiveBuild({ worker: this.worker, events: this.events }, project.id),
+      }
+    }
     return { stopped: await this.gateway.stop(project.id) }
   }
 
@@ -40,13 +69,19 @@ export default class CompilesController {
 
   async clearCache({ params, auth }: HttpContext) {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    if (this.async) return { cleared: await this.worker.clearCache(project.id) }
     return { cleared: await this.gateway.clearCache(project.id) }
   }
 
   async synctexCode({ params, request, auth }: HttpContext) {
     const query = await request.validateUsing(synctexCodeValidator, { data: request.qs() })
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
-    return this.gateway.synctexFromCode(project.id, { ...query, column: query.column ?? 0 })
+    const position = { ...query, column: query.column ?? 0 }
+    if (this.async) {
+      const buildId = await lastBuildWithOutputs(project.id)
+      return this.worker.synctexFromCode(project.id, { ...position, buildId })
+    }
+    return this.gateway.synctexFromCode(project.id, position)
   }
 
   /**
@@ -56,7 +91,12 @@ export default class CompilesController {
   async synctexPdf({ params, request, auth }: HttpContext) {
     const query = await request.validateUsing(synctexPdfValidator, { data: request.qs() })
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
-    const { code } = await this.gateway.synctexFromPdf(project.id, query)
+    const { code } = this.async
+      ? await this.worker.synctexFromPdf(project.id, {
+          ...query,
+          buildId: await lastBuildWithOutputs(project.id),
+        })
+      : await this.gateway.synctexFromPdf(project.id, query)
     const documents = new Set(
       (await buildTree(project.id)).documents.map((document) => document.path),
     )

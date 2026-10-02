@@ -1,4 +1,4 @@
-import { readFile, rm, stat } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import {
   type AgentCompileResponse,
@@ -15,15 +15,18 @@ import {
 } from '@kaxolax/contracts'
 import { parseCompileLogs } from '@kaxolax/latex-log-parser'
 import { OUTPUT_LIMITS } from './config.js'
-import { type Sandbox, SANDBOX_WORKDIR, type SandboxResult } from './sandbox.js'
+import { type CompileSandbox, type SandboxResult } from './sandbox.js'
+import { readRegularFile, regularFileSize } from './regular-file.js'
 import { Semaphore } from './semaphore.js'
 import { ChecksumMismatchError, type OutputStore } from './storage.js'
 import { parseSynctexEdit, parseSynctexView, relativeToRoot, rootDirectory } from './synctex.js'
 import {
+  assertSafeTarget,
   type BinarySource,
   directorySize,
   projectPaths,
   readRootResourcePath,
+  restoreSynctex,
   touchProject,
   UnsafePathError,
   syncWorkspace,
@@ -35,10 +38,10 @@ const ENGINE_FLAGS: Record<CompilerName, string> = {
   lualatex: '-lualatex',
 }
 
-/** Sorties envoyées vers S3 (le fichier SyncTeX reste sur l'agent, qui répond aux requêtes). */
 /** Fin du log d'un moteur qui a écrit des pages (XeLaTeX écrit un .xdv, converti ensuite en PDF). */
 const PDF_WRITTEN = /Output written on output\.(pdf|xdv)\b/
 
+/** Sorties envoyées vers S3 (le fichier SyncTeX reste sur l'agent, sauf `uploadSynctex`). */
 const UPLOADED_OUTPUTS: { name: string; contentType: string }[] = [
   { name: 'output.pdf', contentType: 'application/pdf' },
   { name: 'output.log', contentType: 'text/plain; charset=utf-8' },
@@ -77,11 +80,18 @@ export interface CompilerOptions {
   capacity: number
   workdirMaxBytes: number
   outputBucket: string
-  sandbox: Sandbox
+  sandbox: CompileSandbox
   binaries: BinarySource
   outputs: OutputStore
   logger: CompilerLogger
+  /**
+   * Envoie aussi `output.synctex.gz` (conteneur Cloudflare : la VM peut être recyclée entre la
+   * compilation et une requête SyncTeX, le fichier est alors restauré depuis R2).
+   */
+  uploadSynctex?: boolean
 }
+
+const SYNCTEX_OUTPUT = { name: 'output.synctex.gz', contentType: 'application/gzip' }
 
 export class InvalidRequestError extends Error {}
 
@@ -94,13 +104,9 @@ function agentEntry(message: string): LogEntry {
   return { level: 'error', file: null, line: null, message, raw: '' }
 }
 
+/** Taille d'une sortie : un lien symbolique ou un fichier spécial compte comme absent. */
 async function fileSize(path: string): Promise<number | null> {
-  try {
-    const info = await stat(path)
-    return info.isFile() ? info.size : null
-  } catch {
-    return null
-  }
+  return regularFileSize(path)
 }
 
 /** Ramène un chemin du log (relatif au répertoire du document principal) à un chemin du projet. */
@@ -183,6 +189,8 @@ export class Compiler {
     const rootDir = rootDirectory(request.rootResourcePath)
     const mainFile = posix.basename(request.rootResourcePath)
     const outputDir = rootDir === '' ? paths.files : join(paths.files, rootDir)
+    const visibleWorkdir = this.options.sandbox.workdirPath(paths.files)
+    const workingDir = rootDir === '' ? visibleWorkdir : `${visibleWorkdir}/${rootDir}`
     const timings = { syncMs: 0, runMs: 0, uploadMs: 0 }
     const finish = (status: CompileStatus, entries: LogEntry[], outputFiles: OutputFile[] = []) => {
       const response: AgentCompileResponse = {
@@ -245,7 +253,7 @@ export class Compiler {
       result = await this.options.sandbox.run({
         command: latexmkCommand(request.compiler, mainFile),
         hostWorkdir: paths.files,
-        workingDir: rootDir === '' ? SANDBOX_WORKDIR : `${SANDBOX_WORKDIR}/${rootDir}`,
+        workingDir,
         timeoutMs: request.timeoutMs,
         signal,
         labels: { 'dev.kaxolax.project': request.projectId, 'dev.kaxolax.build': request.buildId },
@@ -282,16 +290,23 @@ export class Compiler {
       status = result.exitCode === 0 ? 'success' : 'failure'
     }
 
+    // Répertoire de sortie remplacé par un lien symbolique : aucune sortie n'est lue.
+    const outputDirSafe =
+      rootDir === '' ||
+      (await assertSafeTarget(paths.files, rootDir).then(
+        () => true,
+        () => false,
+      ))
     const pdfPath = join(outputDir, 'output.pdf')
     const logPath = join(outputDir, 'output.log')
     const blgPath = join(outputDir, 'output.blg')
-    const pdfSize = await fileSize(pdfPath)
-    const logSize = await fileSize(logPath)
+    const pdfSize = outputDirSafe ? await fileSize(pdfPath) : null
+    const logSize = outputDirSafe ? await fileSize(logPath) : null
     // Le répertoire garde les sorties précédentes (compilation incrémentale) : le PDF n'est envoyé
     // que si latexmk est allé au bout et que la dernière passe du moteur l'a bien produit. Sinon
     // (arrêt, timeout, erreur fatale sans page), ce serait le PDF d'une compilation antérieure.
     const log =
-      logSize !== null && logSize <= OUTPUT_LIMITS.logBytes ? await readFile(logPath) : null
+      logSize !== null && logSize <= OUTPUT_LIMITS.logBytes ? await readRegularFile(logPath) : null
     const pdfIsCurrent =
       result.outcome === 'exited' &&
       !result.oomKilled &&
@@ -312,11 +327,8 @@ export class Compiler {
     if (status === 'success' && !uploadPdf) status = 'failure'
 
     if (uploadLog && log !== null) {
-      const blg = await readFile(blgPath).catch(() => null)
-      const parsed = parseCompileLogs(
-        { log, blg },
-        { rootDir: rootDir === '' ? SANDBOX_WORKDIR : `${SANDBOX_WORKDIR}/${rootDir}` },
-      )
+      const blg = await readRegularFile(blgPath)
+      const parsed = parseCompileLogs({ log, blg }, { rootDir: workingDir })
       entries.unshift(
         ...parsed.map((entry) => ({ ...entry, file: projectFile(entry.file, rootDir) })),
       )
@@ -325,11 +337,16 @@ export class Compiler {
     // 4. Envoi des sorties vers S3.
     const uploadStarted = performance.now()
     const outputFiles: OutputFile[] = []
-    for (const output of UPLOADED_OUTPUTS) {
+    const uploaded = this.options.uploadSynctex
+      ? [...UPLOADED_OUTPUTS, SYNCTEX_OUTPUT]
+      : UPLOADED_OUTPUTS
+    for (const output of uploaded) {
       if (output.name === 'output.pdf' && !uploadPdf) continue
+      // Le SyncTeX ne vaut que pour le PDF envoyé.
+      if (output.name === SYNCTEX_OUTPUT.name && !uploadPdf) continue
       if (output.name === 'output.log' && !uploadLog) continue
       const path = join(outputDir, output.name)
-      const size = await fileSize(path)
+      const size = outputDirSafe ? await fileSize(path) : null
       if (size === null || size > OUTPUT_LIMITS.pdfBytes) continue
       const key = `${request.output.prefix}${output.name}`
       await this.options.outputs.put(request.output.bucket, key, path, output.contentType)
@@ -356,6 +373,7 @@ export class Compiler {
   ): Promise<{
     output: string
     rootDir: string
+    workdir: string
   } | null> {
     const paths = projectPaths(this.options.compilesDir, projectId)
     const rootResourcePath = await readRootResourcePath(paths)
@@ -367,15 +385,39 @@ export class Compiler {
     )
     if ((await fileSize(synctexFile)) === null) return null
     await touchProject(paths)
+    const visibleWorkdir = this.options.sandbox.workdirPath(paths.files)
     const result = await this.options.sandbox.run({
       command: ['synctex', ...args(rootDir)],
       hostWorkdir: paths.files,
-      workingDir: rootDir === '' ? SANDBOX_WORKDIR : `${SANDBOX_WORKDIR}/${rootDir}`,
+      workingDir: rootDir === '' ? visibleWorkdir : `${visibleWorkdir}/${rootDir}`,
       readOnly: true,
       timeoutMs: SYNCTEX_TIMEOUT_MS,
       labels: { 'dev.kaxolax.project': projectId, 'dev.kaxolax.synctex': 'true' },
     })
-    return result.outcome === 'exited' ? { output: result.output, rootDir } : null
+    return result.outcome === 'exited'
+      ? { output: result.output, rootDir, workdir: visibleWorkdir }
+      : null
+  }
+
+  /** Le projet a un fichier SyncTeX (sinon, le conteneur Cloudflare le restaure depuis R2). */
+  async hasSynctex(projectId: string): Promise<boolean> {
+    const paths = projectPaths(this.options.compilesDir, projectId)
+    const rootResourcePath = await readRootResourcePath(paths)
+    if (rootResourcePath === null) return false
+    const rootDir = rootDirectory(rootResourcePath)
+    const directory = rootDir === '' ? paths.files : join(paths.files, rootDir)
+    return (await fileSize(join(directory, 'output.synctex.gz'))) !== null
+  }
+
+  /** Remet en place le fichier SyncTeX d'une compilation précédente (hors compilation en cours). */
+  async restoreSynctex(
+    projectId: string,
+    rootResourcePath: string,
+    source: NodeJS.ReadableStream,
+  ): Promise<void> {
+    await this.exclusive(projectId, () =>
+      restoreSynctex(projectPaths(this.options.compilesDir, projectId), rootResourcePath, source),
+    )
   }
 
   /** Du code vers le PDF, avec le binaire synctex dans le même sandbox que la compilation. */
@@ -401,6 +443,8 @@ export class Compiler {
         `${String(query.page)}:${String(query.h)}:${String(query.v)}:output.pdf`,
       ]),
     )
-    return { code: result === null ? [] : parseSynctexEdit(result.output, result.rootDir) }
+    return {
+      code: result === null ? [] : parseSynctexEdit(result.output, result.rootDir, result.workdir),
+    }
   }
 }

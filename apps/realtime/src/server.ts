@@ -9,9 +9,11 @@ import {
   INTERNAL_TOKEN_HEADER,
   type ProjectRole,
   type ProjectSnapshot,
+  projectEventSchema,
 } from '@kaxolax/contracts'
 import type { Logger } from 'pino'
 import type { RealtimeConfig } from './config.js'
+import { broadcastProjectEvent, EVENTS_ROUTE, readJsonBody } from './events.js'
 import type { DocumentStore } from './store.js'
 
 /** Contexte d'une connexion authentifiée. */
@@ -132,6 +134,16 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     const closeMatch = request.method === 'POST' ? CLOSE_ROUTE.exec(path) : null
     if (closeMatch?.[1]) {
       sendJson(response, 200, closeDocument(instance, closeMatch[1]))
+      return
+    }
+    const eventsMatch = request.method === 'POST' ? EVENTS_ROUTE.exec(path) : null
+    if (eventsMatch?.[1]) {
+      const event = projectEventSchema.safeParse(await readJsonBody(request))
+      if (!event.success || event.data.projectId !== eventsMatch[1]) {
+        sendJson(response, 400, { code: 'E_INVALID_EVENT' })
+        return
+      }
+      sendJson(response, 200, broadcastProjectEvent(instance, eventsMatch[1], event.data))
       return
     }
     sendJson(response, 404, { code: 'E_NOT_FOUND' })
