@@ -36,7 +36,25 @@ l'API).
     bouton Outils (barre de menus du registre d'actions de `@kaxolax/editor`), CodeMirror 6 sur
     Yjs en thème sombre, aperçu des images, emplacements Review, Historique et assistant
     (étape 3). Les outils s'ajoutent par `useEditorActions()` (registre partagé, raccourcis) et
-    `ACTION_DIALOGS` (`workspace/action-dialogs.tsx`).
+    `ACTION_DIALOGS` (`workspace/action-dialogs.tsx`, boîtes chargées à la demande).
+  - Outils d'écriture (`workspace/writing/`, logique dans `@kaxolax/editor`, désactivés en
+    lecture seule) : **éditeur de formules** (Maths, Ctrl+Maj+E : champ MathLive chargé à la
+    première ouverture, LaTeX éditable en texte brut, bibliothèque, en ligne / centrée / numérotée
+    avec label, aperçu du texte inséré ; ouvert sur la formule sous le curseur, il la remplace
+    exactement) ; **symboles** (Maths : onglets par catégorie, recherche, récents mémorisés dans
+    les préférences, flèches dans la palette, package manquant ajouté en un clic ou à
+    l'insertion) ; **tableau** (Structures : grille au clavier — flèches, Tab, Entrée,
+    Alt+Maj+flèches pour sélectionner —, lignes et colonnes, fusion `\multicolumn`/`\multirow`,
+    alignement, filets booktabs/classiques/verticaux, collage depuis un tableur ou un CSV, légende
+    et label, aperçu du code ; ouvert sur le tableau sous le curseur, texte brut s'il n'est pas
+    représentable ; insertion refusée tant qu'une case ou la légende ne compilerait pas, avec
+    échappement en un clic ; pas de flottant `table` dans une figure ou une minipage). Formule
+    tapée en LaTeX : insertion refusée si elle ne compilerait pas (accolades, `$`, `&`…). Un
+    outil qui ne se charge pas (hors ligne, nouvelle version) ou qui échoue affiche « Outil
+    indisponible » (Réessayer, Fermer) sans fermer l'éditeur. Packages requis ajoutés au préambule dans la même étape d'annulation ; dans
+    un fichier sans préambule, rappel à charger dans le document principal. MathLive n'utilise
+    aucune ressource externe (polices servies par Next.js, sons coupés) ; ses extensions HTML
+    (`\href`, `\htmlStyle`…) sont retirées des valeurs chargées et aucun lien n'est ouvert.
   - PDF (pdf.js) : pastille de statut (Recompiler, Ctrl+Entrée) et son menu (auto-compilation,
     compilateur, brouillon, arrêt à la première erreur, arrêt, vider le cache, logs), zoom
     (page, largeur, 50 à 400 %), téléchargement, menu ⋯ (zip des sources, fichiers de sortie,
@@ -56,8 +74,9 @@ l'API).
   800 ms, envoyé aussitôt quand la page est masquée). Clés utilisées : `theme` (bascule
   soleil/lune du pied de sidebar ; paramètres complets à la tâche 10), `layout` (tailles des
   colonnes, repli), `toolsVisible`, `autoCompile`, `compile` (brouillon, arrêt à la première
-  erreur), `openTabs` (onglets par projet). Le thème est recopié dans le cookie `kaxolax-theme`
-  (rendu serveur de `data-theme`, sans flash) et dans localStorage (`ThemeScript`).
+  erreur), `openTabs` (onglets par projet), `recentSymbols` (sélecteur de symboles). Le thème
+  est recopié dans le cookie `kaxolax-theme` (rendu serveur de `data-theme`, sans flash) et dans
+  localStorage (`ThemeScript`).
 
 ## Développement
 

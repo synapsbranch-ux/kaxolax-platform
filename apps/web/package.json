@@ -23,6 +23,7 @@
     "@kaxolax/editor": "workspace:*",
     "@kaxolax/ui": "workspace:*",
     "lucide-react": "catalog:",
+    "mathlive": "catalog:",
     "next": "catalog:",
     "pdfjs-dist": "catalog:",
     "react": "catalog:",

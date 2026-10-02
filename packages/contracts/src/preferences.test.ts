@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PREFERENCES,
   MAX_OPEN_TABS_PROJECTS,
+  MAX_RECENT_SYMBOLS,
   mergePreferences,
   resolvePreferences,
   sanitizePreferences,
@@ -33,6 +34,9 @@ describe('userPreferencesSchema', () => {
     { editor: { fontSize: 100 } },
     { openTabs: { 'not-a-uuid': { documentIds: [], activeDocumentId: null } } },
     { openTabs: { [projectA]: { documentIds: ['x'], activeDocumentId: null } } },
+    { recentSymbols: ['alpha'] },
+    { recentSymbols: ['\\a b'] },
+    { recentSymbols: 'not-an-array' },
   ])('rejects %j', (value) => {
     expect(userPreferencesSchema.safeParse(value).success).toBe(false)
   })
@@ -45,6 +49,14 @@ describe('userPreferencesSchema', () => {
       ]),
     )
     expect(userPreferencesSchema.safeParse({ openTabs }).success).toBe(false)
+  })
+
+  it('bounds the recent symbols', () => {
+    const recentSymbols = Array.from({ length: MAX_RECENT_SYMBOLS }, () => '\\alpha')
+    expect(userPreferencesSchema.safeParse({ recentSymbols }).success).toBe(true)
+    expect(
+      userPreferencesSchema.safeParse({ recentSymbols: [...recentSymbols, '\\beta'] }).success,
+    ).toBe(false)
   })
 })
 
@@ -169,5 +181,7 @@ describe('resolvePreferences', () => {
     expect(resolved.layout).toEqual({ ...DEFAULT_PREFERENCES.layout, sidebarCollapsed: true })
     expect(resolved.editor.keymap).toBe('vim')
     expect(resolved.editor.fontSize).toBe(DEFAULT_PREFERENCES.editor.fontSize)
+    expect(resolved.recentSymbols).toEqual([])
+    expect(resolvePreferences({ recentSymbols: ['\\alpha'] }).recentSymbols).toEqual(['\\alpha'])
   })
 })

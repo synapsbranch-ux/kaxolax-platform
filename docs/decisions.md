@@ -379,3 +379,44 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Aucune lecture de base : tout passe par `/api/v1/admin/*` (réécriture `/api`), réponses validées par les schémas zod de `@kaxolax/contracts`.
 - Layout serveur : session, claim `metadata.role` et `fva[1] !== -1`, sinon page « Accès refusé » identique quelle que soit la raison ; l'API reste seule juge (MFA activée vérifiée chez Clerk).
 - Sous-domaine du domaine principal Clerk : session partagée sans instance satellite. Actions irréversibles : confirmation avec texte à recopier.
+
+## 2026-10-02 · Outils d'écriture : logique dans `@kaxolax/editor`, interface dans l'application
+
+- Détection, génération et analyse (formules, symboles, tableaux) sont des fonctions pures de `packages/editor`, sans React ni MathLive : testées sous Node, réutilisables par d'autres interfaces.
+- `math.formula` (`Mod-Shift-e`), `math.symbols` et `structures.table` sont dans `createDefaultRegistry()` et passent par `host.openDialog(id, payload)` ; le payload typé porte la plage et le texte détectés. « Tableau » remplace l'ancien modèle fixe `structures.table`.
+- Insertion en une étape d'annulation, packages manquants ajoutés au préambule ; la plage est suivie à travers les modifications faites pendant l'édition (collaborateurs) ; modifiée ou disparue : `stale` et rien n'est écrit.
+- Une formule ou un tableau inchangé n'est pas réécrit (`unchanged`) ; une formule modifiée garde délimiteurs, environnement et `\label` (seul le corps change).
+
+## 2026-10-02 · Tableaux : grille avec aller-retour exact, texte brut sinon
+
+- Modèle : colonnes et séparateurs bruts (`|`, `@{}`, `>{…}`), cellules avec `colspan`/`rowspan` (cases couvertes à `null`), filets par frontière (`\hline`, `\cline`, booktabs, commandes brutes comme `\addlinespace`).
+- `parseTable(generateTable(m))` redonne `m` et le même texte ; un tableau écrit à la main est relu avec avertissements (commentaires retirés, `*{n}{…}` développé, lignes complétées, `\multirow` chevauchant gardé dans la cellule) ou `ok: false` + texte brut (plus de cellules que de colonnes, spécification inconnue).
+- Le flottant `table` n'est repris que s'il ne contient que `\centering`, `\caption`, `\label` et le tableau ; sinon seule la grille est remplacée.
+- Collage : TSV (Excel, Google Sheets) ou CSV RFC 4180 (`,` ou `;` détecté), contenu échappé par défaut.
+
+## 2026-10-02 · Formules : normalisation de MathLive et packages calculés
+
+- `normalizeMathLive` convertit les commandes propres à MathLive (`\exponentialE`, `\differentialD`, `\mleft`, `\placeholder`…) par une table testée ; le résultat compile avec amsmath seul, sauf couleurs (xcolor) et `\cancel` (cancel), signalés.
+- Les packages d'une formule ou d'un symbole viennent du catalogue et d'une table de commandes et d'environnements ; `mathtools` vaut `amsmath`, `amssymb` vaut `amsfonts`.
+- Vérifié en compilant avec TeX Live 2026 (pdflatex, sans réseau) chaque symbole avec ses seuls packages déclarés, la bibliothèque de formules et les tableaux générés.
+
+## 2026-10-02 · Outils d'écriture dans l'application : MathLive à la demande
+
+- `mathlive` 0.110.0 (MIT, dernière version publiée avant le 2026-09-30) : seul éditeur visuel de formules web maintenu qui produit du LaTeX ; KaTeX/MathJax n'affichent que.
+- Chargé à la demande : boîtes de dialogue en `import()` dans un effet (échec de chargement ou de rendu : « Outil indisponible » avec Réessayer, l'éditeur reste ouvert) et `import('mathlive')` dans un effet, donc hors du bundle initial de la page projet et jamais exécuté au rendu serveur.
+- Aucune ressource externe : polices KaTeX importées par `mathlive/fonts.css` (servies par Next.js sous `/_next/static/media`), `fontsDirectory`, sons et moteur de calcul à `null` ; clavier virtuel, menu et suggestions de MathLive masqués (hors de la boîte modale).
+- Symboles récents dans les préférences (`recentSymbols`, 24 au plus, défaut vide) : ils suivent l'utilisateur sur ses appareils. Packages manquants : ajoutés à l'insertion ou en un clic ; fichier sans préambule, simple rappel (document principal).
+
+## 2026-10-02 · Outils d'écriture : plages suivies, cases et commentaires sûrs
+
+- La plage ouverte est suivie par un champ d'état CodeMirror (`trackTarget`, positions recalculées à chaque transaction, collaborateurs compris) ; si elle ne contient plus le texte d'origine : `stale`. Écarté : chercher l'occurrence la plus proche, qui remplaçait une autre formule identique.
+- Tableau : insertion refusée tant qu'une case contient `%`, `#`, `&`, `$` seul, `_`/`^` hors formule (colonnes `>{$}` comprises) ; échappement en un clic. Pas d'échappement à la frappe : le LaTeX tapé (`\textbf{…}`, `$x_1$`) doit rester tel quel.
+- Formules : sauts de ligne et commentaires `%` gardés par `normalizeMathLive` ; un `align` réécrit par MathLive (une seule ligne) reprend une ligne par `\\` ; comparaison « inchangée » sans commentaires, espaces des groupes texte gardés.
+- MathLive affiche du LaTeX écrit par des collaborateurs : `\href`, `\htmlStyle`, `\class`, `\cssId`, `\htmlData` retirés à l'entrée, `openUrl` neutralisé (ni requête externe ni lien ouvert).
+
+## 2026-10-02 · Outils d'écriture : rien d'inséré qui ne compile pas
+
+- Même règle que les cases pour la légende d'un tableau ; formule tapée en LaTeX vérifiée (accolades, `$`, `#`, `&` hors `align`/`aligned`/`split`, délimiteurs imbriqués, commandes MathLive `\unicode`/`\error`) : insertion refusée (`invalid`) plutôt qu'échappée ; `\href` ajoute hyperref.
+- Labels réduits à `A-Z a-z 0-9 : . _ / + -` à la saisie ; équation passée en ligne ou centrée : perte du `\label` annoncée.
+- Pas de flottant `table` inséré dans une figure, une minipage ou un argument de commande ; packages ajoutés seulement s'ils manquent (fournisseurs compris).
+- Collage : une colonne de nombres à virgule décimale (`3,5`) n'est jamais coupée sur la virgule ; ambigu (`1,2` sur chaque ligne) : lu comme décimal.

@@ -25,8 +25,8 @@ export interface PromptRequest {
 
 /**
  * Fonctions fournies par l'application aux actions. Toutes sont facultatives : une action dont le
- * callback manque est désactivée. Les outils des tâches suivantes ajoutent leurs propres champs
- * (éditeur de formules, gestionnaire de packages…) via `openDialog`.
+ * callback manque est désactivée. Les outils à boîte de dialogue (éditeur de formules, symboles,
+ * tableaux, gestionnaire de packages…) passent par `openDialog`.
  */
 export interface ActionHost {
   /** Droits de l'utilisateur en lecture seule (viewer, reviewer), même sans fichier ouvert. */
@@ -38,7 +38,13 @@ export interface ActionHost {
   downloadZip?: () => void
   /** Recherche dans tout le projet, préremplie avec le texte sélectionné. */
   searchProject?: (query: string) => void
-  /** Ouvre une boîte de dialogue de l'application (`math.formula`, `packages.manager`…). */
+  /**
+   * Ouvre une boîte de dialogue de l'application. Outils d'écriture (`WRITING_DIALOGS`) :
+   * `math.formula` reçoit un `FormulaDialogPayload`, `math.symbols` un `SymbolsDialogPayload`,
+   * `structures.table` un `TableDialogPayload` (plage et contenu détectés sous le curseur) ; la
+   * boîte de dialogue insère ensuite avec `applyFormula`, `insertSymbol` ou `applyTable` sur
+   * l'éditeur courant. Sans ce callback, ces outils sont désactivés.
+   */
   openDialog?: (dialog: string, payload?: unknown) => void
   /** Demande un texte à l'utilisateur ; null si annulé. */
   prompt?: (request: PromptRequest) => Promise<string | null>

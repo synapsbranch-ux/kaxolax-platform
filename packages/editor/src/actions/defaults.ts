@@ -21,6 +21,7 @@ import {
   replaceWithBlock,
   toggleWrap,
 } from './edit.js'
+import { writingActions } from './writing.js'
 import {
   type ActionContext,
   type ActionHost,
@@ -269,21 +270,6 @@ const floatActions: EditorAction[] = [
       before: ['\\begin{figure}[htbp]', '\t\\centering'],
       body: [`\t${CURSOR}`],
       after: ['\t\\caption{}', '\t\\label{fig:}', '\\end{figure}'],
-    }),
-  ),
-  editAction(
-    {
-      id: 'structures.table',
-      label: 'Tableau',
-      menu: 'structures',
-      group: 'floats',
-      icon: 'table',
-    },
-    insertBlock({
-      before: ['\\begin{table}[htbp]', '\t\\centering', '\t\\begin{tabular}{ll}'],
-      body: [`\t\t${CURSOR} & \\\\`, '\t\t & \\\\'],
-      after: ['\t\\end{tabular}', '\t\\caption{}', '\t\\label{tab:}', '\\end{table}'],
-      depth: 2,
     }),
   ),
 ]
@@ -640,11 +626,13 @@ const replaceActions: EditorAction[] = [
   },
 ]
 
-/** Actions de base de l'étape 1, dans l'ordre des menus. */
+/** Actions de base (étape 1 et outils d'écriture), dans l'ordre des menus. */
 export const defaultActions: readonly EditorAction[] = [
   ...fileActions,
   ...formatActions,
   ...structureActions,
+  // Outils d'écriture (formules, symboles, tableaux) : en tête du menu Maths, avec les flottants.
+  ...writingActions,
   ...mathActions,
   ...graphicsActions,
   ...packageActions,
