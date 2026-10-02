@@ -1,6 +1,6 @@
 'use client'
 
-import { WRITING_DIALOGS, type ActionContext } from '@kaxolax/editor'
+import { PACKAGE_MANAGER_DIALOG, WRITING_DIALOGS, type ActionContext } from '@kaxolax/editor'
 import {
   Alert,
   Button,
@@ -140,12 +140,18 @@ function lazyDialog(load: () => Promise<{ default: DialogComponent }>): DialogCo
   return LazyDialog
 }
 
+/** Boîte du compteur de mots (action `file.wordCount` de l'application). */
+export const WORD_COUNT_DIALOG = 'file.wordCount'
+
 /**
  * Boîtes de dialogue des outils, par identifiant d'action. Outils d'écriture (tâche 9) :
- * éditeur de formules (MathLive), symboles, tableaux ; la tâche 10 ajoute `packages.manager`.
+ * éditeur de formules (MathLive), symboles, tableaux ; tâche 10 : gestionnaire de packages et
+ * compteur de mots.
  */
 export const ACTION_DIALOGS: Partial<Record<string, DialogComponent>> = {
   [WRITING_DIALOGS.formula]: lazyDialog(() => import('./writing/formula-dialog')),
   [WRITING_DIALOGS.symbols]: lazyDialog(() => import('./writing/symbols-dialog')),
   [WRITING_DIALOGS.table]: lazyDialog(() => import('./writing/table-dialog')),
+  [PACKAGE_MANAGER_DIALOG]: lazyDialog(() => import('./tools/package-manager-dialog')),
+  [WORD_COUNT_DIALOG]: lazyDialog(() => import('./tools/word-count-dialog')),
 }

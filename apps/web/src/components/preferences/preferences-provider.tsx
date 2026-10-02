@@ -5,7 +5,8 @@ import {
   type ResolvedPreferences,
   type UserPreferences,
 } from '@kaxolax/contracts'
-import { applyThemePreference } from '@kaxolax/ui'
+import { Alert, applyThemePreference, Button } from '@kaxolax/ui'
+import { XIcon } from 'lucide-react'
 import {
   createContext,
   type ReactNode,
@@ -16,7 +17,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { applyPatch, combinePatches } from '@/lib/preferences'
 import { themeCookie } from '@/lib/theme'
 
@@ -34,6 +35,17 @@ interface PreferencesContextValue {
 
 const PreferencesContext = createContext<PreferencesContextValue | null>(null)
 
+/** Message affiché quand l'API refuse d'enregistrer une modification des préférences. */
+function saveErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === 'E_PREFERENCES_TOO_LARGE') {
+    return 'Préférences trop volumineuses : la dernière modification n’a pas été enregistrée. Retirez des mots du dictionnaire personnel (Paramètres › Correcteur).'
+  }
+  if (error instanceof ApiError) {
+    return 'Modification des préférences refusée par le serveur : elle a été annulée.'
+  }
+  return 'Préférences non enregistrées (connexion impossible) : la dernière modification a été annulée.'
+}
+
 /**
  * Préférences de l'utilisateur (`GET /me/preferences`), communes à tous ses appareils. Les
  * modifications sont optimistes et regroupées (anti-rebond) avant `PATCH /me/preferences` ; le
@@ -42,6 +54,8 @@ const PreferencesContext = createContext<PreferencesContextValue | null>(null)
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<ResolvedPreferences>(DEFAULT_PREFERENCES)
   const [loaded, setLoaded] = useState(false)
+  // Dernier envoi refusé : affiché jusqu'à fermeture ou au prochain envoi accepté.
+  const [saveError, setSaveError] = useState<string | null>(null)
   // Modification pas encore envoyée, et minuterie de l'envoi.
   const pending = useRef<UserPreferences | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -80,12 +94,15 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     queue.current = request.then(settled, settled)
     request.then(
       ({ preferences: saved }) => {
+        if (latest()) setSaveError(null)
         // Rien de neuf entre-temps : la réponse de l'API fait foi.
         if (latest() && pending.current === null) setPreferences(saved)
       },
-      () => {
-        // Refusée (validation, réseau) : retour à l'état enregistré, modifications suivantes
-        // comprises. Un envoi plus récent, s'il y en a un, réconcilie lui-même l'état.
+      (caught: unknown) => {
+        // Refusée (validation, taille, réseau) : message affiché, puis retour à l'état
+        // enregistré, modifications suivantes comprises. Un envoi plus récent, s'il y en a un,
+        // réconcilie lui-même l'état.
+        setSaveError(saveErrorMessage(caught))
         if (!latest()) return
         void api.preferences().then(
           ({ preferences: saved }) => {
@@ -198,7 +215,30 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(() => ({ preferences, loaded, update }), [preferences, loaded, update])
-  return <PreferencesContext value={value}>{children}</PreferencesContext>
+  return (
+    <PreferencesContext value={value}>
+      {children}
+      {saveError !== null ? (
+        <Alert
+          variant="destructive"
+          className="fixed bottom-4 left-1/2 z-50 flex w-auto max-w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-2 shadow-lg"
+          data-testid="preferences-save-error"
+        >
+          <p className="flex-1">{saveError}</p>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Fermer"
+            onClick={() => {
+              setSaveError(null)
+            }}
+          >
+            <XIcon />
+          </Button>
+        </Alert>
+      ) : null}
+    </PreferencesContext>
+  )
 }
 
 /** Préférences de l'utilisateur et leur modification (voir `PreferencesProvider`). */

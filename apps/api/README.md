@@ -29,7 +29,7 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   (`DEFAULT_PREFERENCES`, @kaxolax/contracts). `PATCH /me/preferences` fusionne une modification
   partielle (fusion profonde, tableaux remplacés, clé inconnue ou valeur invalide : 422) dans
   `user_preferences` (`INSERT … ON CONFLICT DO NOTHING` puis `FOR UPDATE` : modifications
-  simultanées sans perte). Seules les clés changées sont stockées ; JSON borné à 32 Kio, onglets
+  simultanées sans perte). Seules les clés changées sont stockées ; JSON borné à 64 Kio (au-dessus de la somme des pires cas de chaque clé, vérifiée par les tests des contrats ; 422 `E_PREFERENCES_TOO_LARGE`), onglets
   mémorisés pour les 20 derniers projets modifiés (numéro d'ordre `usedSeq` posé par l'API). Une
   clé stockée devenue invalide est écartée seule à la lecture, sans effacer les autres.
 - **Workspaces** : tout projet appartient à un workspace. Chaque compte reçoit un workspace
@@ -202,6 +202,43 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   15 min (429 `E_TOO_MANY_COMPILERS`).
 - **SyncTeX** : `GET /projects/:id/synctex/code` (`file`, `line`, `column`) et
   `GET /projects/:id/synctex/pdf` (`page`, `h`, `v`).
+- **Compteur de mots** : `POST /projects/:id/word-count` (permission `compile`, lecteurs
+  compris), corps facultatif `{ documentId }` (défaut : le document principal). texcount tourne
+  dans le sandbox de compilation (`-merge -sub=section`) sur ce document et les documents
+  `.tex`/`.ltx` du projet qu'il inclut (texte courant, instantané temps réel) : par le gateway
+  (mode `gateway`), ou par le Worker et le conteneur du projet (mode `cloudflare`, réveillé au
+  besoin, jusqu'à 95 s, compté dans le plafond de compilateurs). Réponse
+  (`wordCountResponseSchema`) : `total` (`words` = `text` + `headers` + `captions`, nombre de
+  titres, flottants, formules), `sections` (partie, chapitre, section, documents inclus à leur
+  place), `warnings` de texcount, `rootResourcePath`, `durationMs`. 422 `E_NO_MAIN_DOCUMENT` ou
+  `E_WORD_COUNT_FAILED` (délai de 20 s, document illisible, plus de 16 Mo de texte), 429
+  `E_WORD_COUNT_BUSY`, 503 `E_COMPILE_UNAVAILABLE` (dont file d'attente de l'agent pleine). Au
+  plus un comptage en cours par utilisateur et projet (la même demande attend le comptage en
+  cours et reçoit son résultat, un autre document répond 429) et 2 par utilisateur, par
+  instance de l'API.
+- **Index des packages TeX Live** (`packages/contracts/src/texlive.ts`, tout compte connecté) :
+  - `GET /texlive/packages?q=&category=&topic=&page=&perPage=` : recherche (tous les mots, dans
+    le nom, les fichiers `.sty`/`.cls` et la description ; le package qui fournit `<q>.sty` en
+    premier), catégorie TeX Live (`Package`, `ConTeXt`, `TLCore`), sujet CTAN (`maths`…),
+    pagination (100 au plus). Chaque package : nom, description, catégorie, sujets, liens CTAN et
+    texdoc, noms à passer à `\usepackage` (10 premiers) ; avec `q`, `matchingUsepackage` donne
+    tous ceux qui contiennent un mot cherché (`typear` → `typearea` de koma-script).
+  - `GET /texlive/packages/:name` : fiche complète, par nom TeX Live (`graphics`) ou de fichier
+    `.sty` (`graphicx`) ; 404 `E_PACKAGE_NOT_FOUND`.
+  - `GET /texlive/suggestions?name=` : noms proches d'un package ou d'une classe introuvable
+    (`amsmth`, ou le `missingFile` d'une entrée du log, 255 caractères au plus : `amsmth.sty`, `artcle.cls`) : distance
+    de Damerau-Levenshtein (1 à 3 fautes selon la longueur, casse ignorée) ou préfixe, packages
+    courants d'abord à distance égale ; `exists` si le fichier est dans TeX Live mais absent de
+    l'image de compilation.
+  - Source : l'index publié par kaxolax-texlive-images (`texlive/<année>/packages.json`) dans le
+    bucket `TEXLIVE_INDEX_BUCKET` (clé `TEXLIVE_INDEX_KEY`, défaut `texlive/2026/packages.json`),
+    lu avec les clés `S3_*`, gardé en mémoire et revalidé toutes les heures par une lecture
+    conditionnelle sur l'ETag (en arrière-plan ; en cas d'échec, la copie en mémoire sert
+    encore). Sans copie en mémoire (clé absente, panne), un échec donne 503
+    `E_PACKAGE_INDEX_UNAVAILABLE` sans relire le stockage pendant une minute. Sans bucket : la fixture `resources/fixtures/texlive-packages.json` (73 packages
+    réels de TeX Live 2026) en développement et en test, 503 `E_PACKAGE_INDEX_UNAVAILABLE` en
+    production. Réponses avec ETag (index + URL) et `Cache-Control: private, max-age=3600` ;
+    `If-None-Match` donne 304.
 - **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel ; ou
   `POST /projects/:id/download-url`, un lien chiffré de 60 s pour télécharger par simple
   navigation (`GET /downloads/:token`, rôle revérifié au téléchargement).

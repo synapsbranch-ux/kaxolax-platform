@@ -64,6 +64,34 @@ l'API).
     un fichier sans préambule, rappel à charger dans le document principal. MathLive n'utilise
     aucune ressource externe (polices servies par Next.js, sons coupés) ; ses extensions HTML
     (`\href`, `\htmlStyle`…) sont retirées des valeurs chargées et aucun lien n'est ouvert.
+  - Outils de la tâche 10 (`workspace/tools/`, `workspace/spellcheck/`) :
+    - **Gestionnaire de packages** (Packages → Gestionnaire de packages) : recherche dans l'index
+      TeX Live de l'API (`GET /texlive/packages`, pages de 20), fiche (description, catégorie,
+      sujets, licence, liens CTAN et documentation), ajout d'un `\usepackage` avec options
+      (aperçu de la commande, options validées), liste des packages du fichier ouvert (ligne,
+      options, retrait, une étape d'annulation par opération) ; lecture seule : recherche et liste.
+      Dans les logs, une erreur « File `xyz.sty' not found » (ou `.cls`) affiche les noms proches
+(`GET /texlive/suggestions`, mémorisés pour la session) et, pour un éditeur, un bouton qui
+ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
+`\usepackage`/`\documentclass` de cette ligne (`planRenamePackage`, `lib/package-tools.ts`).
+    - **Autocomplétion** (`use-project-index.ts`) : `ProjectIndex` de `@kaxolax/editor` alimenté
+      par des lecteurs Yjs sans présence de tous les `.tex`/`.sty`/`.cls`/`.bib` du projet (200 au
+      plus, `.bib` d'abord ; ouverts et fermés au fil de l'arborescence, renommages suivis) et par
+      le document ouvert (pause de 250 ms) ; chemins de toute l'arborescence. Après
+      `\usepackage{`, les noms de tout TeX Live sont demandés à l'API pendant la frappe
+      (`editor/package-name-completion.ts`, réponses mémorisées par préfixe).
+    - **Correcteur** : worker `src/workers/spellcheck.worker.ts` créé à la première activation
+      (Hunspell WebAssembly), dictionnaires `fr`/`en` servis par l'application
+      (`app/dictionaries/[file]`, route statique générée au build depuis `dictionary-fr` et
+      `dictionary-en`, aucun CDN) et téléchargés à la première vérification de la langue ; langue
+      du projet (paramètres → Projet, propriétaire et éditeurs) ; clic droit ou F7 (Remplacer →
+      Corriger l'orthographe) sur un mot souligné : suggestions, ajout au dictionnaire personnel.
+    - **Compteur de mots** (Fichier → Compteur de mots, ou « Mots » dans la barre d'état) :
+      `POST /projects/:id/word-count` (texcount dans le sandbox) après envoi des dernières
+      frappes ; document principal ou fichier ouvert ; total, texte, titres, légendes, formules,
+      détail par section ; chargement, erreurs traduites, Recompter.
+    - **Barre d'état** sous l'éditeur : ligne et colonne, mode Vim/Emacs, langue du correcteur,
+      compteur de mots, paramètres.
   - PDF (pdf.js) : pastille de statut (Recompiler, Ctrl+Entrée) et son menu (auto-compilation,
     compilateur, brouillon, arrêt à la première erreur, arrêt, vider le cache, logs), zoom
     (page, largeur, 50 à 400 %), téléchargement, menu ⋯ (zip des sources, fichiers de sortie,
@@ -113,9 +141,18 @@ l'API).
 - **Préférences** (`components/preferences/`) : `usePreferences()` charge `GET /me/preferences`
   une fois (layout `(app)`) et enregistre les modifications par `PATCH` (optimiste, regroupé
   800 ms, envoyé aussitôt quand la page est masquée). Clés utilisées : `theme` (bascule
-  soleil/lune du pied de sidebar ; paramètres complets à la tâche 10), `layout` (tailles des
-  colonnes, repli), `toolsVisible`, `autoCompile`, `compile` (brouillon, arrêt à la première
-  erreur), `openTabs` (onglets par projet), `recentSymbols` (sélecteur de symboles). Le thème
+  soleil/lune du pied de sidebar, et paramètres), `layout` (tailles des colonnes, repli),
+  `toolsVisible`, `autoCompile`, `compile` (brouillon, arrêt à la première erreur), `openTabs`
+  (onglets par projet), `recentSymbols` (sélecteur de symboles), `editor` (paramètres de
+  l'éditeur) et `spellcheckDictionary` (dictionnaire personnel).
+- **Paramètres** (`components/preferences/settings-*.tsx`, chargés à la première ouverture) :
+  depuis le pied de sidebar (roue dentée), le menu du compte (`UserButton`), la barre d'état ou
+  Fichier → Paramètres de l'éditeur. Onglets Éditeur (thème clair/sombre, coloration, police
+  prédéfinie ou saisie, taille, hauteur de ligne, raccourcis par défaut/Vim/Emacs, retour à la
+  ligne, aperçu), Correcteur (activation, dictionnaire personnel : ajout, retrait) et Projet
+  (langue du correcteur, page projet). Enregistrés dans les préférences (tous les appareils) et
+  appliqués à chaud par `reconfigureEditor` : seuls les réglages modifiés sont reconfigurés
+  (`settingsChange`), le document, l'historique et l'état Vim sont gardés. Le thème
   est recopié dans le cookie `kaxolax-theme` (rendu serveur de `data-theme`, sans flash) et dans
   localStorage (`ThemeScript`).
 

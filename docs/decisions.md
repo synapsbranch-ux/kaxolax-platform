@@ -550,3 +550,66 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Labels réduits à `A-Z a-z 0-9 : . _ / + -` à la saisie ; équation passée en ligne ou centrée : perte du `\label` annoncée.
 - Pas de flottant `table` inséré dans une figure, une minipage ou un argument de commande ; packages ajoutés seulement s'ils manquent (fournisseurs compris).
 - Collage : une colonne de nombres à virgule décimale (`3,5`) n'est jamais coupée sur la virgule ; ambigu (`1,2` sur chaque ligne) : lu comme décimal.
+
+## 2026-10-02 · Index des packages TeX Live servi par l'API
+
+- L'API lit l'index publié par kaxolax-texlive-images (`texlive/2026/packages.json`) dans le bucket `TEXLIVE_INDEX_BUCKET` avec ses clés `S3_*`, le garde en mémoire (2 Mo) et le revalide toutes les heures par une lecture conditionnelle sur l'ETag, en arrière-plan ; en cas d'échec, la copie en mémoire sert encore.
+- Sans bucket : fixture de 73 packages réels (`resources/fixtures/texlive-packages.json`) en développement et en test, 503 `E_PACKAGE_INDEX_UNAVAILABLE` en production plutôt qu'un index partiel silencieux.
+- Réponses avec ETag (index + URL), `Cache-Control: private` : routes réservées aux comptes connectés, comme le reste de l'API.
+- Suggestions : Damerau-Levenshtein restreinte (1 à 3 fautes selon la longueur, casse ignorée) sur les fichiers `.sty` (ou `.cls`) de l'index, puis préfixe ; à distance égale, une courte liste de packages courants l'emporte (`graphix` → `graphicx`, pas `graphbox`). Vérifié sur l'index complet de TeX Live 2026 (4 821 packages).
+
+## 2026-10-02 · « File `xyz.sty' not found » : nom extrait par le parseur
+
+- `LogEntry.missingFile` (facultatif) porte le fichier introuvable des erreurs « LaTeX Error: File `…' not found » et « I can't find file `…' » ; même message sous pdfLaTeX, XeLaTeX et LuaLaTeX (fixtures réelles TeX Live 2026).
+- Les suggestions ne sont pas calculées par l'agent ni stockées avec le log : l'interface les demande à `GET /texlive/suggestions?name=` (même chemin en mode `gateway` et `cloudflare`, index toujours à jour).
+- Corrigé au passage : le résumé « ==> Fatal error occurred » au format `-file-line-error` ne donne plus une seconde erreur.
+- Nom de plus de 255 caractères (`MAX_MISSING_FILE_LENGTH`, même borne pour `/texlive/suggestions`) : pas de `missingFile`, l'erreur reste dans le message ; sinon la réponse de l'agent, validée par le contrat, serait refusée en entier.
+
+## 2026-10-02 · Compteur de mots : texcount dans le sandbox
+
+- `texcount -merge -sub=section -utf8 -nocol ./<principal>` : `-merge` place les fichiers inclus dans la bonne section ; le nom passe en `./…` (jamais une option). texcount (Perl) n'exécute pas TeX : pas de shell escape possible.
+- texcount ne lit pas texmf.cnf (`openin_any = p` sans effet) et ouvre les inclusions par un `open` Perl à deux arguments (chemin absolu, `..`, et même `\input{/usr/bin/id |}` qui lance la commande) : il tourne sous une garde Perl (`TEXCOUNT_GUARD`) qui charge le script installé avec sa lecture (`read_binary`) limitée au répertoire du comptage ; la garde échoue si une version future n'a plus cette fonction. Vérifié dans l'image TeX Live 2026 (texcount 3.1.1).
+- Conteneur neuf sans réseau, UID 1000, lecture seule, 20 s, sur un répertoire temporaire `COMPILES_DIR/.wordcount/<aléa>` avec les seuls documents `.tex`/`.ltx` : hors des projets, ni « vider le cache » ni le nettoyage LRU ne le suppriment pendant un comptage, le cache incrémental n'est pas touché, aucun binaire ne voyage.
+- Synchrone (quelques secondes) : gateway → agent sans le verrou du projet ; en mode `cloudflare`, Worker → Durable Object → conteneur réveillé au besoin, 95 s au plus (coupure Cloudflare à 100 s), compté dans le plafond de compilateurs par utilisateur. Dans la VM, le comptage attend la fin d'une compilation (`ProcessSandbox` tue les processus de l'UID à chaque exécution).
+
+## 2026-10-02 · Correcteur : Hunspell en WebAssembly dans un Web Worker
+
+- `hunspell-asm` 4.0.2 (MIT, Hunspell compilé en WebAssembly) plutôt que `nspell` : mesuré avec le dictionnaire français, 47 ms et ~80 Mo contre 4,2 s et ~440 Mo de tas pour nspell, et le vrai Hunspell (affixes, mots composés, suggestions). Seulement via `@kaxolax/editor/spellcheck-worker` : hors du bundle principal.
+- Dictionnaires `dictionary-fr` 3.0.0 (MPL-2.0, Grammalecte) et `dictionary-en` 4.0.0 (MIT et BSD, SCOWL) : servis par l'application avec ses fichiers, chargés à la première vérification de la langue du projet ; jamais de CDN.
+- Mots extraits côté page (commandes, arguments non textuels, maths, commentaires, verbatim ignorés), vérifiés par lots dans le worker, résultats mémorisés des deux côtés ; protocole validé à la réception.
+- Dictionnaire personnel dans les préférences (`spellcheckDictionary`), toutes langues ; un mot en minuscules vaut aussi capitalisé. Bornes et ajout refusé une fois plein : voir l'entrée suivante.
+- Prose seulement (`.tex`, `.ltx`, `.txt`) : ni `.bib` ni `.sty`/`.cls`/`.cfg`. Langue changée : événement `project.updated` du document meta, les pages ouvertes des autres membres changent de dictionnaire sans recharger.
+
+## 2026-10-02 · Dictionnaire personnel et taille des préférences
+
+- 1 000 mots de 40 caractères et 20 Kio sérialisé (UTF-8) au plus, vérifiés par le schéma et par l'éditeur (`personalWordStatus`) : une fois plein, l'ajout est refusé avec un message (menu du correcteur, onglet Correcteur), aucun mot ancien ne sort en silence.
+- `MAX_PREFERENCES_BYTES` passe de 32 à 64 Kio : la somme des pires cas de chaque clé (onglets ~26 Kio, dictionnaire 20 Kio, symboles récents ~10 Kio) y tient, vérifiée par un test des contrats ; une table dédiée n'apporte rien à cette taille.
+- Un `PATCH /me/preferences` refusé affiche une alerte (au lieu d'un retour silencieux à l'état enregistré).
+
+## 2026-10-02 · Comptage de mots : bornes par utilisateur et file de l'agent bornée
+
+- API : un comptage en cours par (utilisateur, projet), la même demande réutilise le résultat attendu, un autre document répond 429 `E_WORD_COUNT_BUSY` ; 2 comptages en cours par utilisateur. Bornes en mémoire, par instance (pas de Redis côté API) : suffisant contre une boucle de requêtes d'un membre, lecteur compris.
+- Agent : 8 comptages en attente au plus (chacun garde jusqu'à 16 Mo), au-delà 503 immédiat, relayé par le gateway (`E_COMPILE_UNAVAILABLE` côté API).
+- Index TeX Live sans copie en mémoire : après un échec, 503 immédiat sans relire le stockage pendant `retryAfterErrorMs` (une minute).
+
+## 2026-10-02 · Autocomplétion : index du projet côté client
+
+- `ProjectIndex` (labels, clés BibTeX, commandes et environnements définis, packages, chemins) alimenté par l'application à chaque modification ; listes de propositions construites une fois par version de l'index : `\cite{` répond en moins de 100 ms sur 5 000 clés.
+- Analyse BibTeX/biblatex maison et tolérante (pas de dépendance) : une entrée mal formée est signalée et n'empêche pas les suivantes.
+- Commandes des packages : table embarquée des packages courants, proposées seulement si le package (ou un package qui le charge) est chargé dans le projet ; les autres packages restent proposés après `\usepackage{` grâce à l'index TeX Live de l'API.
+- Chemins après `\input{`, `\includegraphics{`… relatifs au dossier du document principal (où tournent LaTeX et texcount), fichiers hors de ce dossier en `../…` ; `\graphicspath` pris en compte.
+
+## 2026-10-02 · Paramètres de l'éditeur appliqués à chaud
+
+- Un compartiment CodeMirror par réglage (thème et coloration, raccourcis, correcteur, retour à la ligne, lecture seule) : changer une préférence ne recrée pas l'éditeur (document, historique, curseurs et liaison Yjs gardés).
+- Raccourcis Vim et Emacs : `@replit/codemirror-vim` 6.4.0 et `@replit/codemirror-emacs` 6.1.0 (MIT), les implémentations de référence pour CodeMirror 6, en priorité la plus haute.
+- Thèmes de coloration embarqués (5) ; police par préréglage ou nom saisi, filtré (lettres, chiffres, espaces, virgules, tirets, guillemets) avant d'entrer dans une feuille de style.
+- Polices préréglées servies par l'application : `@fontsource/jetbrains-mono`, `fira-code`, `source-code-pro`, `ibm-plex-mono` 5.3.0 (OFL-1.1, fichiers woff2 empaquetés), graisse 400 importée dans le layout racine ; le navigateur ne télécharge que la police choisie (et ses sous-ensembles utiles), jamais depuis un CDN.
+
+## 2026-10-02 · Interface des outils d'écriture (apps/web)
+
+- Index de l'autocomplétion alimenté par des lecteurs Yjs sans présence de tous les `.tex`/`.sty`/`.cls`/`.bib` (200 au plus, `.bib` d'abord) sur la connexion du projet, plutôt qu'une route de l'API : texte toujours à jour, y compris pendant la frappe des autres.
+- `\usepackage{` : noms de tout TeX Live demandés à `GET /texlive/packages?q=` pendant la frappe (mémorisés par préfixe, liste rouverte à la réponse) plutôt que l'index complet téléchargé à l'ouverture.
+- Dictionnaires servis par une route statique de Next.js (`/dictionaries/fr.dic`…, générée au build depuis `dictionary-fr`/`dictionary-en`, `serverExternalPackages`) : rien à copier dans `public/`, rien à servir depuis un CDN. Worker créé à la première activation du correcteur.
+- Correction d'un package introuvable : remplacement du seul nom fautif dans le `\usepackage` (ou `\documentclass`) de la ligne du log, après ouverture du fichier ; jamais en lecture seule.
+- Paramètres dans une boîte chargée à la demande (pied de sidebar, menu du compte, barre d'état, Fichier) ; seuls les réglages modifiés sont reconfigurés (l'état Vim survit à un changement de police).

@@ -5,8 +5,12 @@ import {
   memberResponseSchema,
   projectMembersResponseSchema,
   shareLinkPreviewSchema,
+  packageSuggestionsSchema,
   shareLinkResponseSchema,
   shareLinksResponseSchema,
+  texlivePackageDetailSchema,
+  texlivePackageListSchema,
+  wordCountResponseSchema,
 } from '@kaxolax/contracts'
 import type {
   ActiveBanner,
@@ -23,6 +27,7 @@ import type {
   RealtimeTokenResponse,
   ShareLinkKind,
   SpellcheckLanguage,
+  TexlivePackagesQuery,
   UserPreferences,
   Workspace,
 } from '@kaxolax/contracts'
@@ -348,6 +353,37 @@ export const api = {
         regex: String(query.regex),
       }).toString()}`,
     ),
+  /**
+   * Comptage des mots par texcount dans le sandbox : document principal, ou `documentId`
+   * (et les fichiers qu'il inclut).
+   */
+  wordCount: (id: string, documentId: string | null = null) =>
+    request<unknown>(
+      'POST',
+      `/projects/${id}/word-count`,
+      documentId === null ? {} : { documentId },
+    ).then((data) => wordCountResponseSchema.parse(data)),
+
+  // Index des packages TeX Live (réponses validées par `@kaxolax/contracts`, texlive.ts).
+  texlivePackages: (query: Partial<TexlivePackagesQuery>) =>
+    request<unknown>(
+      'GET',
+      `/texlive/packages?${new URLSearchParams(
+        Object.entries(query).map(([key, value]) => [key, String(value)]),
+      ).toString()}`,
+    ).then((data) => texlivePackageListSchema.parse(data)),
+  /** Fiche d'un package (nom TeX Live ou nom passé à `\usepackage`). */
+  texlivePackage: (name: string) =>
+    request<unknown>('GET', `/texlive/packages/${encodeURIComponent(name)}`).then((data) =>
+      texlivePackageDetailSchema.parse(data),
+    ),
+  /** Noms proches d'un package ou d'un fichier introuvable (`amsmth`, `graphix.sty`). */
+  packageSuggestions: (name: string) =>
+    request<unknown>(
+      'GET',
+      `/texlive/suggestions?${new URLSearchParams({ name }).toString()}`,
+    ).then((data) => packageSuggestionsSchema.parse(data)),
+
   synctexCode: (id: string, file: string, line: number, column = 0) =>
     request<{ pdf: PdfPosition[] }>(
       'GET',

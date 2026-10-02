@@ -28,12 +28,15 @@ import {
   OmegaIcon,
   PackageIcon,
   PackagePlusIcon,
+  PackageSearchIcon,
   QuoteIcon,
   RadicalIcon,
   ReplaceAllIcon,
   ReplaceIcon,
   SearchIcon,
+  SettingsIcon,
   SigmaIcon,
+  SpellCheckIcon,
   SquareFunctionIcon,
   SquareSigmaIcon,
   SubscriptIcon,
@@ -42,6 +45,7 @@ import {
   TagIcon,
   UnderlineIcon,
   UploadIcon,
+  WholeWordIcon,
   WrenchIcon,
 } from 'lucide-react'
 
@@ -79,12 +83,15 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
   omega: OmegaIcon,
   package: PackageIcon,
   'package-plus': PackagePlusIcon,
+  'package-search': PackageSearchIcon,
   quote: QuoteIcon,
   radical: RadicalIcon,
   replace: ReplaceIcon,
   'replace-all': ReplaceAllIcon,
   search: SearchIcon,
+  settings: SettingsIcon,
   sigma: SigmaIcon,
+  'spell-check': SpellCheckIcon,
   'square-function': SquareFunctionIcon,
   'square-sigma': SquareSigmaIcon,
   subscript: SubscriptIcon,
@@ -93,6 +100,7 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
   tag: TagIcon,
   underline: UnderlineIcon,
   upload: UploadIcon,
+  'whole-word': WholeWordIcon,
 }
 
 /** Icône d'une action (rien si l'action n'en déclare pas). */

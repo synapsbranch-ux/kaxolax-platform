@@ -12,11 +12,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   PresenceAvatar,
+  SimpleTooltip,
+  Button,
   cn,
 } from '@kaxolax/ui'
-import { ChevronsUpDownIcon } from 'lucide-react'
+import { ChevronsUpDownIcon, SettingsIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { useSettings } from '@/components/preferences/settings-provider'
 import { ThemeToggle } from '@/components/preferences/theme-toggle'
 import { api, type User, type Workspace } from '@/lib/api'
 
@@ -112,6 +115,7 @@ export function SidebarFooter({
   allLabel?: string
 }) {
   const name = user?.fullName ?? user?.email ?? ''
+  const { openSettings } = useSettings()
 
   return (
     <footer className="flex h-sidebar-footer shrink-0 items-center gap-2 border-t border-sidebar-border px-2">
@@ -123,8 +127,33 @@ export function SidebarFooter({
         <WorkspaceSwitcher workspaceId={workspaceId} allLabel={allLabel} />
       </div>
       <ThemeToggle />
-      {/* Compte : profil, sécurité (MFA, sessions), facturation (pages de /account), déconnexion. */}
-      <UserButton userProfileUrl="/account" userProfileMode="navigation" />
+      <SimpleTooltip label="Paramètres de l’éditeur">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0 text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          aria-label="Paramètres de l’éditeur"
+          data-testid="open-settings"
+          onClick={() => {
+            openSettings()
+          }}
+        >
+          <SettingsIcon />
+        </Button>
+      </SimpleTooltip>
+      {/* Compte : profil, sécurité (MFA, sessions), facturation (pages de /account), paramètres
+          de l'éditeur, déconnexion. */}
+      <UserButton userProfileUrl="/account" userProfileMode="navigation">
+        <UserButton.MenuItems>
+          <UserButton.Action
+            label="Paramètres de l’éditeur"
+            labelIcon={<SettingsIcon className="size-4" />}
+            onClick={() => {
+              openSettings()
+            }}
+          />
+        </UserButton.MenuItems>
+      </UserButton>
     </footer>
   )
 }

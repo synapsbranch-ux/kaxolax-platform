@@ -5,7 +5,7 @@ import { Button, Sheet, SheetContent, SheetTitle, SimpleTooltip, cn } from '@kax
 import { FileWarningIcon, PlayIcon, RotateCwIcon, ScrollTextIcon } from 'lucide-react'
 import { type ReactNode, useCallback, useRef, useState } from 'react'
 import { CompileStatus, type CompileSettings } from './compile-status'
-import { LogPanel } from './log-panel'
+import { type FixPackage, LogPanel } from './log-panel'
 import { PdfActions, PdfFloatingBar, ZoomMenu } from './pdf-controls'
 import type { PdfZoom } from '@/lib/pdf'
 import { PdfViewer, type PdfViewerHandle } from './pdf-viewer'
@@ -57,6 +57,7 @@ export function PdfColumn({
   onClearCache,
   onSettingsChange,
   onOpenLocation,
+  onFixPackage,
   onPdfDoubleClick,
   onGoToPdf,
   onUndo,
@@ -83,6 +84,8 @@ export function PdfColumn({
   onClearCache: () => Promise<void>
   onSettingsChange: (change: Partial<CompileSettings>) => void
   onOpenLocation: (file: string, line: number) => void
+  /** Corrige un package introuvable dans le document (absent : correction impossible). */
+  onFixPackage?: FixPackage
   onPdfDoubleClick: (page: number, h: number, v: number) => void
   onGoToPdf: () => void
   onUndo: () => void
@@ -365,6 +368,7 @@ export function PdfColumn({
             <LogPanel
               result={result}
               onOpenLocation={onOpenLocation}
+              onFixPackage={onFixPackage}
               onClearCache={onClearCache}
               onClose={() => {
                 setLogsOpen(false)

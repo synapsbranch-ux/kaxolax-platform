@@ -21,7 +21,10 @@ export async function pruneProjects(
   limits: PruneLimits,
   isBusy: (projectId: string) => boolean,
 ): Promise<PruneResult> {
-  const names = await readdir(compilesDir).catch(() => [] as string[])
+  // Les noms commençant par un point (comptages de mots en cours) ne sont pas des projets.
+  const names = (await readdir(compilesDir).catch(() => [] as string[])).filter(
+    (name) => !name.startsWith('.'),
+  )
   const projects = await Promise.all(
     names.map(async (projectId) => {
       const paths = projectPaths(compilesDir, projectId)

@@ -1,3 +1,4 @@
+import { logEntrySchema, MAX_MISSING_FILE_LENGTH } from '@kaxolax/contracts'
 import { describe, expect, it } from 'vitest'
 import { parseBiberLog, parseBibliographyLog, parseBibtexLog } from './bibliography.js'
 import { parseCompileLogs } from './index.js'
@@ -159,5 +160,57 @@ describe('parseCompileLogs', () => {
   it('does not repeat an identical message printed twice in a row', () => {
     const log = ['This is pdfTeX', './main.tex:3: Boom.', '', './main.tex:3: Boom.', ''].join('\n')
     expect(parseCompileLogs({ log })).toHaveLength(1)
+  })
+})
+
+describe('missing files', () => {
+  it('extracts the file of a TeX primitive \\input error', () => {
+    const log = ['This is pdfTeX', "./main.tex:4: I can't find file `chapters/absent'.", ''].join(
+      '\n',
+    )
+    expect(parseLatexLog(log)).toEqual([
+      expect.objectContaining({ line: 4, missingFile: 'chapters/absent' }),
+    ])
+  })
+
+  it('ignores a warning that mentions a missing file', () => {
+    const log = ['This is pdfTeX', "LaTeX Warning: File `x.sty' not found on input line 2."].join(
+      '\n',
+    )
+    expect(parseLatexLog(log)[0]?.missingFile).toBeUndefined()
+  })
+
+  it('drops an over-long missing file name but keeps the error valid', () => {
+    const name = `${'a'.repeat(300)}.sty`
+    const line = `! LaTeX Error: File \`${name}' not found.`
+    // Log tel que TeX l'écrit : coupé à 79 colonnes.
+    const wrapped = line.match(/.{1,79}/g) ?? []
+    for (const log of [
+      ['This is pdfTeX', line],
+      ['This is pdfTeX', ...wrapped],
+    ]) {
+      const [entry] = parseLatexLog(log.join('\n'))
+      expect(entry?.level).toBe('error')
+      expect(entry?.message).toContain(name)
+      expect(entry?.missingFile).toBeUndefined()
+      expect(logEntrySchema.safeParse(entry).success).toBe(true)
+    }
+    const longest = `${'b'.repeat(MAX_MISSING_FILE_LENGTH - 4)}.sty`
+    expect(parseLatexLog(`! LaTeX Error: File \`${longest}' not found.`)[0]?.missingFile).toBe(
+      longest,
+    )
+  })
+
+  it('reports the fatal summary in -file-line-error format only once', () => {
+    const log = [
+      'This is pdfTeX',
+      "! LaTeX Error: File `artcle.cls' not found.",
+      '',
+      './main.tex:2:  ==> Fatal error occurred, no output PDF file produced!',
+    ].join('\n')
+    expect(parseLatexLog(log).map((entry) => entry.missingFile)).toEqual(['artcle.cls'])
+    expect(
+      parseLatexLog('./main.tex:2:  ==> Fatal error occurred, no output PDF file produced!'),
+    ).toEqual([expect.objectContaining({ file: 'main.tex', line: 2 })])
   })
 })

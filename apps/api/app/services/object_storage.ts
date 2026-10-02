@@ -11,6 +11,7 @@ import {
   PutObjectCommand,
   S3Client,
   type S3ClientConfig,
+  S3ServiceException,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { UploadSource } from '@kaxolax/upload-processor'
@@ -126,6 +127,28 @@ export class BucketStorage implements UploadSource {
     const object = await s3().internal.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))
     if (!(object.Body instanceof Readable)) throw new Error(`Empty S3 object: ${key}`)
     return object.Body
+  }
+
+  /**
+   * Lit un petit objet texte (JSON) avec son ETag. Avec `etag`, la lecture est conditionnelle
+   * (If-None-Match) : null si l'objet n'a pas changé depuis.
+   */
+  async readTextIfChanged(
+    key: string,
+    etag?: string,
+  ): Promise<{ text: string; etag: string | null } | null> {
+    try {
+      const object = await s3().internal.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key, IfNoneMatch: etag }),
+      )
+      if (object.Body === undefined) throw new Error(`Empty S3 object: ${key}`)
+      return { text: await object.Body.transformToString('utf-8'), etag: object.ETag ?? null }
+    } catch (error) {
+      if (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 304) {
+        return null
+      }
+      throw error
+    }
   }
 
   async download(key: string, destination: string): Promise<number> {

@@ -231,6 +231,22 @@ test.group('project events: tree', (group) => {
     ])
   })
 
+  test('publishes the new spellcheck language to the other members', async ({ client, assert }) => {
+    const user = await createUser()
+    const projectId = await newProject(client, user)
+    realtime.events.length = 0
+
+    ;(
+      await client
+        .patch(`/api/v1/projects/${projectId}`)
+        .json({ spellcheckLanguage: 'fr' })
+        .loginAs(user)
+    ).assertStatus(200)
+    assert.deepEqual(realtime.of(projectId), [
+      { type: 'project.updated', actorId: user.id, spellcheckLanguage: 'fr' },
+    ])
+  })
+
   test('publishes an uploaded file', async ({ client, assert }) => {
     const user = await createUser()
     const projectId = await newProject(client, user)

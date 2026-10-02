@@ -98,6 +98,9 @@ export async function killAllAs(uid: number, gid: number): Promise<void> {
  * à la fin (ou au timeout, à l'arrêt, au chien de garde), tous les processus de l'UID sont tués.
  */
 export class ProcessSandbox implements CompileSandbox {
+  /** Chaque exécution commence par tuer tous les processus de l'UID du sandbox. */
+  readonly serialRuns = true
+
   constructor(private readonly options: ProcessSandboxOptions) {}
 
   /** Pas de montage : la commande voit le vrai chemin du projet. */

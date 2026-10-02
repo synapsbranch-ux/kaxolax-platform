@@ -10,6 +10,17 @@ import { buildId, job, projectId } from './fakes.js'
 const secret = 'test-compile-worker-secret-0123456789abcdef'
 const otherProject = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
 
+const counts = {
+  words: 1,
+  text: 1,
+  headers: 0,
+  captions: 0,
+  headerCount: 0,
+  floatCount: 0,
+  inlineMathCount: 0,
+  displayMathCount: 0,
+}
+
 function stub(overrides: Partial<ProjectCompiler> = {}) {
   const calls: unknown[][] = []
   const compiler: ProjectCompiler = {
@@ -29,6 +40,10 @@ function stub(overrides: Partial<ProjectCompiler> = {}) {
     synctex: (kind, query, id) => {
       calls.push(['synctex', kind, query, id])
       return Promise.resolve({ pdf: [] })
+    },
+    wordCount: (request) => {
+      calls.push(['wordCount', request.rootResourcePath])
+      return Promise.resolve({ ok: true, result: { total: counts, sections: [], warnings: [] } })
     },
     ...overrides,
   }
@@ -134,5 +149,36 @@ describe('worker router', () => {
     expect(missing.status).toBe(404)
     const broken = stub({ warm: () => Promise.reject(new Error('boom')) }).compiler
     expect((await call(`/projects/${projectId}/warm`, { method: 'POST' }, broken)).status).toBe(503)
+  })
+
+  it('counts words synchronously and relays a texcount failure as 422', async () => {
+    const body = {
+      projectId,
+      rootResourcePath: 'main.tex',
+      resources: [{ path: 'main.tex', kind: 'text', content: 'x', sha256: 'a'.repeat(64) }],
+    }
+    const { compiler, calls } = stub()
+    const ok = await call(`/projects/${projectId}/word-count`, post(body), compiler)
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ total: counts, sections: [], warnings: [] })
+    expect(calls).toEqual([['wordCount', 'main.tex']])
+
+    const other = { ...body, projectId: otherProject }
+    expect((await call(`/projects/${projectId}/word-count`, post(other), compiler)).status).toBe(
+      400,
+    )
+    expect(
+      (await call(`/projects/${projectId}/word-count`, post({ ...body, resources: [] }))).status,
+    ).toBe(400)
+
+    const failing = stub({
+      wordCount: () => Promise.resolve({ ok: false, message: 'Word count timed out' }),
+    }).compiler
+    const failed = await call(`/projects/${projectId}/word-count`, post(body), failing)
+    expect(failed.status).toBe(422)
+    expect(await failed.json()).toEqual({
+      error: 'word_count_failed',
+      message: 'Word count timed out',
+    })
   })
 })

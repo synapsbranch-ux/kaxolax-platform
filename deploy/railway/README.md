@@ -55,8 +55,13 @@ le dépôt.
 | `S3_BUCKET_PROJECT_FILES`, `S3_BUCKET_COMPILE_OUTPUTS`                    | `kaxolax-project-files`, `kaxolax-compile-outputs`                       |
 | `COMPILE_BACKEND`                                                         | `cloudflare`                                                             |
 | `COMPILE_WORKER_URL`, `COMPILE_WORKER_SECRET`                             | `https://compile.<domaine>`, secret généré (même valeur dans le Worker)  |
+| `TEXLIVE_INDEX_BUCKET`, `TEXLIVE_INDEX_KEY`                               | bucket R2 de l'index (‡), `texlive/2026/packages.json`                   |
 
 `COMPILE_GATEWAY_URL` n'est pas posée en production (mode `gateway` seulement).
+
+(‡) Bucket `R2_PUBLIC_BUCKET` où la CI de kaxolax-texlive-images publie l'index des packages ;
+le jeton R2 de l'API (`S3_ACCESS_KEY_ID`) doit pouvoir le lire. Sans cette variable, les routes
+`/texlive/*` répondent 503 en production.
 
 ### realtime
 

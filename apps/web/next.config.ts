@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
   // Monorepo : le suivi des fichiers du serveur autonome part de la racine du dépôt.
   outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   poweredByHeader: false,
+  // Dictionnaires du correcteur : lus avec leurs fichiers par Node au build (route statique
+  // `app/dictionaries`), pas intégrés au bundle serveur.
+  serverExternalPackages: ['dictionary-en', 'dictionary-fr'],
   // Même origine pour le navigateur : en local, /api va vers l'API AdonisJS. En staging, le proxy
   // de l'instance (Caddy, derrière CloudFront) route /api/* vers l'API avant Next.js.
   rewrites() {

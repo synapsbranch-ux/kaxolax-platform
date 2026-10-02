@@ -89,6 +89,15 @@ export default await Env.create(new URL('../', import.meta.url), {
   S3_BUCKET_PROJECT_FILES: Env.schema.string(),
   S3_BUCKET_COMPILE_OUTPUTS: Env.schema.string(),
 
+  /**
+   * Index des packages TeX Live (kaxolax-texlive-images, `texlive/<année>/packages.json`) : bucket
+   * du stockage objet configuré (S3_*) où la CI le publie, lu avec les mêmes clés. Absent en
+   * développement et en test : petite fixture (resources/fixtures/texlive-packages.json).
+   */
+  TEXLIVE_INDEX_BUCKET: Env.schema.string.optional(),
+  /** Clé de l'index dans ce bucket (défaut : texlive/2026/packages.json). */
+  TEXLIVE_INDEX_KEY: Env.schema.string.optional(),
+
   /** Signe les jetons de connexion au service temps réel (même valeur dans apps/realtime). */
   REALTIME_TOKEN_SECRET: sharedSecret,
   /** En-tête X-Internal-Token des appels entre services (même valeur partout). */

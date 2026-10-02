@@ -7,14 +7,15 @@ exigent l'en-tête `X-Internal-Token`.
 
 ## Routes
 
-| Route                            | Rôle                                                     |
-| -------------------------------- | -------------------------------------------------------- |
-| `POST /projects/:id/compile`     | Compile (corps `CompileRequest` de `@kaxolax/contracts`) |
-| `POST /projects/:id/stop`        | Arrête la compilation en cours                           |
-| `POST /projects/:id/clear-cache` | Supprime le répertoire de travail du projet              |
-| `GET /projects/:id/synctex/code` | Du code vers le PDF (`file`, `line`, `column`)           |
-| `GET /projects/:id/synctex/pdf`  | Du PDF vers le code (`page`, `h`, `v`)                   |
-| `GET /health`                    | Compilations actives et capacité                         |
+| Route                            | Rôle                                                      |
+| -------------------------------- | --------------------------------------------------------- |
+| `POST /projects/:id/compile`     | Compile (corps `CompileRequest` de `@kaxolax/contracts`)  |
+| `POST /projects/:id/stop`        | Arrête la compilation en cours                            |
+| `POST /projects/:id/clear-cache` | Supprime le répertoire de travail du projet               |
+| `GET /projects/:id/synctex/code` | Du code vers le PDF (`file`, `line`, `column`)            |
+| `GET /projects/:id/synctex/pdf`  | Du PDF vers le code (`page`, `h`, `v`)                    |
+| `POST /projects/:id/word-count`  | Compte les mots (corps `WordCountRequest`) ; 422 si échec |
+| `GET /health`                    | Compilations actives et capacité                          |
 
 ## Fonctionnement
 
@@ -44,6 +45,17 @@ exigent l'en-tête `X-Internal-Token`.
   - `error` : arrêt demandé, mémoire épuisée, PDF de plus de 100 Mo, log de plus de 10 Mo, chemin refusé ;
   - `failure` : latexmk a échoué (le PDF peut exister) ;
   - `success` : sinon.
+- **Compteur de mots** : `texcount -merge -sub=section -utf8 -nocol ./<principal>` dans le même
+  sandbox (aucun réseau, UID 1000, racine en lecture seule, délai de 20 s). Les documents texte de
+  la demande sont écrits dans `COMPILES_DIR/.wordcount/<aléa>/`, hors des projets (ni « vider le
+  cache » ni le nettoyage LRU n'y touchent), monté en lecture seule et supprimé ensuite. texcount
+  (Perl) n'exécute pas TeX, donc aucun shell escape possible ; comme il ne lit pas texmf.cnf, il
+  tourne sous une garde Perl (`TEXCOUNT_GUARD`) qui refuse toute lecture hors de ce répertoire
+  (chemin absolu, `..`, nom avec `|` qui lancerait une commande). Sortie analysée (`src/texcount.ts`) :
+  totaux, détail par partie, chapitre et section (documents inclus à leur place), avertissements
+  `!!! … !!!`. Au plus 2 comptages simultanés par agent et 8 en attente (au-delà, 503
+  `word_count_busy` immédiat) ; dans le conteneur Cloudflare (`ProcessSandbox`, une exécution
+  à la fois), le comptage attend la fin de la compilation.
 - **Nettoyage LRU** des répertoires de projets et du cache, toutes les 5 minutes.
 - Durées mesurées (`timings` : synchronisation, exécution, upload) et loguées à chaque compilation.
 

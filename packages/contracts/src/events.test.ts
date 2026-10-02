@@ -53,6 +53,7 @@ const events: ProjectEvent[] = [
     ],
   },
   { type: 'compile.updated', buildId: id, status: 'running', result: null },
+  { type: 'project.updated', actorId: id, spellcheckLanguage: 'fr' },
 ]
 
 describe('project events', () => {

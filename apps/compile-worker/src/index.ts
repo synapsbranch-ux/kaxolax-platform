@@ -16,6 +16,7 @@ export default {
           warm: () => stub.warm(projectId),
           clearCache: () => stub.clearCache(),
           synctex: (kind, query, buildId) => stub.synctex(kind, query, buildId),
+          wordCount: (request) => stub.wordCount(request),
         }
       },
       log: (message, data) => {

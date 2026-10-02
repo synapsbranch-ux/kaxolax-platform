@@ -25,6 +25,8 @@ const SearchController = () => import('#controllers/search_controller')
 const BannersController = () => import('#controllers/banners_controller')
 const SharingController = () => import('#controllers/sharing_controller')
 const JoinController = () => import('#controllers/join_controller')
+const TexliveController = () => import('#controllers/texlive_controller')
+const WordCountsController = () => import('#controllers/word_counts_controller')
 
 router
   .group(() => {
@@ -49,6 +51,11 @@ router
         router.get('banners/active', [BannersController, 'active'])
 
         router.get('workspaces', [WorkspacesController, 'index'])
+
+        // Index des packages TeX Live (packages/contracts/src/texlive.ts).
+        router.get('texlive/packages', [TexliveController, 'index'])
+        router.get('texlive/packages/:name', [TexliveController, 'show'])
+        router.get('texlive/suggestions', [TexliveController, 'suggestions'])
 
         router.get('projects', [ProjectsController, 'index'])
         router.post('projects', [ProjectsController, 'store'])
@@ -101,6 +108,7 @@ router
         router.get('projects/:id/synctex/pdf', [CompilesController, 'synctexPdf'])
         router.get('projects/:id/builds/:buildId', [BuildsController, 'show'])
         router.post('projects/:id/compiler/warm', [BuildsController, 'warm'])
+        router.post('projects/:id/word-count', [WordCountsController, 'count'])
         router.get('projects/:id/download.zip', [ExportsController, 'download'])
         router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })

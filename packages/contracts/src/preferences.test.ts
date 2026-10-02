@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PREFERENCES,
+  jsonByteLength,
+  MAX_OPEN_TABS_PER_PROJECT,
   MAX_OPEN_TABS_PROJECTS,
+  MAX_PERSONAL_DICTIONARY_BYTES,
+  MAX_PERSONAL_DICTIONARY_WORDS,
+  MAX_PERSONAL_WORD_LENGTH,
+  MAX_PREFERENCES_BYTES,
   MAX_RECENT_SYMBOLS,
   mergePreferences,
   resolvePreferences,
@@ -37,6 +43,11 @@ describe('userPreferencesSchema', () => {
     { recentSymbols: ['alpha'] },
     { recentSymbols: ['\\a b'] },
     { recentSymbols: 'not-an-array' },
+    { spellcheckDictionary: ['deux mots'] },
+    { spellcheckDictionary: ['\\cmd'] },
+    { spellcheckDictionary: ["'apostrophe"] },
+    { spellcheckDictionary: ['mot', 'mot'] },
+    { spellcheckDictionary: ['x'.repeat(MAX_PERSONAL_WORD_LENGTH + 1)] },
   ])('rejects %j', (value) => {
     expect(userPreferencesSchema.safeParse(value).success).toBe(false)
   })
@@ -58,7 +69,92 @@ describe('userPreferencesSchema', () => {
       userPreferencesSchema.safeParse({ recentSymbols: [...recentSymbols, '\\beta'] }).success,
     ).toBe(false)
   })
+
+  it('bounds the personal dictionary in words and in bytes', () => {
+    const suffix = (index: number) =>
+      [0, 1, 2]
+        .map((rank) => String.fromCharCode(97 + (Math.floor(index / 26 ** rank) % 26)))
+        .join('')
+    const short = Array.from({ length: MAX_PERSONAL_DICTIONARY_WORDS }, (_, i) => `m${suffix(i)}`)
+    expect(userPreferencesSchema.safeParse({ spellcheckDictionary: short }).success).toBe(true)
+    expect(
+      userPreferencesSchema.safeParse({ spellcheckDictionary: [...short, 'encore'] }).success,
+    ).toBe(false)
+
+    // Mots les plus longs, à 3 octets par lettre : la borne en octets s'applique avant.
+    const long = (index: number) => `${'ア'.repeat(MAX_PERSONAL_WORD_LENGTH - 3)}${suffix(index)}`
+    const words = worstDictionary(long)
+    expect(words.length).toBeLessThan(MAX_PERSONAL_DICTIONARY_WORDS)
+    expect(userPreferencesSchema.safeParse({ spellcheckDictionary: words }).success).toBe(true)
+    expect(
+      userPreferencesSchema.safeParse({
+        spellcheckDictionary: [...words, long(words.length)],
+      }).success,
+    ).toBe(false)
+    expect(
+      userPreferencesSchema.safeParse({
+        spellcheckDictionary: ["aujourd'hui", 'porte-monnaie', 'Kaxolax', 'l’arbre'],
+      }).success,
+    ).toBe(true)
+  })
+
+  it('keeps the worst case of every key together under the stored size limit', () => {
+    const uuid = (n: number) => `${n.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`
+    const openTabs = Object.fromEntries(
+      Array.from({ length: MAX_OPEN_TABS_PROJECTS }, (_, p) => [
+        uuid(p),
+        {
+          documentIds: Array.from({ length: MAX_OPEN_TABS_PER_PROJECT }, (_, d) => uuid(1000 + d)),
+          activeDocumentId: uuid(999),
+          usedSeq: Number.MAX_SAFE_INTEGER,
+        },
+      ]),
+    )
+    // Caractères de contrôle : 6 octets chacun une fois échappés en JSON.
+    const control = '\u0001'
+    const preferences: UserPreferences = {
+      theme: 'light',
+      layout: {
+        sidebarSize: 33.333333333333336,
+        editorSize: 33.333333333333336,
+        pdfSize: 33.333333333333336,
+        sidebarCollapsed: false,
+      },
+      toolsVisible: true,
+      autoCompile: true,
+      compile: { draft: true, haltOnFirstError: true },
+      openTabs,
+      editor: {
+        fontFamily: control.repeat(100),
+        fontSize: 32,
+        lineHeight: 2.9999999999999996,
+        keymap: 'default',
+        wrap: false,
+        spellcheck: false,
+        syntaxTheme: 'a'.repeat(50),
+      },
+      recentSymbols: Array.from(
+        { length: MAX_RECENT_SYMBOLS },
+        (_, i) => `\\${String(i).padStart(2, '0')}${control.repeat(61)}`,
+      ),
+      spellcheckDictionary: worstDictionary(
+        (i) =>
+          `${'ア'.repeat(MAX_PERSONAL_WORD_LENGTH - 4)}${String.fromCharCode(0x3041 + (i % 80))}${String.fromCharCode(0x30a1 + Math.floor(i / 80))}`,
+      ),
+    }
+    expect(userPreferencesSchema.safeParse(preferences).success).toBe(true)
+    expect(jsonByteLength(preferences)).toBeLessThan(MAX_PREFERENCES_BYTES)
+  })
 })
+
+/** Dictionnaire le plus lourd accepté : mots ajoutés tant que la borne en octets le permet. */
+function worstDictionary(word: (index: number) => string): string[] {
+  const words: string[] = []
+  while (jsonByteLength([...words, word(words.length)]) <= MAX_PERSONAL_DICTIONARY_BYTES) {
+    words.push(word(words.length))
+  }
+  return words
+}
 
 describe('mergePreferences', () => {
   it('merges nested objects and keeps untouched keys', () => {

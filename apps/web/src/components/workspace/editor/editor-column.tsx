@@ -1,7 +1,9 @@
 'use client'
 
 import type { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import type { PresenceUser, Theme } from '@kaxolax/contracts'
+import type { Extension } from '@codemirror/state'
+import type { PresenceUser } from '@kaxolax/contracts'
+import type { CompletionSources, EditorSettings } from '@kaxolax/editor'
 import { Button, SimpleTooltip, Spinner, cn } from '@kaxolax/ui'
 import { EyeIcon, HistoryIcon, MessageSquareTextIcon, WrenchIcon } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
@@ -38,7 +40,11 @@ export function EditorColumn({
   connectionError,
   loading,
   canEdit,
-  theme,
+  settings,
+  completion,
+  extensions,
+  statusBar,
+  overlay,
   autoCompile,
   toolsVisible,
   syncState,
@@ -66,7 +72,16 @@ export function EditorColumn({
   /** Projet et onglets en cours de chargement. */
   loading: boolean
   canEdit: boolean
-  theme: Theme
+  /** Paramètres de l'éditeur (préférences, correcteur), appliqués à chaud. */
+  settings: EditorSettings
+  /** Autocomplétion : index du projet et chemin du document ouvert. */
+  completion: { sources: () => CompletionSources | null; currentFile: () => string | null }
+  /** Extensions de l'application ajoutées à chaque éditeur. */
+  extensions?: Extension
+  /** Barre d'état sous l'éditeur. */
+  statusBar?: ReactNode
+  /** Éléments flottants liés à l'éditeur (menu du correcteur). */
+  overlay?: ReactNode
   autoCompile: boolean
   toolsVisible: boolean
   syncState: SyncState
@@ -203,7 +218,9 @@ export function EditorColumn({
               documentId={activeTab.id}
               socket={socket}
               readOnly={!canEdit}
-              theme={theme}
+              settings={settings}
+              completion={completion}
+              extensions={extensions}
               registry={registry}
               host={host}
               autoCompile={autoCompile}
@@ -236,6 +253,8 @@ export function EditorColumn({
           />
         ) : null}
       </div>
+      {statusBar}
+      {overlay}
       <AskSlot />
       <HistoryDrawer open={historyOpen} onOpenChange={setHistoryOpen} />
     </section>

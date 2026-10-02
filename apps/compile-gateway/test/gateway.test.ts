@@ -28,6 +28,9 @@ class FakeAgent {
   options: CompileRequest['options'][] = []
   stops: string[] = []
   clears: string[] = []
+  wordCounts: string[] = []
+  /** Statut et corps renvoyés par la route word-count (succès par défaut). */
+  wordCountReply: { status: number; body: unknown } | null = null
   /** Compilations en cours par projet, et le maximum observé (tous agents confondus). */
   static running = new Map<string, number>()
   static maxConcurrent = new Map<string, number>()
@@ -105,6 +108,35 @@ class FakeAgent {
       (request) => {
         this.clears.push(request.params.projectId)
         return { cleared: true }
+      },
+    )
+    this.app.post<{ Params: { projectId: string } }>(
+      '/projects/:projectId/word-count',
+      async (request, reply) => {
+        if (this.dropConnections) {
+          reply.raw.destroy()
+          return reply
+        }
+        this.wordCounts.push(request.params.projectId)
+        if (this.wordCountReply) {
+          return reply.code(this.wordCountReply.status).send(this.wordCountReply.body)
+        }
+        const total = {
+          words: 3,
+          text: 2,
+          headers: 1,
+          captions: 0,
+          headerCount: 1,
+          floatCount: 0,
+          inlineMathCount: 0,
+          displayMathCount: 0,
+        }
+        return {
+          total,
+          sections: [{ ...total, kind: 'section', title: 'Intro' }],
+          warnings: [],
+          agent: this.id,
+        }
       },
     )
     this.app.get('/projects/:projectId/synctex/code', () => ({
@@ -341,5 +373,68 @@ describe('other routes', () => {
     const anonymous = await gateway.inject({ method: 'POST', url: '/compile', payload: {} })
     expect(anonymous.statusCode).toBe(401)
     expect((await post('/compile', { projectId: 'nope' })).statusCode).toBe(400)
+  })
+})
+
+describe('word count', () => {
+  const wordCountRequest = (projectId: string) => ({
+    projectId,
+    rootResourcePath: 'main.tex',
+    resources: [{ path: 'main.tex', kind: 'text', content: 'Un deux', sha256: sha('Un deux') }],
+  })
+
+  it('goes to the agent of the affinity, without the compile lock', async () => {
+    const [first, second] = await setup(2)
+    if (!first || !second) throw new Error('agents')
+    const projectId = newProject()
+    await redis.set(affinityKey(projectId), second.id)
+    await redis.set(`compile:lock:${projectId}`, 'running-build')
+    const response = await post(`/projects/${projectId}/word-count`, wordCountRequest(projectId))
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ total: { words: 3 }, sections: [{ title: 'Intro' }] })
+    expect(response.json()).not.toHaveProperty('agent')
+    expect(second.wordCounts).toEqual([projectId])
+    expect(first.wordCounts).toEqual([])
+    // Le verrou d'une compilation en cours n'est pas touché.
+    expect(await redis.get(`compile:lock:${projectId}`)).toBe('running-build')
+  })
+
+  it('retries on another agent when the first one drops the connection', async () => {
+    const [first, second] = await setup(2)
+    if (!first || !second) throw new Error('agents')
+    const projectId = newProject()
+    await redis.set(affinityKey(projectId), first.id)
+    first.dropConnections = true
+    const response = await post(`/projects/${projectId}/word-count`, wordCountRequest(projectId))
+    expect(response.statusCode).toBe(200)
+    expect(second.wordCounts).toEqual([projectId])
+  })
+
+  it('relays a word count failure and rejects an invalid request', async () => {
+    const [agent] = await setup(1)
+    if (!agent) throw new Error('agents')
+    const projectId = newProject()
+    agent.wordCountReply = {
+      status: 422,
+      body: { error: 'word_count_failed', message: 'Word count timed out' },
+    }
+    const failed = await post(`/projects/${projectId}/word-count`, wordCountRequest(projectId))
+    expect(failed.statusCode).toBe(422)
+    expect(failed.json()).toEqual({ error: 'word_count_failed', message: 'Word count timed out' })
+
+    // File d'attente de l'agent pleine : 503 transmis (pas 502).
+    agent.wordCountReply = {
+      status: 503,
+      body: { error: 'word_count_busy', message: 'Too many word counts are waiting' },
+    }
+    const busy = await post(`/projects/${projectId}/word-count`, wordCountRequest(projectId))
+    expect(busy.statusCode).toBe(503)
+    expect(busy.json()).toMatchObject({ error: 'word_count_busy' })
+
+    const other = newProject()
+    const mismatch = await post(`/projects/${other}/word-count`, wordCountRequest(projectId))
+    expect(mismatch.statusCode).toBe(400)
+    const unsafe = { ...wordCountRequest(projectId), rootResourcePath: '../main.tex' }
+    expect((await post(`/projects/${projectId}/word-count`, unsafe)).statusCode).toBe(400)
   })
 })

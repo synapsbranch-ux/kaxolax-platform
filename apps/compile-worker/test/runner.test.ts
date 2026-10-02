@@ -322,4 +322,30 @@ describe('CompileRunner', () => {
     expect(await runner.clearCache(projectId)).toBe(true)
     expect(container.called('POST', `/projects/${projectId}/clear-cache`)).toHaveLength(1)
   })
+
+  it('counts words in the container, waking it first', async () => {
+    const request = {
+      projectId,
+      rootResourcePath: 'main.tex',
+      resources: [
+        { path: 'main.tex', kind: 'text' as const, content: 'x', sha256: 'a'.repeat(64) },
+      ],
+    }
+    expect(container.running).toBe(false)
+    const outcome = await runner.wordCount(request)
+    expect(container.running).toBe(true)
+    expect(outcome).toMatchObject({ ok: true, result: { total: { words: 2 } } })
+    expect(container.called('POST', `/projects/${projectId}/word-count`)).toHaveLength(1)
+
+    container.wordCountReply = {
+      status: 422,
+      body: { error: 'word_count_failed', message: 'Word count timed out' },
+    }
+    expect(await runner.wordCount(request)).toEqual({
+      ok: false,
+      message: 'Word count timed out',
+    })
+    container.wordCountReply = { status: 500, body: { error: 'internal_error' } }
+    await expect(runner.wordCount(request)).rejects.toThrow('word count answered 500')
+  })
 })

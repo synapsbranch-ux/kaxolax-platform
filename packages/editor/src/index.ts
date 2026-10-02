@@ -24,8 +24,17 @@ import {
 import type { ActionHost, ActionRegistry } from './actions/registry.js'
 import { autoCompile, type AutoCompileOptions } from './auto-compile.js'
 import { latexFolding } from './folding.js'
+import { latexAutocomplete, type LatexCompletionOptions } from './completion/latex-completion.js'
 import { latexLanguage, latexLanguageData } from './language.js'
-import { type EditorAppearance, editorTheme, themeSettings, type ThemeMode } from './theme.js'
+import { editorKeymap, type EditorKeymapMode } from './settings.js'
+import { spellcheck, type SpellcheckConfig, spellcheckConfigOf } from './spellcheck/extension.js'
+import {
+  type EditorAppearance,
+  editorTheme,
+  type SyntaxThemeId,
+  themeSettings,
+  type ThemeMode,
+} from './theme.js'
 
 export { findFoldRange, latexFolding } from './folding.js'
 export { latexLanguage } from './language.js'
@@ -33,6 +42,18 @@ export * from './theme.js'
 export * from './auto-compile.js'
 export * from './outline.js'
 export * from './presence.js'
+export * from './settings.js'
+export * from './completion/bibtex.js'
+export * from './completion/latex-completion.js'
+export * from './completion/latex-data.js'
+export * from './completion/project-index.js'
+export * from './completion/tex-scan.js'
+export * from './spellcheck/client.js'
+export * from './spellcheck/extension.js'
+export * from './spellcheck/extract.js'
+export * from './spellcheck/personal.js'
+export * from './spellcheck/protocol.js'
+export * from './package-manager.js'
 export {
   findPreamble,
   loadedPackages,
@@ -48,6 +69,9 @@ export {
   createDefaultRegistry,
   defaultActions,
   FONT_SIZES,
+  PACKAGE_MANAGER_DIALOG,
+  type PackageManagerPayload,
+  packageManagerPayload,
 } from './actions/defaults.js'
 export * from './actions/writing.js'
 export * from './writing/apply.js'
@@ -85,6 +109,8 @@ export interface LatexEditorOptions {
 export const themeCompartment = new Compartment()
 export const readOnlyCompartment = new Compartment()
 export const lineWrappingCompartment = new Compartment()
+export const keymapCompartment = new Compartment()
+export const spellcheckCompartment = new Compartment()
 
 /** Extensions de lecture seule (état et DOM). */
 function readOnlyExtension(readOnly: boolean): Extension {
@@ -104,6 +130,14 @@ export interface LatexExtensionsOptions extends LatexEditorOptions {
   actions?: { registry: ActionRegistry; host: ActionHost | (() => ActionHost) }
   /** Compilation automatique après une pause de frappe. */
   autoCompile?: AutoCompileOptions
+  /** Thème de coloration syntaxique (`default` : couleurs de @kaxolax/ui). */
+  syntaxTheme?: SyntaxThemeId
+  /** Raccourcis Vim ou Emacs (`default` : ceux de CodeMirror). */
+  keymap?: EditorKeymapMode
+  /** Autocomplétion : sources du projet (labels, clés, fichiers) ; `false` la désactive. */
+  completion?: LatexCompletionOptions | false
+  /** Correcteur orthographique (null ou absent : désactivé). */
+  spellcheck?: SpellcheckConfig | null
 }
 
 /** Raccourcis propres à Kaxolax. */
@@ -128,7 +162,10 @@ export function kaxolaxKeymap(options: LatexEditorOptions): Extension {
  */
 export function latexExtensions(options: LatexExtensionsOptions = {}): Extension[] {
   return [
-    themeCompartment.of(editorTheme(options.theme ?? 'dark', options.appearance)),
+    keymapCompartment.of(editorKeymap(options.keymap ?? 'default')),
+    themeCompartment.of(
+      editorTheme(options.theme ?? 'dark', options.appearance, options.syntaxTheme),
+    ),
     lineNumbers(),
     highlightActiveLineGutter(),
     highlightSpecialChars(),
@@ -150,6 +187,8 @@ export function latexExtensions(options: LatexExtensionsOptions = {}): Extension
     search({ top: true }),
     lineWrappingCompartment.of(options.lineWrapping === false ? [] : EditorView.lineWrapping),
     readOnlyCompartment.of(readOnlyExtension(options.readOnly === true)),
+    options.completion === false ? [] : latexAutocomplete(options.completion),
+    spellcheckCompartment.of(options.spellcheck ? spellcheck(options.spellcheck) : []),
     options.actions ? options.actions.registry.keymap(options.actions.host) : [],
     options.autoCompile ? autoCompile(options.autoCompile) : [],
     kaxolaxKeymap(options),
@@ -171,20 +210,42 @@ export interface EditorReconfiguration {
   appearance?: EditorAppearance
   readOnly?: boolean
   lineWrapping?: boolean
+  syntaxTheme?: SyntaxThemeId
+  keymap?: EditorKeymapMode
+  /** Configuration du correcteur, ou null pour le désactiver. */
+  spellcheck?: SpellcheckConfig | null
 }
 
 /**
- * Change thème, police, lecture seule ou retour à la ligne d'un éditeur sans le recréer (le
- * document, l'historique et les curseurs sont conservés). Les champs absents ne changent pas.
+ * Change thème, coloration, police, raccourcis, correcteur, lecture seule ou retour à la ligne
+ * d'un éditeur sans le recréer (le document, l'historique et les curseurs sont conservés). Les
+ * champs absents ne changent pas. Accepte directement le résultat de `editorSettings`.
  */
 export function reconfigureEditor(view: EditorView, change: EditorReconfiguration): void {
   const effects = []
-  if (change.theme !== undefined || change.appearance !== undefined) {
+  if (
+    change.theme !== undefined ||
+    change.appearance !== undefined ||
+    change.syntaxTheme !== undefined
+  ) {
     const current = view.state.facet(themeSettings)
     effects.push(
       themeCompartment.reconfigure(
-        editorTheme(change.theme ?? current.mode, { ...current.appearance, ...change.appearance }),
+        editorTheme(
+          change.theme ?? current.mode,
+          { ...current.appearance, ...change.appearance },
+          change.syntaxTheme ?? current.syntax ?? 'default',
+        ),
       ),
+    )
+  }
+  if (change.keymap !== undefined) {
+    effects.push(keymapCompartment.reconfigure(editorKeymap(change.keymap)))
+  }
+  // Même configuration du correcteur : rien à recréer (les soulignements restent).
+  if (change.spellcheck !== undefined && change.spellcheck !== spellcheckConfigOf(view.state)) {
+    effects.push(
+      spellcheckCompartment.reconfigure(change.spellcheck ? spellcheck(change.spellcheck) : []),
     )
   }
   if (change.readOnly !== undefined) {

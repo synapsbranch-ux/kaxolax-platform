@@ -97,6 +97,11 @@ export function buildContainerSpec(options: SandboxOptions, run: SandboxRunReque
  * l'étape 1) ou processus non privilégié dans la VM du conteneur Cloudflare (`ProcessSandbox`).
  */
 export interface CompileSandbox {
+  /**
+   * Vrai si deux exécutions ne peuvent pas avoir lieu en même temps (ProcessSandbox : chaque
+   * exécution tue tous les processus de l'UID du sandbox et vide son répertoire temporaire).
+   */
+  readonly serialRuns?: boolean
   run(run: SandboxRunRequest): Promise<SandboxResult>
   /** Chemin du répertoire du projet tel que le voit la commande (cwd et chemins du log). */
   workdirPath(hostWorkdir: string): string

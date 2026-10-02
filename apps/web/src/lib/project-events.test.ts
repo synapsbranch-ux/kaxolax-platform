@@ -54,6 +54,12 @@ describe('realtime messages', () => {
         SELF,
       ),
     ).toEqual({ kind: 'refresh-members' })
+    expect(
+      eventEffect({ type: 'project.updated', actorId: OTHER, spellcheckLanguage: 'fr' }, SELF),
+    ).toEqual({ kind: 'project', changes: { spellcheckLanguage: 'fr' } })
+    expect(eventEffect({ type: 'project.updated', actorId: OTHER }, SELF)).toEqual({
+      kind: 'none',
+    })
     expect(eventEffect({ type: 'banner.changed', banners: [] }, SELF)).toEqual({
       kind: 'banners',
       banners: [],

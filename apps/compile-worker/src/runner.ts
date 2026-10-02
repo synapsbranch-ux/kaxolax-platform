@@ -11,6 +11,8 @@ import {
   type OutputFile,
   type WorkerCallback,
   type WorkerCompileJob,
+  type WordCountRequest,
+  wordCountResultSchema,
 } from '@kaxolax/contracts'
 import { z } from 'zod'
 import type { CallbackOutcome } from './callback.js'
@@ -101,6 +103,12 @@ const json = (body: unknown): RequestInit => ({
 function errorEntry(message: string): LogEntry {
   return { level: 'error', file: null, line: null, message, raw: '' }
 }
+
+/** Résultat d'un comptage de mots : compteurs, ou message de l'agent (texcount a échoué). */
+export type WordCountOutcome =
+  { ok: true; result: z.infer<typeof wordCountResultSchema> } | { ok: false; message: string }
+
+const wordCountFailureSchema = z.object({ message: z.string() })
 
 export const MESSAGES = {
   startFailed: 'The compiler could not start. Try again in a moment.',
@@ -225,6 +233,26 @@ export class CompileRunner {
     })
     if (!response.ok) throw new Error(`clear-cache answered ${String(response.status)}`)
     return clearCacheResponseSchema.parse(await response.json()).cleared
+  }
+
+  /**
+   * Comptage de mots, synchrone : les documents texte sont dans la demande (aucun binaire à
+   * pousser). Réveille le conteneur s'il dort ; l'agent attend la fin d'une compilation en cours
+   * (une exécution à la fois dans la VM).
+   */
+  async wordCount(request: WordCountRequest): Promise<WordCountOutcome> {
+    const { container } = this.options
+    await container.start()
+    const response = await container.fetch(
+      `/projects/${request.projectId}/word-count`,
+      json(request),
+    )
+    if (response.status === 422) {
+      const failure = wordCountFailureSchema.safeParse(await response.json())
+      return { ok: false, message: failure.success ? failure.data.message : 'Word count failed' }
+    }
+    if (!response.ok) throw new Error(`word count answered ${String(response.status)}`)
+    return { ok: true, result: wordCountResultSchema.parse(await response.json()) }
   }
 
   /**

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { activeBannerSchema } from './admin.js'
 import { buildStatusSchema } from './builds.js'
 import { compileResultSchema } from './compile.js'
+import { spellcheckLanguageSchema } from './projects.js'
 import { projectRoleSchema } from './realtime.js'
 
 /**
@@ -115,6 +116,17 @@ export const commentCreatedEventSchema = z.object({
   authorId: z.uuid(),
 })
 
+/**
+ * Réglages communs du projet modifiés (`PATCH /projects/:id`) : seuls les champs changés sont
+ * présents, le client les recopie dans son projet (langue du correcteur partagée par les membres).
+ */
+export const projectUpdatedEventSchema = z.object({
+  type: z.literal('project.updated'),
+  actorId: z.uuid().nullable(),
+  spellcheckLanguage: spellcheckLanguageSchema.optional(),
+})
+export type ProjectUpdatedEvent = z.infer<typeof projectUpdatedEventSchema>
+
 /** Bannières système actives après un changement (diffusé à tous les clients connectés). */
 export const bannerChangedEventSchema = z.object({
   type: z.literal('banner.changed'),
@@ -149,6 +161,7 @@ export const projectEventSchema = z.discriminatedUnion('type', [
   commentCreatedEventSchema,
   bannerChangedEventSchema,
   compileUpdatedEventSchema,
+  projectUpdatedEventSchema,
 ])
 export type ProjectEvent = z.infer<typeof projectEventSchema>
 export type ProjectEventType = ProjectEvent['type']

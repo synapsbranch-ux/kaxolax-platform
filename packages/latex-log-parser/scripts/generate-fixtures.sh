@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Régénère les logs de test à partir de test/fixtures-src avec la vraie image TeX Live.
-# Usage : scripts/generate-fixtures.sh [image]   (défaut : kaxolax-texlive:2026-medium)
+# Usage : scripts/generate-fixtures.sh [image] [fixture…]   (défaut : kaxolax-texlive:2026-medium,
+# toutes les fixtures)
 set -euo pipefail
 
 image="${1:-kaxolax-texlive:2026-medium}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
+sources=("$root"/test/fixtures-src/*/)
+if [[ $# -gt 1 ]]; then
+  sources=()
+  for name in "${@:2}"; do sources+=("$root/test/fixtures-src/$name/"); done
+fi
 
-for source in "$root"/test/fixtures-src/*/; do
+for source in "${sources[@]}"; do
   name="$(basename "$source")"
   compiler="$(sed -n 's/.*"compiler": *"\([a-z]*\)".*/\1/p' "$source/fixture.json")"
   flags=(-file-line-error)

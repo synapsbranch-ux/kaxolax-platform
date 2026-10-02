@@ -3,10 +3,16 @@ import {
   INTERNAL_TOKEN_HEADER,
   type WorkerCompileJob,
   type WorkerEnqueueResponse,
+  type WordCountRequest,
 } from '@kaxolax/contracts'
 import { sendCallback } from './callback.js'
 import type { Env } from './env.js'
-import { CONTAINER_PORT, CompileRunner, type ObjectBucket } from './runner.js'
+import {
+  CONTAINER_PORT,
+  CompileRunner,
+  type ObjectBucket,
+  type WordCountOutcome,
+} from './runner.js'
 
 const TOKEN_KEY = 'container-token'
 const PROJECT_KEY = 'project-id'
@@ -142,6 +148,11 @@ export class CompileContainer extends Container<Env> {
   async clearCache(): Promise<boolean> {
     const projectId = await this.ctx.storage.get<string>(PROJECT_KEY)
     return projectId === undefined ? true : this.runner.clearCache(projectId)
+  }
+
+  async wordCount(request: WordCountRequest): Promise<WordCountOutcome> {
+    await this.ctx.storage.put(PROJECT_KEY, request.projectId)
+    return this.runner.wordCount(request)
   }
 
   async synctex(

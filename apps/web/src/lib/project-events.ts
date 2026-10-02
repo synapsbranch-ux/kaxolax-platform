@@ -4,6 +4,7 @@ import {
   type ProjectEvent,
   type RoleChangedMessage,
   roleChangedMessageSchema,
+  type SpellcheckLanguage,
 } from '@kaxolax/contracts'
 
 /**
@@ -34,6 +35,8 @@ export type EventEffect =
   /** Son propre rôle a changé (relire le projet) ou on a été retiré (vérifier l'accès). */
   | { kind: 'refresh-access' }
   | { kind: 'banners'; banners: ActiveBanner[] }
+  /** Réglages communs du projet à recopier (langue du correcteur). */
+  | { kind: 'project'; changes: { spellcheckLanguage?: SpellcheckLanguage } }
   | { kind: 'none' }
 
 /**
@@ -51,6 +54,10 @@ export function eventEffect(event: ProjectEvent, selfId: string | null): EventEf
       return event.userId === selfId ? { kind: 'refresh-access' } : { kind: 'refresh-members' }
     case 'banner.changed':
       return { kind: 'banners', banners: event.banners }
+    case 'project.updated':
+      return event.spellcheckLanguage === undefined
+        ? { kind: 'none' }
+        : { kind: 'project', changes: { spellcheckLanguage: event.spellcheckLanguage } }
     default:
       return { kind: 'none' }
   }

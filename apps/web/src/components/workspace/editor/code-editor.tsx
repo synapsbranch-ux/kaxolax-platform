@@ -1,12 +1,14 @@
 'use client'
 
 import { HocuspocusProvider, type HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import type { PresenceUser, Theme } from '@kaxolax/contracts'
+import type { PresenceUser } from '@kaxolax/contracts'
 import { documentName, TEXT_FIELD } from '@kaxolax/collab'
 import {
   type ActionHost,
   type ActionRegistry,
   collaboratorCursorTheme,
+  type CompletionSources,
+  type EditorSettings,
   goToLine,
   isActionTransaction,
   isLocalEdit,
@@ -16,12 +18,13 @@ import {
   revealPosition,
 } from '@kaxolax/editor'
 import { Spinner } from '@kaxolax/ui'
-import { EditorSelection, EditorState } from '@codemirror/state'
+import { EditorSelection, EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import { api } from '@/lib/api'
+import { settingsChange } from '@/lib/editor-settings'
 import { cursorIndexOf } from '@/lib/presence'
 
 /** Commandes de l'éditeur utilisées par la page (logs, SyncTeX, compilation, barre Tools). */
@@ -53,7 +56,9 @@ export function CodeEditor({
   documentId,
   socket,
   readOnly,
-  theme,
+  settings,
+  completion,
+  extensions,
   registry,
   host,
   autoCompile,
@@ -73,7 +78,15 @@ export function CodeEditor({
    * bloqueraient les suivantes).
    */
   readOnly: boolean
-  theme: Theme
+  /**
+   * Paramètres de l'éditeur (préférences de l'utilisateur, correcteur) : appliqués à chaud,
+   * seuls les réglages modifiés sont reconfigurés.
+   */
+  settings: EditorSettings
+  /** Sources de l'autocomplétion (index du projet) et chemin du document, lus à chaque appel. */
+  completion: { sources: () => CompletionSources | null; currentFile: () => string | null }
+  /** Extensions de l'application ajoutées à l'éditeur (fixées à la création). */
+  extensions?: Extension
   /** Registre d'actions dont les raccourcis sont liés à l'éditeur. */
   registry: ActionRegistry
   /** Callbacks de l'application pour les actions (lus à chaque exécution). */
@@ -98,8 +111,9 @@ export function CodeEditor({
   // Défilement jusqu'au curseur du collaborateur suivi (null tant que l'éditeur n'existe pas).
   const revealFollowed = useRef<(() => void) | null>(null)
   const [ready, setReady] = useState(false)
-  // Thème à la création ; ses changements passent ensuite par reconfigureEditor.
-  const initialTheme = useRef(theme)
+  // Réglages en place : à la création, puis après chaque reconfiguration.
+  const appliedSettings = useRef(settings)
+  const latestExtensions = useRef({ completion, extensions })
   // Ouverture courante du document : incrémentée au retour en écriture pour le rouvrir (état
   // dérivé pendant le rendu, plutôt qu'un effet qui relancerait un rendu).
   const [opening, setOpening] = useState({ readOnly, serial: 0 })
@@ -114,8 +128,18 @@ export function CodeEditor({
   })
 
   useEffect(() => {
-    if (view.current) reconfigureEditor(view.current, { theme })
-  }, [theme])
+    latestExtensions.current = { completion, extensions }
+  })
+
+  useEffect(() => {
+    if (!view.current) {
+      appliedSettings.current = settings
+      return
+    }
+    const change = settingsChange(appliedSettings.current, settings)
+    appliedSettings.current = settings
+    if (change !== null) reconfigureEditor(view.current, change)
+  }, [settings])
 
   // Passage en lecture seule sans recréer l'éditeur (le retour en écriture le rouvre).
   useEffect(() => {
@@ -171,6 +195,8 @@ export function CodeEditor({
     const mount = () => {
       report()
       if (created !== null) return
+      const initial = appliedSettings.current
+      const { completion: completionOptions, extensions: extra } = latestExtensions.current
       const editor = new EditorView({
         parent: element,
         state: EditorState.create({
@@ -180,7 +206,13 @@ export function CodeEditor({
               sharedHistory: true,
               // Lu au montage : un passage en lecture seule pendant le chargement compte.
               readOnly: latest.current.readOnly,
-              theme: initialTheme.current,
+              theme: initial.theme,
+              appearance: initial.appearance,
+              syntaxTheme: initial.syntaxTheme,
+              keymap: initial.keymap,
+              lineWrapping: initial.lineWrapping,
+              spellcheck: initial.spellcheck,
+              completion: completionOptions,
               onCompile: () => {
                 callbacks.current.onCompile()
               },
@@ -200,6 +232,7 @@ export function CodeEditor({
             yCollab(ytext, provider.awareness, { undoManager }),
             keymap.of(yUndoManagerKeymap),
             collaboratorCursorTheme,
+            extra ?? [],
             keystrokeListener(() => {
               // Fin du suivi immédiate : le raccourci (Entrée, Retour arrière…) modifie le
               // document dans le même événement, avant que React n'applique le nouvel état.

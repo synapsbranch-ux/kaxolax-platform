@@ -100,6 +100,8 @@ export class FakeContainer implements ContainerPort {
   stopped = false
   /** Bloque aussi l'envoi des binaires (annulation avant le lancement de latexmk). */
   holdBlobs = false
+  /** Réponse de la route word-count de l'agent (succès par défaut). */
+  wordCountReply: { status: number; body: unknown } | null = null
   /** Sorties supplémentaires annoncées par un agent compromis. */
   extraOutputs: { name: string; s3Key: string; content: string }[] = []
 
@@ -208,6 +210,20 @@ export class FakeContainer implements ContainerPort {
       return json({ pdf: [{ page: 1, h: 1, v: 2, width: 3, height: 4 }], query: url.search })
     }
     if (url.pathname.endsWith('/clear-cache')) return json({ cleared: true })
+    if (method === 'POST' && url.pathname.endsWith('/word-count')) {
+      if (this.wordCountReply) return json(this.wordCountReply.body, this.wordCountReply.status)
+      const total = {
+        words: 2,
+        text: 2,
+        headers: 0,
+        captions: 0,
+        headerCount: 0,
+        floatCount: 0,
+        inlineMathCount: 0,
+        displayMathCount: 0,
+      }
+      return json({ total, sections: [], warnings: [] })
+    }
     return json({ error: 'not_found' }, 404)
   }
 }

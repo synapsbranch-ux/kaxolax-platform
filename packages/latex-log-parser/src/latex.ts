@@ -1,4 +1,4 @@
-import { type LogEntry, type LogLevel } from '@kaxolax/contracts'
+import { type LogEntry, type LogLevel, MAX_MISSING_FILE_LENGTH } from '@kaxolax/contracts'
 import { DEFAULT_MAX_PRINT_LINE, logicalLines } from './lines.js'
 import { normalizePath, type PathOptions } from './paths.js'
 
@@ -23,6 +23,13 @@ const CONTINUATION = /^\(([^()\s]+)\)\s+(.*)$/
 const INPUT_LINE = / on input line (\d+)\.?/
 const CONTEXT_LINE = /^l\.(\d+) /
 const FATAL_SUMMARY = '==> Fatal error occurred'
+/**
+ * Fichier introuvable : « LaTeX Error: File `xyz.sty' not found. » (\usepackage, \documentclass,
+ * \input, identique sous pdfLaTeX, XeLaTeX et LuaLaTeX) ou « I can't find file `xyz'. » (primitive
+ * \input de TeX).
+ */
+const MISSING_FILE =
+  /(?:^|\s)(?:LaTeX Error: File `([^'`]+)' not found|I can't find file `([^'`]+)')/
 /** Ouverture d'un fichier dans le log : `(./main.tex`, `(/usr/.../article.cls`, `("./a b.tex"`. */
 const FILE_OPEN = /^\((?:"([^"]+)"|((?:\.{1,2}\/|\/)[^\s()"]*))/
 
@@ -85,7 +92,15 @@ export function parseLatexLog(
     message: string,
     raw: string[],
   ) => {
-    const entry = { level, file, line, message: clean(message), raw: raw.join('\n').trimEnd() }
+    const text = clean(message)
+    const entry: LogEntry = { level, file, line, message: text, raw: raw.join('\n').trimEnd() }
+    const missing = level === 'error' ? MISSING_FILE.exec(text) : null
+    const missingFile = missing?.[1] ?? missing?.[2]
+    // Nom démesuré (`\usepackage{<300 caractères>}`) : l'erreur reste affichée, sans suggestions,
+    // pour que l'entrée reste valide au regard du contrat (sinon toute la réponse est refusée).
+    if (missingFile !== undefined && missingFile.length <= MAX_MISSING_FILE_LENGTH) {
+      entry.missingFile = missingFile
+    }
     const last = entries.at(-1)
     // Un même message répété d'affilée (fontspec réessaie chaque forme) n'apparaît qu'une fois.
     if (
@@ -158,6 +173,14 @@ export function parseLatexLog(
       const file = fileLine ? normalizePath(fileLine[1] ?? '', pathOptions) : currentFile()
       const lineNumber = fileLine ? Number(fileLine[2]) : contextLine
 
+      // Résumé final au format -file-line-error (`./main.tex:2:  ==> Fatal error occurred…`) :
+      // même traitement que sans préfixe, plus bas.
+      if (clean(message).startsWith(FATAL_SUMMARY)) {
+        if (!entries.some((entry) => entry.level === 'error')) {
+          push('error', file, lineNumber, 'Fatal error occurred, no output PDF file produced!', raw)
+        }
+        continue
+      }
       if (/^Emergency stop\.?$/.test(clean(message))) {
         const previous = entries.findLast((entry) => entry.level === 'error')
         const consequential =

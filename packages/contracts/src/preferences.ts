@@ -16,8 +16,26 @@ export const MAX_OPEN_TABS_PROJECTS = 20
 export const MAX_OPEN_TABS_PER_PROJECT = 30
 /** Symboles récents mémorisés (sélecteur de symboles, `RECENT_SYMBOLS_LIMIT` de l'éditeur). */
 export const MAX_RECENT_SYMBOLS = 24
-/** Taille maximale du JSON stocké, en octets (UTF-8). */
-export const MAX_PREFERENCES_BYTES = 32 * 1024
+/**
+ * Dictionnaire personnel du correcteur (`PERSONAL_DICTIONARY_LIMIT` de l'éditeur) : au plus
+ * `MAX_PERSONAL_DICTIONARY_WORDS` mots de `MAX_PERSONAL_WORD_LENGTH` caractères, et
+ * `MAX_PERSONAL_DICTIONARY_BYTES` octets une fois sérialisé (UTF-8). Une fois plein, l'ajout est
+ * refusé (aucun mot ne sort en silence).
+ */
+export const MAX_PERSONAL_DICTIONARY_WORDS = 1000
+export const MAX_PERSONAL_WORD_LENGTH = 40
+export const MAX_PERSONAL_DICTIONARY_BYTES = 20 * 1024
+/**
+ * Taille maximale du JSON stocké, en octets (UTF-8) : au-dessus de la somme des pires cas de
+ * chaque clé (onglets ~26 Kio, dictionnaire 20 Kio, symboles récents ~10 Kio, le reste ~1 Kio),
+ * vérifiée par les tests des contrats.
+ */
+export const MAX_PREFERENCES_BYTES = 64 * 1024
+
+/** Taille en octets (UTF-8) d'une valeur sérialisée en JSON. */
+export function jsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length
+}
 
 export const themeSchema = z.enum(['dark', 'light'])
 export type Theme = z.infer<typeof themeSchema>
@@ -54,7 +72,7 @@ export const openTabsEntrySchema = z.strictObject({
 })
 export type OpenTabsEntry = z.infer<typeof openTabsEntrySchema>
 
-/** Paramètres de l'éditeur (tâche 10) : validés dès maintenant, pas encore appliqués. */
+/** Paramètres de l'éditeur, appliqués à chaud (`editorSettings` de @kaxolax/editor). */
 export const editorPreferencesSchema = z.strictObject({
   fontFamily: z.string().trim().min(1).max(100).optional(),
   fontSize: z.number().int().min(8).max(32).optional(),
@@ -102,6 +120,23 @@ export const userPreferencesSchema = z.strictObject({
     )
     .max(MAX_RECENT_SYMBOLS)
     .optional(),
+  /**
+   * Dictionnaire personnel du correcteur, toutes langues (le plus récent en tête) : lettres,
+   * apostrophes et traits d'union. Défaut : vide.
+   */
+  spellcheckDictionary: z
+    .array(
+      z
+        .string()
+        .max(MAX_PERSONAL_WORD_LENGTH)
+        .regex(/^[\p{L}\p{M}][\p{L}\p{M}'’-]*$/u),
+    )
+    .max(MAX_PERSONAL_DICTIONARY_WORDS)
+    .refine((words) => new Set(words).size === words.length, { message: 'Duplicate words' })
+    .refine((words) => jsonByteLength(words) <= MAX_PERSONAL_DICTIONARY_BYTES, {
+      message: 'Personal dictionary too large',
+    })
+    .optional(),
 })
 /** Préférences stockées, ou modification envoyée par `PATCH /me/preferences`. */
 export type UserPreferences = z.infer<typeof userPreferencesSchema>
@@ -132,6 +167,7 @@ export const DEFAULT_PREFERENCES: ResolvedPreferences = {
     syntaxTheme: 'default',
   },
   recentSymbols: [],
+  spellcheckDictionary: [],
 }
 
 /** Réponse de `GET` et `PATCH /me/preferences`. */
@@ -302,5 +338,6 @@ export function resolvePreferences(stored: UserPreferences): ResolvedPreferences
       syntaxTheme: editor.syntaxTheme ?? defaults.editor.syntaxTheme,
     },
     recentSymbols: stored.recentSymbols ?? defaults.recentSymbols,
+    spellcheckDictionary: stored.spellcheckDictionary ?? defaults.spellcheckDictionary,
   }
 }

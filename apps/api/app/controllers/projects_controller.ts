@@ -96,6 +96,14 @@ export default class ProjectsController {
         mainDocumentId: project.mainDocumentId,
       })
     }
+    // Langue du correcteur commune aux membres : leurs pages ouvertes changent de dictionnaire.
+    if (changes.spellcheckLanguage !== undefined) {
+      await this.realtime.publishProjectEvent(project.id, {
+        type: 'project.updated',
+        actorId: user.id,
+        spellcheckLanguage: project.spellcheckLanguage,
+      })
+    }
     return { project: serializeProject(project, role) }
   }
 
