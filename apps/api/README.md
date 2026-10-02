@@ -29,7 +29,7 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   (`DEFAULT_PREFERENCES`, @kaxolax/contracts). `PATCH /me/preferences` fusionne une modification
   partielle (fusion profonde, tableaux remplacés, clé inconnue ou valeur invalide : 422) dans
   `user_preferences` (`INSERT … ON CONFLICT DO NOTHING` puis `FOR UPDATE` : modifications
-  simultanées sans perte). Seules les clés changées sont stockées ; JSON borné à 32 Kio, onglets
+  simultanées sans perte). Seules les clés changées sont stockées ; JSON borné à 64 Kio (au-dessus de la somme des pires cas de chaque clé, vérifiée par les tests des contrats ; 422 `E_PREFERENCES_TOO_LARGE`), onglets
   mémorisés pour les 20 derniers projets modifiés (numéro d'ordre `usedSeq` posé par l'API). Une
   clé stockée devenue invalide est écartée seule à la lecture, sans effacer les autres.
 - **Workspaces** : tout projet appartient à un workspace. Chaque compte reçoit un workspace
@@ -82,7 +82,7 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   | `GET /projects/:id/members`                           | tout membre                                  | `projectMembersResponseSchema` (invitations, `collaborators` et emails des membres pour le propriétaire seulement ; les autres rôles ne voient que leur propre email, `null` ailleurs)                                                       |
   | `PATCH /projects/:id/members/:userId`                 | owner                                        | `{ role }` (editor, reviewer, viewer) → `memberResponseSchema` ; 409 `E_OWNER_ROLE_LOCKED` sur le propriétaire                                                                                                                               |
   | `DELETE /projects/:id/members/:userId`                | owner, ou le membre lui-même (quitter)       | 204 ; 409 `E_OWNER_CANNOT_LEAVE`                                                                                                                                                                                                             |
-  | `POST /projects/:id/transfer`                         | owner                                        | `{ userId }` d'un membre existant → `projectMembersResponseSchema` ; 422 `E_INVALID_NEW_OWNER`, 409 `E_ALREADY_OWNER`                                                                                                                        |
+  | `POST /projects/:id/transfer`                         | owner                                        | `{ userId }` d'un membre existant → `projectMembersResponseSchema` ; 422 `E_INVALID_NEW_OWNER`, 409 `E_ALREADY_OWNER`, 403 `E_PLAN_LIMIT` (plan du nouveau propriétaire)                                                                     |
   | `GET /projects/:id/invitations`                       | owner                                        | `projectInvitationsResponseSchema`                                                                                                                                                                                                           |
   | `POST /projects/:id/invitations`                      | owner                                        | `{ email, role }` → 201 `invitationResponseSchema` (200 si une invitation en attente pour cet email est mise à jour et renvoyée) ; 403 `E_PLAN_LIMIT`, 409 `E_ALREADY_MEMBER`, 429 `E_TOO_MANY_INVITATIONS`, 502 `E_INVITATION_EMAIL_FAILED` |
   | `POST /projects/:id/invitations/:invitationId/resend` | owner                                        | `invitationResponseSchema` ; 429 `E_TOO_MANY_INVITATIONS` (`retryAfterSeconds`)                                                                                                                                                              |
@@ -115,11 +115,11 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     par lien) écrit une ligne dans `project_sharing_events` (dans la transaction de l'action) et
     une ligne structurée dans le journal applicatif (`app/services/sharing_audit.ts`), jamais de
     jeton, d'URL de lien ni d'email.
-  - Limite de collaborateurs : celle du plan du propriétaire (`plan_limits.max_collaborators`,
-    abonnement lu dans `subscriptions`, `free` sinon ; `app/services/plans.ts`). Comptent les
-    membres autres que le propriétaire et les invitations en attente non expirées ; appliquée à
-    l'invitation, à la relance d'une invitation expirée, à l'acceptation et à l'adhésion par
-    lien, projet verrouillé. Refus : 403 `planLimitErrorSchema` (`limit.plan`, `limit.max`).
+  - Limite de collaborateurs : celle du plan du propriétaire (voir **Abonnements** ;
+    `app/services/plans.ts`). Comptent les membres autres que le propriétaire et les invitations
+    en attente non expirées ; appliquée à l'invitation, à la relance d'une invitation expirée, à
+    l'acceptation et à l'adhésion par lien, projet verrouillé. Refus : 403 `E_PLAN_LIMIT`
+    (`limit.name` = `collaborators`, `current` = places occupées).
   - Liens de partage : un lien `view` (viewer) et un lien `edit` (editor) par projet. Jeton =
     HMAC-SHA256 (`APP_KEY`) de l'identifiant aléatoire du lien : seul son hash est stocké, mais
     le propriétaire peut réafficher le lien. Désactiver puis réactiver redonne le même lien ;
@@ -231,11 +231,13 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     restauration). Fichier seul : recréé à son chemin s'il a disparu ; un document ou un fichier
     qui occupe ce chemin est remplacé (il reste dans la version de sauvegarde), un dossier donne
     409 `E_RESTORE_PATH_TAKEN`. Les fils de commentaires des documents retirés sont supprimés
-    (ils ne font pas partie des versions) : le dialogue de restauration le signale.
+    (ils ne font pas partie des versions) : le dialogue de restauration le signale. Stockage du
+    plan du propriétaire (tâche 12) : un texte restauré plus long que l'état enregistré est
+    vérifié avant tout remplacement, et ce que l'arborescence recrée (documents, binaires) dans la
+    transaction ; au-delà, 403 `E_PLAN_LIMIT` et rien n'est modifié (textes remis en état).
   - Purge (toutes les `HISTORY_PURGE_SECONDS`) : versions sans label plus anciennes que la
-    conservation du plan du propriétaire (`plan_limits.history_retention_days`, lue par
-    `historyRetentionDays`, `app/services/history_retention.ts`, à remplacer par la fonction de
-    la tâche 12), jamais la plus récente.
+    conservation du plan du propriétaire (`historyRetention(owner)` de
+    `app/services/entitlements.ts`, tâche 12), jamais la plus récente ni une version avec label.
 
 - **Temps réel** : `POST /projects/:id/realtime-token` signe un jeton de 5 minutes pour le
   service `apps/realtime` (`REALTIME_TOKEN_SECRET`, `REALTIME_PUBLIC_URL`), valable pour les
@@ -272,6 +274,30 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
 - **Import zip** : `POST /imports`, puis `POST /imports/:uploadId/complete` crée le projet
   (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
   personnel.
+- **Galerie de templates** (contrat : `packages/contracts/src/templates.ts`) : catalogue
+  `templates.json` v1 publié par le dépôt kaxolax-templates sur un bucket R2 public (format :
+  README de ce dépôt, « Contrat du catalogue »), lu à `TEMPLATES_CATALOG_URL`
+  (`app/services/template_catalog.ts`). Validation zod stricte des valeurs (un template invalide
+  fait refuser tout le catalogue ; champs inconnus ignorés, comme le prévoit le contrat), copie en
+  mémoire servie 60 s puis revalidée par requête conditionnelle (`If-None-Match`,
+  `If-Modified-Since`) ; catalogue injoignable ou invalide : dernière copie valide servie jusqu'à
+  24 h (nouvel essai toutes les 30 s), sinon 503 `E_TEMPLATES_UNAVAILABLE`. Sans
+  `TEMPLATES_CATALOG_URL`, hors production seulement : catalogue de démonstration
+  `resources/templates.fixture.json` (métadonnées des dix templates de départ, fichiers non
+  publiés : URL nulles, création refusée en 503).
+  - `GET /templates?q=&category=&language=&compiler=` (public, `Cache-Control: max-age=60`) :
+    fiches (métadonnées, URL publiques de la miniature et du PDF sous `TEMPLATES_PUBLIC_URL`,
+    défaut le dossier du catalogue, suffixées de `?v=<sha256 court>`), compteurs par catégorie.
+    Recherche par mots (préfixes, sans accents) dans titre, description, mots-clés et id
+    (`filterTemplates`, partagée avec le web). `GET /templates/:id` : une fiche (404
+    `E_TEMPLATE_NOT_FOUND`).
+  - `POST /projects/from-template` `{ templateId, name?, workspaceId? }` (authentifié) :
+    workspace et stockage du plan vérifiés avant tout téléchargement, zip téléchargé (60 s au
+    plus, lecture interrompue au-delà de la taille annoncée) puis comparé à `bytes` et `sha256`
+    du catalogue (502 `E_TEMPLATE_INTEGRITY`, ou `E_TEMPLATE_DOWNLOAD_FAILED`), puis même
+    création que l'import zip (`createProjectFromZip` : stockage revérifié sur le contenu
+    extrait), nom par défaut le titre du template, compilateur et document principal repris du
+    catalogue. 201 `{ project }`, événement `tree.changed`.
 
 - **Compilation** : `POST /projects/:id/compile`, corps facultatif
   `{ options: { draft?, haltOnFirstError? } }` validé par zod (mode brouillon, arrêt à la
@@ -290,9 +316,50 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   respond in time »). `POST /projects/:id/compiler/warm`
   réveille le conteneur du projet à l'ouverture de l'éditeur. Une compilation active à la fois
   par projet (409 `E_COMPILE_IN_PROGRESS`) ; au plus 5 projets réveillés par utilisateur sur
-  15 min (429 `E_TOO_MANY_COMPILERS`).
+  15 min (429 `E_TOO_MANY_COMPILERS`) ; le réveil ne refuse jamais et ne prend pas le dernier
+  emplacement libre, gardé pour une vraie compilation (`{ status: 'skipped' }`).
+  Chaque demande (synchrone et asynchrone) porte `timeoutMs`, la durée maximale du plan du
+  propriétaire du projet (20 s Free, 240 s Pro) ; un résultat `timeout` sous une limite qu'un
+  plan supérieur lève porte `planLimit` (corps `E_PLAN_LIMIT`, `compile_time`).
 - **SyncTeX** : `GET /projects/:id/synctex/code` (`file`, `line`, `column`) et
   `GET /projects/:id/synctex/pdf` (`page`, `h`, `v`).
+- **Compteur de mots** : `POST /projects/:id/word-count` (permission `compile`, lecteurs
+  compris), corps facultatif `{ documentId }` (défaut : le document principal). texcount tourne
+  dans le sandbox de compilation (`-merge -sub=section`) sur ce document et les documents
+  `.tex`/`.ltx` du projet qu'il inclut (texte courant, instantané temps réel) : par le gateway
+  (mode `gateway`), ou par le Worker et le conteneur du projet (mode `cloudflare`, réveillé au
+  besoin, jusqu'à 95 s, compté dans le plafond de compilateurs). Réponse
+  (`wordCountResponseSchema`) : `total` (`words` = `text` + `headers` + `captions`, nombre de
+  titres, flottants, formules), `sections` (partie, chapitre, section, documents inclus à leur
+  place), `warnings` de texcount, `rootResourcePath`, `durationMs`. 422 `E_NO_MAIN_DOCUMENT` ou
+  `E_WORD_COUNT_FAILED` (délai de 20 s, document illisible, plus de 16 Mo de texte), 429
+  `E_WORD_COUNT_BUSY`, 503 `E_COMPILE_UNAVAILABLE` (dont file d'attente de l'agent pleine). Au
+  plus un comptage en cours par utilisateur et projet (la même demande attend le comptage en
+  cours et reçoit son résultat, un autre document répond 429) et 2 par utilisateur, par
+  instance de l'API.
+- **Index des packages TeX Live** (`packages/contracts/src/texlive.ts`, tout compte connecté) :
+  - `GET /texlive/packages?q=&category=&topic=&page=&perPage=` : recherche (tous les mots, dans
+    le nom, les fichiers `.sty`/`.cls` et la description ; le package qui fournit `<q>.sty` en
+    premier), catégorie TeX Live (`Package`, `ConTeXt`, `TLCore`), sujet CTAN (`maths`…),
+    pagination (100 au plus). Chaque package : nom, description, catégorie, sujets, liens CTAN et
+    texdoc, noms à passer à `\usepackage` (10 premiers) ; avec `q`, `matchingUsepackage` donne
+    tous ceux qui contiennent un mot cherché (`typear` → `typearea` de koma-script).
+  - `GET /texlive/packages/:name` : fiche complète, par nom TeX Live (`graphics`) ou de fichier
+    `.sty` (`graphicx`) ; 404 `E_PACKAGE_NOT_FOUND`.
+  - `GET /texlive/suggestions?name=` : noms proches d'un package ou d'une classe introuvable
+    (`amsmth`, ou le `missingFile` d'une entrée du log, 255 caractères au plus : `amsmth.sty`, `artcle.cls`) : distance
+    de Damerau-Levenshtein (1 à 3 fautes selon la longueur, casse ignorée) ou préfixe, packages
+    courants d'abord à distance égale ; `exists` si le fichier est dans TeX Live mais absent de
+    l'image de compilation.
+  - Source : l'index publié par kaxolax-texlive-images (`texlive/<année>/packages.json`) dans le
+    bucket `TEXLIVE_INDEX_BUCKET` (clé `TEXLIVE_INDEX_KEY`, défaut `texlive/2026/packages.json`),
+    lu avec les clés `S3_*`, gardé en mémoire et revalidé toutes les heures par une lecture
+    conditionnelle sur l'ETag (en arrière-plan ; en cas d'échec, la copie en mémoire sert
+    encore). Sans copie en mémoire (clé absente, panne), un échec donne 503
+    `E_PACKAGE_INDEX_UNAVAILABLE` sans relire le stockage pendant une minute. Sans bucket : la fixture `resources/fixtures/texlive-packages.json` (73 packages
+    réels de TeX Live 2026) en développement et en test, 503 `E_PACKAGE_INDEX_UNAVAILABLE` en
+    production. Réponses avec ETag (index + URL) et `Cache-Control: private, max-age=3600` ;
+    `If-None-Match` donne 304.
 - **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel ; ou
   `POST /projects/:id/download-url`, un lien chiffré de 60 s pour télécharger par simple
   navigation (`GET /downloads/:token`, rôle revérifié au téléchargement).
@@ -302,6 +369,44 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   retour sur l'onglet ; `RealtimeClient.notifyBannerChanged`, appelée à chaque création,
   modification ou suppression, diffuse aussi `banner.changed` en direct à tous les clients
   connectés à un document meta.
+  modification ou suppression, sera branchée sur le document meta des projets (tâche 5).
+- **Abonnements (Clerk Billing)** (contrats : `packages/contracts/src/billing.ts`).
+  - Droits (`app/services/entitlements.ts`) : plan et features lus dans les claims `pla`
+    (`u:pro`) et `fea` (`u:long_compile,…`) du jeton vérifié (`has({ plan })`/`has({ feature })`,
+    même lecture que Clerk, portées `u`/`ou`/`uo`), posés sur l'utilisateur de la requête par le
+    guard ; sinon la plus récente de deux sources enregistrées : relevé des claims du dernier
+    jeton du compte (`users.claimed_plan_slug`, `claimed_plan_features`, `claimed_plan_at` =
+    `iat`, écrit par le guard, ignoré après 35 jours) ou miroir `subscriptions` (élément
+    `active` ou `past_due`, ou `canceled` jusqu'à `period_end` ; plan payant d'abord) ; sinon
+    `free`. Valeurs chiffrées : `plan_limits` par
+    slug (cache de 60 s ; plan inconnu = limites de Free). Une feature absente ramène sa limite
+    à la valeur de Free ; sans claims, les features se déduisent des valeurs du plan.
+  - Les limites d'une action sur un projet sont celles de son propriétaire : claims du jeton
+    s'il agit lui-même, sinon relevé de ses claims ou miroir, le plus récent
+    (`app/services/plan_enforcement.ts`). L'invitation (claims du propriétaire) et son
+    acceptation (par l'invité) lisent donc le même plan, même si un webhook manque.
+  - Limites appliquées : durée de compilation (`timeoutMs` de chaque demande), collaborateurs,
+    stockage (fichiers + états Yjs des projets possédés ; création de document, de projet,
+    début et fin d'upload, début et fin d'import zip ; verrou
+    consultatif par compte ; éditions temps réel : lecture seule tant que le stockage du
+    propriétaire est plein, appliquée par `apps/realtime/src/storage.ts`, dépassement borné à
+    l'intervalle d'enregistrement), transfert de propriété (propriétaire ou admin : le projet
+    doit tenir dans le stockage et la limite de collaborateurs du nouveau propriétaire, ancien
+    propriétaire devenu éditeur compris),
+    historique (`historyRetention(account)` pour la tâche 8, jours ou null). Refus homogène :
+    403 `{ code: 'E_PLAN_LIMIT', message, limit: { name, plan, max }, feature, current?,
+upgradeUrl }` (`app/exceptions/plan_limit.ts`).
+  - `GET /me/plan` : plan, source (`claims`, `subscription`, `default`), features, limites,
+    usage (stockage, plus grand nombre de collaborateurs d'un projet), élément d'abonnement,
+    URL des tarifs. Affichage seulement.
+  - Webhooks `subscription.*` et `subscriptionItem.*` sur `POST /webhooks/clerk`
+    (`app/services/billing_webhooks.ts`) : chaque élément est reflété dans `subscriptions`
+    (plan, statut, `period_end`), `updated_at` = horodatage Clerk de l'événement (enveloppe
+    `timestamp`) : un événement plus ancien n'écrase pas un état plus récent. Payeur pas encore
+    connu : 409 `E_BILLING_PAYER_UNKNOWN` (rien d'enregistré, Clerk réessaie) ; payeur
+    organisation ignoré. Emails (`app/mails/billing_mails.ts`, français) après validation, un
+    par transition : bienvenue quand un plan payant devient `active` (pas après un retard de
+    paiement ni une résiliation annulée), paiement en retard à l'entrée en `past_due`.
 - **Admin** (`/admin/*`, pour `apps/admin`) : middleware `auth` puis `admin`
   (`app/middleware/admin_middleware.ts`) : claim `metadata.role` = `admin` (sinon 403
   `E_ADMIN_REQUIRED`), second facteur vérifié dans la session (claim `fva[1] !== -1`) et MFA
@@ -323,7 +428,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     dossiers, membres, dernière compilation, workspace ; aucun nom de fichier ni contenu),
     `POST …/transfer` (`newOwnerId`, compte ni supprimé ni banni, sinon 422
     `E_INVALID_NEW_OWNER` : l'ancien propriétaire devient éditeur, le projet rejoint le workspace
-    personnel du nouveau), `…/archive`, `…/unarchive`, `…/trash`, `…/restore`,
+    personnel du nouveau ; 403 `E_PLAN_LIMIT` si le projet dépasse le stockage ou la limite de
+    collaborateurs du plan du nouveau propriétaire), `…/archive`, `…/unarchive`, `…/trash`, `…/restore`,
     `DELETE /admin/projects/:id` (depuis la corbeille).
   - Bannières : `GET/POST /admin/banners`, `PATCH/DELETE /admin/banners/:id` (message, `level`
     info|warning|maintenance, `startsAt` par défaut maintenant, `endsAt` facultative et après
@@ -400,6 +506,18 @@ même nom ne réussissent jamais toutes les deux, que des appels simultanés ne 
 workspace personnel, qu'un projet inséré sans `workspace_id` (ancienne API) rejoint le
 workspace personnel de son propriétaire, et que `save()` ou `delete()` sur une ligne
 d'association ne touche qu'elle.
+
+Galerie (`tests/functional/templates.spec.ts`) : catalogue de démonstration, recherche et
+filtres, faux bucket public (serveur HTTP local) pour la revalidation (304), le repli sur la
+dernière copie valide, le 503 sans copie, la création d'un projet (compilateur et document
+principal du catalogue) et les refus (zip modifié ou trop long, zip absent, workspace d'un autre
+compte, stockage plein, aucun téléchargement pour une demande refusée).
+
+Abonnements (`tests/unit/entitlements.spec.ts`, `tests/functional/billing.spec.ts`) : lecture
+des claims `pla`/`fea`, repli sur le miroir, cache de `plan_limits`, chaque limite Free et Pro
+(durée de compilation envoyée, y compris par un collaborateur, stockage, collaborateurs,
+transfert de propriété, invitation acceptée sous le plan relevé dans les claims du propriétaire),
+webhooks rejoués ou désordonnés sans effet, un email par transition, payeur inconnu.
 
 Admin (`tests/functional/admin_*.spec.ts`, faux Clerk et faux service temps réel dans
 `tests/admin.ts`) : refus sans rôle, sans second facteur, sans MFA activée chez Clerk ; journal

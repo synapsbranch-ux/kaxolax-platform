@@ -8,6 +8,7 @@ import {
   type RoleChangedMessage,
   roleChangedMessageSchema,
   type VersionCreatedEvent,
+  type SpellcheckLanguage,
 } from '@kaxolax/contracts'
 
 /**
@@ -44,6 +45,8 @@ export type EventEffect =
   | { kind: 'comment'; event: CommentFeedEvent }
   /** Nouvelle version de l'historique : transmise au tiroir Historique (`historyFeed`). */
   | { kind: 'history'; event: VersionCreatedEvent }
+  /** Réglages communs du projet à recopier (langue du correcteur). */
+  | { kind: 'project'; changes: { spellcheckLanguage?: SpellcheckLanguage } }
   | { kind: 'none' }
 
 /**
@@ -68,6 +71,10 @@ export function eventEffect(event: ProjectEvent, selfId: string | null): EventEf
       return { kind: 'comment', event }
     case 'version.created':
       return { kind: 'history', event }
+    case 'project.updated':
+      return event.spellcheckLanguage === undefined
+        ? { kind: 'none' }
+        : { kind: 'project', changes: { spellcheckLanguage: event.spellcheckLanguage } }
     default:
       return { kind: 'none' }
   }

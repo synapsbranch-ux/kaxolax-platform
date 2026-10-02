@@ -9,6 +9,9 @@ import {
   type SynctexPdfQuery,
   type SynctexPdfResponse,
   synctexPdfResponseSchema,
+  type WordCountRequest,
+  type WordCountResult,
+  wordCountResultSchema,
 } from '@kaxolax/contracts'
 import { Exception } from '@adonisjs/core/exceptions'
 import compileConfig from '#config/compile'
@@ -27,15 +30,35 @@ export class NoCompileOutputException extends Exception {
   static override message = 'Compile the project first'
 }
 
+/** texcount n'a pas abouti (délai dépassé, document illisible) : message de l'agent. */
+export class WordCountFailedException extends Exception {
+  static override status = 422
+  static override code = 'E_WORD_COUNT_FAILED'
+  static override message = 'The word count failed'
+}
+
+/** Message d'erreur d'un corps `{ message }` renvoyé par l'agent (422), sinon le message par défaut. */
+export async function wordCountFailure(response: Response): Promise<WordCountFailedException> {
+  const body: unknown = await response.json().catch(() => null)
+  const message =
+    typeof body === 'object' &&
+    body !== null &&
+    'message' in body &&
+    typeof body.message === 'string'
+      ? body.message
+      : undefined
+  return new WordCountFailedException(message)
+}
+
 /** Appels de l'API au compile-gateway (réseau interne, X-Internal-Token). Remplacé dans les tests. */
 export default class CompileGateway {
-  private async call(
+  /** Requête au gateway ; une erreur réseau ou un délai dépassé donne 503. */
+  private async send(
     path: string,
     init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs: number },
-  ) {
-    let response: Response
+  ): Promise<Response> {
     try {
-      response = await fetch(`${compileConfig.gatewayUrl}${path}`, {
+      return await fetch(`${compileConfig.gatewayUrl}${path}`, {
         method: init.method,
         headers: {
           [INTERNAL_TOKEN_HEADER]: compileConfig.internalToken.release(),
@@ -47,6 +70,13 @@ export default class CompileGateway {
     } catch (error) {
       throw new CompileServiceUnavailableException(undefined, { cause: error })
     }
+  }
+
+  private async call(
+    path: string,
+    init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs: number },
+  ) {
+    const response = await this.send(path, init)
     if (response.status === 503) throw new CompileServiceUnavailableException()
     if (response.status === 404) throw new NoCompileOutputException()
     if (!response.ok) throw new Error(`compile gateway answered ${String(response.status)}`)
@@ -60,6 +90,19 @@ export default class CompileGateway {
       timeoutMs: request.timeoutMs + compileConfig.gatewayMarginMs,
     })
     return gatewayCompileResponseSchema.parse(body)
+  }
+
+  /** Comptage de mots par texcount sur un agent (synchrone, quelques secondes au plus). */
+  async wordCount(request: WordCountRequest): Promise<WordCountResult> {
+    const response = await this.send(`/projects/${request.projectId}/word-count`, {
+      method: 'POST',
+      body: request,
+      timeoutMs: compileConfig.wordCountTimeoutMs,
+    })
+    if (response.status === 422) throw await wordCountFailure(response)
+    if (response.status === 503) throw new CompileServiceUnavailableException()
+    if (!response.ok) throw new Error(`compile gateway answered ${String(response.status)}`)
+    return wordCountResultSchema.parse(await response.json())
   }
 
   async stop(projectId: string): Promise<boolean> {

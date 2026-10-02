@@ -17,6 +17,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError } from '@/lib/api'
+import { markPlanLimitHandled } from '@/lib/plan-limits'
 import { authUrl, formatDate, ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/sharing'
 import { SharingError } from './sharing-error'
 
@@ -60,6 +61,7 @@ export function JoinPage({ kind, token }: { kind: 'invitation' | 'share'; token:
         if (state.active) setPreview(loaded)
       },
       (caught: unknown) => {
+        markPlanLimitHandled(caught)
         if (state.active) setLoadError(caught)
       },
     )
@@ -76,6 +78,8 @@ export function JoinPage({ kind, token }: { kind: 'invitation' | 'share'; token:
         kind === 'invitation' ? await api.acceptInvitation(token) : await api.joinShareLink(token)
       router.replace(`/project/${joined.projectId}`)
     } catch (caught) {
+      // Limite du plan affichée sur la page (`SharingError`), pas par la boîte globale.
+      markPlanLimitHandled(caught)
       setJoinError(caught)
       setJoining(false)
     }

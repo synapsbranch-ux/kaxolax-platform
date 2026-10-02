@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./spellcheck-worker": {
+      "types": "./dist/spellcheck/worker.d.ts",
+      "default": "./dist/spellcheck/worker.js"
     }
   },
   "files": [
@@ -28,10 +32,15 @@
     "@codemirror/search": "catalog:",
     "@codemirror/state": "catalog:",
     "@codemirror/view": "catalog:",
-    "@lezer/highlight": "catalog:"
+    "@lezer/highlight": "catalog:",
+    "@replit/codemirror-emacs": "catalog:",
+    "@replit/codemirror-vim": "catalog:",
+    "hunspell-asm": "catalog:"
   },
   "devDependencies": {
     "@kaxolax/config": "workspace:*",
+    "dictionary-en": "catalog:",
+    "dictionary-fr": "catalog:",
     "eslint": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",

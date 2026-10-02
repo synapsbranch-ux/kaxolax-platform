@@ -1,4 +1,5 @@
-import { rm } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { mkdir, rm } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import {
   type AgentCompileResponse,
@@ -13,6 +14,9 @@ import {
   type SynctexCodeResponse,
   type SynctexPdfQuery,
   type SynctexPdfResponse,
+  WORD_COUNT_TIMEOUT_MS,
+  type WordCountRequest,
+  type WordCountResult,
 } from '@kaxolax/contracts'
 import { parseCompileLogs } from '@kaxolax/latex-log-parser'
 import { OUTPUT_LIMITS } from './config.js'
@@ -21,6 +25,7 @@ import { readRegularFile, regularFileSize } from './regular-file.js'
 import { Semaphore } from './semaphore.js'
 import { ChecksumMismatchError, type OutputStore } from './storage.js'
 import { parseSynctexEdit, parseSynctexView, relativeToRoot, rootDirectory } from './synctex.js'
+import { parseTexcountOutput, texcountCommand, TexcountOutputError } from './texcount.js'
 import {
   assertSafeTarget,
   type BinarySource,
@@ -31,6 +36,7 @@ import {
   touchProject,
   UnsafePathError,
   syncWorkspace,
+  writeTextTree,
 } from './workspace.js'
 
 const ENGINE_FLAGS: Record<CompilerName, string> = {
@@ -56,6 +62,16 @@ const UPLOADED_OUTPUTS: { name: string; contentType: string }[] = [
 ]
 
 const SYNCTEX_TIMEOUT_MS = 20_000
+/** Comptages de mots simultanés dans des conteneurs Docker (en plus des compilations). */
+const WORD_COUNT_CONCURRENCY = 2
+/** Comptages en attente d'un emplacement au plus : au-delà, refus immédiat (503). */
+export const WORD_COUNT_MAX_WAITING = 8
+/**
+ * Répertoire des comptages de mots, sous `compilesDir` (visible du démon Docker comme les
+ * projets) mais hors de tout projet : ni `clearCache` ni le nettoyage LRU (`pruneProjects`, qui
+ * ignore les noms commençant par un point) ne le touchent pendant un comptage.
+ */
+export const WORD_COUNT_DIR = '.wordcount'
 
 /**
  * Code TeX lu avant le document principal en mode brouillon : graphicx et hyperref reçoivent
@@ -111,6 +127,12 @@ export interface CompilerOptions {
 
 export class InvalidRequestError extends Error {}
 
+/** texcount n'a pas abouti (délai dépassé, document principal illisible) : 422 côté HTTP. */
+export class WordCountError extends Error {}
+
+/** File d'attente des comptages pleine : l'API répond 503, l'utilisateur réessaie plus tard. */
+export class WordCountBusyError extends Error {}
+
 interface Running {
   controller: AbortController
   done: Promise<unknown>
@@ -134,6 +156,9 @@ function projectFile(file: string | null, rootDir: string): string | null {
 
 export class Compiler {
   private readonly slots: Semaphore
+  private readonly wordCountSlots = new Semaphore(WORD_COUNT_CONCURRENCY)
+  /** Comptages qui attendent un emplacement (chacun garde ses documents en mémoire). */
+  private wordCountsWaiting = 0
   private readonly running = new Map<string, Running>()
   /** Garantit qu'un seul traitement touche le répertoire d'un projet à la fois. */
   private readonly projectQueues = new Map<string, Promise<unknown>>()
@@ -367,6 +392,64 @@ export class Compiler {
     }
     timings.uploadMs = Math.round(performance.now() - uploadStarted)
     return finish(status, entries, outputFiles)
+  }
+
+  /**
+   * Compte les mots avec texcount, dans le même sandbox que la compilation (aucun réseau, UID
+   * 1000, délai, sans shell escape : texcount n'exécute pas TeX), sous la garde
+   * `TEXCOUNT_GUARD` (aucune lecture hors du répertoire du comptage). Les documents sont écrits
+   * dans un répertoire temporaire de `WORD_COUNT_DIR`, monté en lecture seule et supprimé
+   * ensuite : le répertoire du projet (et son cache incrémental) n'est ni créé ni touché. Avec
+   * un sandbox à exécutions sérielles (conteneur Cloudflare), le comptage attend la fin de la
+   * compilation.
+   */
+  async wordCount(request: WordCountRequest): Promise<WordCountResult> {
+    const slots = this.options.sandbox.serialRuns === true ? this.slots : this.wordCountSlots
+    if (this.wordCountsWaiting >= WORD_COUNT_MAX_WAITING) {
+      throw new WordCountBusyError('Too many word counts are waiting')
+    }
+    this.wordCountsWaiting++
+    let release: () => void
+    try {
+      release = await slots.acquire()
+    } finally {
+      this.wordCountsWaiting--
+    }
+    const parent = join(this.options.compilesDir, WORD_COUNT_DIR)
+    const directory = join(parent, randomBytes(8).toString('hex'))
+    try {
+      await mkdir(parent, { recursive: true, mode: 0o700 })
+      try {
+        await writeTextTree(directory, request.resources)
+      } catch (error) {
+        if (error instanceof UnsafePathError) throw new InvalidRequestError(error.message)
+        throw error
+      }
+      const rootDir = rootDirectory(request.rootResourcePath)
+      const visible = this.options.sandbox.workdirPath(directory)
+      const result = await this.options.sandbox.run({
+        command: texcountCommand(posix.basename(request.rootResourcePath), visible),
+        hostWorkdir: directory,
+        workingDir: rootDir === '' ? visible : `${visible}/${rootDir}`,
+        readOnly: true,
+        timeoutMs: WORD_COUNT_TIMEOUT_MS,
+        labels: { 'dev.kaxolax.project': request.projectId, 'dev.kaxolax.wordcount': 'true' },
+      })
+      if (result.outcome !== 'exited' || result.oomKilled) {
+        throw new WordCountError(
+          result.outcome === 'timeout' ? 'Word count timed out' : 'Word count was interrupted',
+        )
+      }
+      try {
+        return parseTexcountOutput(result.output)
+      } catch (error) {
+        if (error instanceof TexcountOutputError) throw new WordCountError(error.message)
+        throw error
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+      release()
+    }
   }
 
   async clearCache(projectId: string): Promise<boolean> {

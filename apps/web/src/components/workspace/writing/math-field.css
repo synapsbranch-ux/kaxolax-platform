@@ -1,0 +1,37 @@
+/* Champ MathLive de l'éditeur de formules : couleurs du thème courant (clair ou sombre). */
+math-field.kx-math-field {
+  display: block;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 1.5rem;
+  --caret-color: var(--foreground);
+  --selection-background-color: color-mix(in oklch, var(--ring) 35%, transparent);
+  --contains-highlight-background-color: color-mix(in oklch, var(--ring) 12%, transparent);
+  --placeholder-color: var(--muted-foreground);
+}
+
+math-field.kx-math-field:focus-within {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+}
+
+/* Clavier virtuel et menu de MathLive : ouverts hors de la boîte de dialogue modale (inaccessibles
+   et fermeraient la boîte au clic), donc masqués ; la saisie au clavier et le texte brut restent. */
+math-field.kx-math-field::part(virtual-keyboard-toggle),
+math-field.kx-math-field::part(menu-toggle) {
+  display: none;
+}
+
+/* Aperçus de la bibliothèque (balisage statique de MathLive). */
+.kx-math-preview {
+  font-size: 1rem;
+  line-height: 1.2;
+  overflow: hidden;
+  pointer-events: none;
+}

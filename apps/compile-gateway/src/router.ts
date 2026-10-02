@@ -8,6 +8,10 @@ import {
   synctexPdfResponseSchema,
   type SynctexPdfQuery,
   type SynctexPdfResponse,
+  WORD_COUNT_TIMEOUT_MS,
+  type WordCountRequest,
+  type WordCountResult,
+  wordCountResultSchema,
 } from '@kaxolax/contracts'
 import type { Redis } from 'ioredis'
 import type { Logger } from 'pino'
@@ -23,6 +27,8 @@ const AGENT_CALL_MARGIN_MS = 60_000
 /** Arrêter une compilation attend la fin du conteneur (docker kill, nettoyage). */
 const STOP_TIMEOUT_MS = 30_000
 const SYNCTEX_TIMEOUT_MS = 15_000
+/** Au-delà du délai de texcount : écriture des documents, attente d'une place sur l'agent. */
+const WORD_COUNT_MARGIN_MS = 30_000
 
 /** Libère le verrou seulement s'il appartient encore à cette compilation. */
 const RELEASE_LOCK = `
@@ -172,6 +178,30 @@ export class CompileRouter {
       this.options.logger.warn({ err: error, projectId, agentId }, 'could not stop the compile')
       return false
     }
+  }
+
+  /**
+   * Comptage de mots : sans état (les documents voyagent dans la demande) et sans verrou du
+   * projet. L'agent de l'affinité s'il répond, sinon le moins chargé ; une seconde tentative
+   * ailleurs si l'agent tombe entre-temps.
+   */
+  async wordCount(request: WordCountRequest): Promise<WordCountResult> {
+    const call = (agentId: string) =>
+      this.pool.call(agentId, {
+        method: 'POST',
+        path: `/projects/${request.projectId}/word-count`,
+        body: request,
+        timeoutMs: WORD_COUNT_TIMEOUT_MS + WORD_COUNT_MARGIN_MS,
+      })
+    const agentId = await this.pickAgent(request.projectId)
+    let body: unknown
+    try {
+      body = await call(agentId)
+    } catch (error) {
+      if (!(error instanceof AgentUnreachableError)) throw error
+      body = await call(await this.pickAgent(request.projectId, agentId))
+    }
+    return wordCountResultSchema.parse(body)
   }
 
   /** Le répertoire du projet peut exister sur plusieurs agents (après une bascule) : tous sont vidés. */

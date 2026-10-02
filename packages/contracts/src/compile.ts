@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { planLimitErrorSchema } from './billing.js'
 import { compileStatusSchema, compilerSchema, sha256Schema } from './common.js'
 import { logEntrySchema } from './log.js'
 import { relativePathSchema } from './names.js'
@@ -200,6 +201,11 @@ export const compileResultSchema = z.object({
   logUrl: z.url().nullable(),
   outputFiles: z.array(outputDownloadSchema).optional(),
   entries: z.array(logEntrySchema),
+  /**
+   * Délai dépassé sous la limite de compilation du plan du propriétaire, quand un plan supérieur
+   * la lève (feature `long_compile`) : l'interface propose la page de tarifs.
+   */
+  planLimit: planLimitErrorSchema.optional(),
 })
 export type CompileResult = z.infer<typeof compileResultSchema>
 

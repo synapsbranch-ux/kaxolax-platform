@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation'
 import { type SubmitEvent, useCallback, useEffect, useState } from 'react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { api, formValue } from '@/lib/api'
+import { markPlanLimitHandled } from '@/lib/plan-limits'
 import {
   canManageLinks,
   collaboratorUsageText,
@@ -73,6 +74,8 @@ export function SharePanel({
         setLoadError(null)
       },
       (caught: unknown) => {
+        // Affichée dans la modale (`SharingError`) : pas de boîte de dialogue globale en plus.
+        markPlanLimitHandled(caught)
         if (state.active) setLoadError(caught)
       },
     )
@@ -90,6 +93,8 @@ export function SharePanel({
       try {
         setStatus(await action())
       } catch (caught) {
+        // Limite du plan affichée dans la modale (`PlanLimitNotice`), pas par la boîte globale.
+        markPlanLimitHandled(caught)
         setError(caught)
       } finally {
         setBusy(null)
@@ -285,7 +290,10 @@ export function SharePanel({
               setPending({ kind: 'regenerate', link: kind })
             }}
             onCopied={setStatus}
-            onError={setError}
+            onError={(caught) => {
+              markPlanLimitHandled(caught)
+              setError(caught)
+            }}
           />
         </>
       ) : null}

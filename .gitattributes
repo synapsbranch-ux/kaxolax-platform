@@ -6,3 +6,6 @@
 *.pdf binary
 *.zip binary
 *.gz binary
+# Logs réels de TeX Live : octets exacts, sans normalisation des fins de ligne (LuaLaTeX recopie
+# par exemple le CR d'une ligne de contexte).
+packages/latex-log-parser/test/fixtures/** -text

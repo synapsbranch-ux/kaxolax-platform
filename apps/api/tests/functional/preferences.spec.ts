@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { DEFAULT_PREFERENCES, MAX_OPEN_TABS_PER_PROJECT } from '@kaxolax/contracts'
+import {
+  DEFAULT_PREFERENCES,
+  MAX_OPEN_TABS_PER_PROJECT,
+  MAX_OPEN_TABS_PROJECTS,
+  MAX_PERSONAL_DICTIONARY_WORDS,
+} from '@kaxolax/contracts'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 import UserPreference from '#models/user_preference'
@@ -124,6 +129,40 @@ test.group('preferences', (group) => {
       editor: { wrap: false },
       layout: { sidebarSize: 22 },
     })
+  })
+
+  test('stores a full personal dictionary next to the maximum of open tabs', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUser()
+    const word = (index: number) =>
+      `${'é'.repeat(4)}${[0, 1, 2].map((rank) => String.fromCharCode(97 + (Math.floor(index / 26 ** rank) % 26))).join('')}`
+    const spellcheckDictionary = Array.from({ length: MAX_PERSONAL_DICTIONARY_WORDS }, (_, i) =>
+      word(i),
+    )
+    const openTabs = Object.fromEntries(
+      Array.from({ length: MAX_OPEN_TABS_PROJECTS }, () => [
+        randomUUID(),
+        {
+          documentIds: Array.from({ length: MAX_OPEN_TABS_PER_PROJECT }, () => randomUUID()),
+          activeDocumentId: randomUUID(),
+        },
+      ]),
+    )
+    const response = await client.patch(URL).json({ openTabs, spellcheckDictionary }).loginAs(user)
+    response.assertStatus(200)
+    assert.lengthOf(response.body().preferences.spellcheckDictionary, MAX_PERSONAL_DICTIONARY_WORDS)
+
+    // Un mot de plus : refusé par le schéma (borne en mots), rien ne sort en silence.
+    const more = await client
+      .patch(URL)
+      .json({ spellcheckDictionary: ['encore', ...spellcheckDictionary] })
+      .loginAs(user)
+    more.assertStatus(422)
+    more.assertBodyContains({ code: 'E_VALIDATION_ERROR' })
+    const stored = await UserPreference.findOrFail(user.id)
+    assert.deepEqual(stored.prefs.spellcheckDictionary, spellcheckDictionary)
   })
 
   test('requires authentication', async ({ client }) => {

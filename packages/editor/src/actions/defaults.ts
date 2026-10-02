@@ -9,7 +9,8 @@ import {
 } from '@codemirror/search'
 import { EditorSelection, type StateCommand } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { planPackage } from '../packages.js'
+import { findPreamble, planPackage } from '../packages.js'
+import { type ProjectPackage, projectPackages } from '../package-manager.js'
 import {
   type BlockTemplate,
   CURSOR,
@@ -21,6 +22,7 @@ import {
   replaceWithBlock,
   toggleWrap,
 } from './edit.js'
+import { writingActions } from './writing.js'
 import {
   type ActionContext,
   type ActionHost,
@@ -271,21 +273,6 @@ const floatActions: EditorAction[] = [
       after: ['\t\\caption{}', '\t\\label{fig:}', '\\end{figure}'],
     }),
   ),
-  editAction(
-    {
-      id: 'structures.table',
-      label: 'Tableau',
-      menu: 'structures',
-      group: 'floats',
-      icon: 'table',
-    },
-    insertBlock({
-      before: ['\\begin{table}[htbp]', '\t\\centering', '\t\\begin{tabular}{ll}'],
-      body: [`\t\t${CURSOR} & \\\\`, '\t\t & \\\\'],
-      after: ['\t\\end{tabular}', '\t\\caption{}', '\t\\label{tab:}', '\\end{table}'],
-      depth: 2,
-    }),
-  ),
 ]
 
 const referenceActions: EditorAction[] = [
@@ -517,7 +504,44 @@ export function addPackage(
   return plan.status
 }
 
+/** Identifiant de la boîte de dialogue du gestionnaire de packages (`host.openDialog`). */
+export const PACKAGE_MANAGER_DIALOG = 'packages.manager'
+
+/** Contexte transmis au gestionnaire de packages. */
+export interface PackageManagerPayload {
+  kind: 'packages'
+  /** Packages chargés par le fichier courant (vide sans préambule). */
+  packages: ProjectPackage[]
+  /** Le fichier courant a un préambule (sinon : packages à gérer dans le fichier principal). */
+  hasPreamble: boolean
+  /** Ajout et retrait impossibles (lecture seule) : liste et recherche seulement. */
+  readOnly: boolean
+}
+
+/** Contexte du gestionnaire de packages pour l'éditeur courant. */
+export function packageManagerPayload(context: ActionContext): PackageManagerPayload {
+  const doc = context.view?.state.doc ?? null
+  return {
+    kind: 'packages',
+    packages: doc === null ? [] : projectPackages(doc),
+    hasPreamble: doc !== null && findPreamble(doc) !== null,
+    readOnly: isReadOnly(context),
+  }
+}
+
 const packageActions: EditorAction[] = [
+  {
+    id: PACKAGE_MANAGER_DIALOG,
+    label: 'Gestionnaire de packages',
+    menu: 'packages',
+    group: 'manager',
+    icon: 'package-search',
+    when: (context) => context.host.openDialog !== undefined,
+    run: (context) => {
+      context.host.openDialog?.(PACKAGE_MANAGER_DIALOG, packageManagerPayload(context))
+      return true
+    },
+  },
   {
     id: 'packages.usepackage',
     label: 'Ajouter \\usepackage{} au préambule',
@@ -640,11 +664,13 @@ const replaceActions: EditorAction[] = [
   },
 ]
 
-/** Actions de base de l'étape 1, dans l'ordre des menus. */
+/** Actions de base (étape 1 et outils d'écriture), dans l'ordre des menus. */
 export const defaultActions: readonly EditorAction[] = [
   ...fileActions,
   ...formatActions,
   ...structureActions,
+  // Outils d'écriture (formules, symboles, tableaux) : en tête du menu Maths, avec les flottants.
+  ...writingActions,
   ...mathActions,
   ...graphicsActions,
   ...packageActions,

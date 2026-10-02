@@ -35,7 +35,8 @@ export default defineConfig({
     forceExit: false,
   },
 
-  metaFiles: [],
+  // Fixture de l'index des packages TeX Live (développement et tests), copiée dans build/.
+  metaFiles: [{ pattern: 'resources/fixtures/**', reloadServer: false }],
 
   hooks: {
     init: [indexEntities()],

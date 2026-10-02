@@ -10,7 +10,6 @@ import {
   joinProjectResponseSchema,
   SHARING_ERRORS,
   tooManyInvitationsErrorSchema,
-  planLimitErrorSchema,
   projectMembersResponseSchema,
   SHARE_LINK_ROLES,
   shareLinksResponseSchema,
@@ -70,16 +69,6 @@ describe('sharing contracts', () => {
     expect(
       projectMembersResponseSchema.safeParse({ ...response, collaborators: null }).success,
     ).toBe(true)
-  })
-
-  it('carries the limit in a plan limit refusal', () => {
-    const body = {
-      code: 'E_PLAN_LIMIT',
-      message: 'Collaborator limit reached',
-      limit: { name: 'collaborators', plan: 'free', max: 1 },
-    }
-    expect(planLimitErrorSchema.parse(body)).toEqual(body)
-    expect(planLimitErrorSchema.safeParse({ ...body, limit: undefined }).success).toBe(false)
   })
 
   it('maps each share link kind to its role', () => {

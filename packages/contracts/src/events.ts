@@ -4,6 +4,7 @@ import { buildStatusSchema } from './builds.js'
 import { commentThreadUpdatedEventSchema } from './comments.js'
 import { compileResultSchema } from './compile.js'
 import { versionKindSchema } from './history.js'
+import { spellcheckLanguageSchema } from './projects.js'
 import { projectRoleSchema } from './realtime.js'
 
 /**
@@ -138,6 +139,17 @@ export const versionCreatedEventSchema = z.object({
 })
 export type VersionCreatedEvent = z.infer<typeof versionCreatedEventSchema>
 
+/**
+ * Réglages communs du projet modifiés (`PATCH /projects/:id`) : seuls les champs changés sont
+ * présents, le client les recopie dans son projet (langue du correcteur partagée par les membres).
+ */
+export const projectUpdatedEventSchema = z.object({
+  type: z.literal('project.updated'),
+  actorId: z.uuid().nullable(),
+  spellcheckLanguage: spellcheckLanguageSchema.optional(),
+})
+export type ProjectUpdatedEvent = z.infer<typeof projectUpdatedEventSchema>
+
 /** Bannières système actives après un changement (diffusé à tous les clients connectés). */
 export const bannerChangedEventSchema = z.object({
   type: z.literal('banner.changed'),
@@ -174,6 +186,7 @@ export const projectEventSchema = z.discriminatedUnion('type', [
   bannerChangedEventSchema,
   compileUpdatedEventSchema,
   versionCreatedEventSchema,
+  projectUpdatedEventSchema,
 ])
 export type ProjectEvent = z.infer<typeof projectEventSchema>
 export type ProjectEventType = ProjectEvent['type']

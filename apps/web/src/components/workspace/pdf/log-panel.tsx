@@ -1,10 +1,155 @@
 'use client'
 
-import type { CompileResult, LogEntry } from '@kaxolax/contracts'
-import { Badge, Button, cn } from '@kaxolax/ui'
-import { XIcon } from 'lucide-react'
+import type { CompileResult, LogEntry, PackageSuggestions } from '@kaxolax/contracts'
+import { Badge, Button, Spinner, cn } from '@kaxolax/ui'
+import { WandSparklesIcon, XIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { api } from '@/lib/api'
 import { groupEntries, locationLabel } from '@/lib/logs'
+import {
+  type MissingPackage,
+  missingPackageOf,
+  suggestionLabel,
+  texliveErrorMessage,
+} from '@/lib/package-tools'
+
+/**
+ * Remplace, dans le document de l'entrée du log (sinon le document principal), le package ou la
+ * classe introuvable par `replacement`. Résolu à faux si la commande n'a pas été trouvée.
+ */
+export type FixPackage = (
+  entry: LogEntry,
+  missing: MissingPackage,
+  replacement: string,
+) => Promise<boolean>
+
+/** Suggestions déjà demandées (même fichier introuvable : même réponse pendant la session). */
+const suggestionCache = new Map<string, Promise<PackageSuggestions>>()
+
+function suggestionsFor(file: string): Promise<PackageSuggestions> {
+  let pending = suggestionCache.get(file)
+  if (!pending) {
+    pending = api.packageSuggestions(file)
+    suggestionCache.set(file, pending)
+    // Un échec (réseau, index indisponible) n'est pas mémorisé.
+    pending.catch(() => suggestionCache.delete(file))
+  }
+  return pending
+}
+
+/**
+ * Sous une erreur « File `xyz.sty' not found » : packages (ou classes) de TeX Live aux noms les
+ * plus proches, et un bouton qui corrige le `\usepackage` (ou `\documentclass`) en un clic.
+ */
+function MissingPackageHint({
+  entry,
+  missing,
+  onFix,
+}: {
+  entry: LogEntry
+  missing: MissingPackage
+  onFix?: FixPackage
+}) {
+  const [state, setState] = useState<
+    { file: string; result: PackageSuggestions } | { file: string; error: string } | null
+  >(null)
+  const [fixing, setFixing] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    suggestionsFor(missing.file).then(
+      (result) => {
+        if (active) setState({ file: missing.file, result })
+      },
+      (caught: unknown) => {
+        if (active) setState({ file: missing.file, error: texliveErrorMessage(caught) })
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [missing.file])
+
+  const current = state?.file === missing.file ? state : null
+  const what = missing.kind === 'class' ? 'classe' : 'package'
+  return (
+    <div
+      className="mt-1 grid gap-1.5 rounded border border-dashed bg-muted/40 px-3 py-2 text-xs"
+      data-testid="missing-package"
+    >
+      {current === null ? (
+        <p className="flex items-center gap-2 text-muted-foreground">
+          <Spinner label="" /> Recherche des noms proches…
+        </p>
+      ) : 'error' in current ? (
+        <p className="text-muted-foreground">{current.error}</p>
+      ) : current.result.exists ? (
+        <p className="text-muted-foreground">
+          <code>{missing.file}</code> existe dans TeX Live mais pas dans l’image de compilation, ou
+          son nom est écrit avec une autre casse.
+        </p>
+      ) : current.result.suggestions.length === 0 ? (
+        <p className="text-muted-foreground">
+          Aucune {what} de TeX Live ne porte un nom proche de <code>{missing.name}</code>.
+        </p>
+      ) : (
+        <>
+          <p className="text-muted-foreground">
+            {current.result.suggestions.length > 1
+              ? `Noms de ${what}s proches :`
+              : `Nom de ${what} proche :`}
+          </p>
+          <ul className="flex flex-wrap gap-1.5" aria-label="Suggestions">
+            {current.result.suggestions.map((suggestion) => (
+              <li key={suggestion.file}>
+                {onFix ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={fixing !== null}
+                    title={suggestion.shortdesc ?? undefined}
+                    aria-label={`Remplacer ${missing.name} par ${suggestion.name}`}
+                    onClick={() => {
+                      setFixing(suggestion.name)
+                      setOutcome(null)
+                      onFix(entry, missing, suggestion.name).then(
+                        (done) => {
+                          setFixing(null)
+                          setOutcome(
+                            done
+                              ? `${missing.name} remplacé par ${suggestion.name}. Recompilez pour vérifier.`
+                              : `${missing.name} introuvable dans les commandes du document : corrigez-le à la main.`,
+                          )
+                        },
+                        () => {
+                          setFixing(null)
+                        },
+                      )
+                    }}
+                    data-testid="fix-package"
+                  >
+                    {fixing === suggestion.name ? <Spinner label="" /> : <WandSparklesIcon />}
+                    {suggestionLabel(suggestion)}
+                  </Button>
+                ) : (
+                  <code title={suggestion.shortdesc ?? undefined}>
+                    {suggestionLabel(suggestion)}
+                  </code>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {outcome ? (
+        <p role="status" className="text-muted-foreground">
+          {outcome}
+        </p>
+      ) : null}
+    </div>
+  )
+}
 
 const STATUS_LABELS: Record<CompileResult['status'], string> = {
   success: 'Réussie',
@@ -26,11 +171,14 @@ const LEVELS = [
 export function LogPanel({
   result,
   onOpenLocation,
+  onFixPackage,
   onClearCache,
   onClose,
 }: {
   result: CompileResult | null
   onOpenLocation: (file: string, line: number) => void
+  /** Correction d'un package introuvable (absente en lecture seule). */
+  onFixPackage?: FixPackage
   onClearCache: () => Promise<void>
   onClose: () => void
 }) {
@@ -87,7 +235,8 @@ export function LogPanel({
   const entry = (item: LogEntry, index: number, tone: string) => {
     const location = locationLabel(item)
     const clickable = item.file !== null && item.line !== null
-    return (
+    const missing = missingPackageOf(item)
+    const button = (
       <button
         key={index}
         type="button"
@@ -107,6 +256,13 @@ export function LogPanel({
           <span className="ml-2 font-mono text-xs text-muted-foreground">{location}</span>
         ) : null}
       </button>
+    )
+    if (missing === null) return button
+    return (
+      <div key={index}>
+        {button}
+        <MissingPackageHint entry={item} missing={missing} onFix={onFixPackage} />
+      </div>
     )
   }
 

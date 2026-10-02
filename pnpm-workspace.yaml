@@ -42,6 +42,10 @@ catalog:
   '@commitlint/cli': 21.2.3
   '@commitlint/config-conventional': 21.2.3
   '@eslint/js': 10.0.1
+  '@fontsource/fira-code': 5.3.0
+  '@fontsource/ibm-plex-mono': 5.3.0
+  '@fontsource/jetbrains-mono': 5.3.0
+  '@fontsource/source-code-pro': 5.3.0
   '@hocuspocus/extension-database': 4.7.0
   '@hocuspocus/extension-redis': 4.7.0
   '@hocuspocus/provider': 4.7.0
@@ -54,6 +58,8 @@ catalog:
   '@next/eslint-plugin-next': 16.3.7
   '@playwright/test': 1.63.0
   '@poppinss/ts-exec': 1.4.4
+  '@replit/codemirror-emacs': 6.1.0
+  '@replit/codemirror-vim': 6.4.0
   '@tailwindcss/postcss': 4.3.3
   '@types/luxon': 3.7.6
   '@types/node': 24.19.0
@@ -65,6 +71,8 @@ catalog:
   '@types/yazl': 3.3.1
   '@vinejs/vine': 4.4.0
   class-variance-authority: 0.7.1
+  dictionary-en: 4.0.0
+  dictionary-fr: 3.0.0
   clsx: 2.1.1
   eslint: 10.11.0
   eslint-config-prettier: 10.1.8
@@ -73,9 +81,11 @@ catalog:
   globals: 17.12.0
   happy-dom: 20.14.5
   hot-hook: 1.0.0
+  hunspell-asm: 4.0.2
   ioredis: 5.11.1
   lucide-react: 1.48.0
   luxon: 3.7.2
+  mathlive: 0.110.0
   next: 16.3.7
   otpauth: 9.5.2
   pdfjs-dist: 6.3.289

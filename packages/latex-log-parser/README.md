@@ -20,6 +20,11 @@ const entries = parseCompileLogs(
 - **Formats** : `-file-line-error` (`./main.tex:12: ...`) et format classique (`! ...` + `l.12`),
   erreurs Lua (`[\directlua]:1: ...`), messages LaTeX3 sur plusieurs lignes (`(fontspec) ...`),
   warnings LaTeX, de paquet, de classe et de police, `Missing character`, bad boxes.
+- **Fichier introuvable** : « File `xyz.sty' not found » (`\usepackage`, `\documentclass`,
+`\input`, même message sous pdfLaTeX, XeLaTeX et LuaLaTeX) et « I can't find file » donnent
+`missingFile` (`xyz.sty`) sur l'entrée : l'interface demande à l'API les packages proches
+(`GET /api/v1/texlive/suggestions?name=xyz.sty`). Un nom de plus de 255 caractères
+(`MAX_MISSING_FILE_LENGTH`) ne donne pas de `missingFile` : l'entrée reste conforme au contrat.
 - **Bibliographie** : `.blg` de BibTeX (`Warning--`, `---line N of file`) et de Biber
   (`WARN`, `ERROR`, erreurs du sous-système BibTeX rattachées au `.bib` source).
 
@@ -31,4 +36,5 @@ des sources de `test/fixtures-src` :
 ```bash
 pnpm --filter @kaxolax/latex-log-parser test
 pnpm --filter @kaxolax/latex-log-parser fixtures   # régénère avec kaxolax-texlive:2026-medium
+scripts/generate-fixtures.sh <image> missing-class   # une seule fixture, autre image
 ```

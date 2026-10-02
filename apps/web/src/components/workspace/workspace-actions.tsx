@@ -5,13 +5,26 @@ import {
   type ActionHost,
   type ActionRegistry,
   createDefaultRegistry,
+  hasEditor,
+  openSpellcheckMenu,
   type PromptRequest,
 } from '@kaxolax/editor'
-import { createContext, type ReactNode, type RefObject, useContext, useMemo, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { NameDialog } from '@/components/name-dialog'
-import { ACTION_DIALOGS } from './action-dialogs'
+import { useSettings } from '@/components/preferences/settings-provider'
+import type { WordCountPayload } from '@/lib/word-count'
+import { ACTION_DIALOGS, WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle } from './editor/code-editor'
 import { useFileActions } from './file-actions'
+import { type WorkspaceTools, WorkspaceToolsProvider } from './workspace-tools'
 
 /**
  * Registre d'actions du projet ouvert et callbacks de l'application : c'est le point d'extension
@@ -52,6 +65,7 @@ export function WorkspaceActionsProvider({
   searchProject,
   notify,
   editor,
+  tools,
   children,
 }: {
   canEdit: boolean
@@ -61,12 +75,58 @@ export function WorkspaceActionsProvider({
   notify: NonNullable<ActionHost['notify']>
   /** Éditeur courant (null sans document ouvert). */
   editor: RefObject<EditorHandle | null>
+  /** Données du projet pour les outils (`useWorkspaceTools`), dialogues compris. */
+  tools: WorkspaceTools
   children: ReactNode
 }) {
   const files = useFileActions()
   const [registry] = useState(createDefaultRegistry)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null)
+  const { openSettings } = useSettings()
+
+  // Outils de l'application (tâche 10) : compteur de mots et paramètres (menu Fichier),
+  // suggestions du correcteur pour le mot sous le curseur (menu Remplacer, F7).
+  useEffect(
+    () =>
+      registry.register([
+        {
+          id: WORD_COUNT_DIALOG,
+          label: 'Compteur de mots',
+          menu: 'file',
+          group: 'tools',
+          icon: 'whole-word',
+          when: (context) => context.host.openDialog !== undefined,
+          run: (context) => {
+            const payload: WordCountPayload = { kind: 'word-count' }
+            context.host.openDialog?.(WORD_COUNT_DIALOG, payload)
+            return true
+          },
+        },
+        {
+          id: 'file.settings',
+          label: 'Paramètres de l’éditeur',
+          menu: 'file',
+          group: 'tools',
+          icon: 'settings',
+          run: () => {
+            openSettings()
+            return true
+          },
+        },
+        {
+          id: 'replace.spelling',
+          label: 'Corriger l’orthographe du mot',
+          menu: 'replace',
+          group: 'spelling',
+          icon: 'spell-check',
+          shortcut: 'F7',
+          when: hasEditor,
+          run: (context) => (context.view === null ? false : openSpellcheckMenu(context.view)),
+        },
+      ]),
+    [registry, openSettings],
+  )
 
   const host = useMemo<ActionHost>(
     () => ({
@@ -108,36 +168,38 @@ export function WorkspaceActionsProvider({
 
   const Dialog = dialog === null ? undefined : ACTION_DIALOGS[dialog.id]
   return (
-    <EditorActionsContext value={value}>
-      {children}
-      {Dialog && dialog ? (
-        <Dialog
-          payload={dialog.payload}
-          context={context}
-          onClose={() => {
-            setDialog(null)
+    <WorkspaceToolsProvider value={tools}>
+      <EditorActionsContext value={value}>
+        {children}
+        {Dialog && dialog ? (
+          <Dialog
+            payload={dialog.payload}
+            context={context}
+            onClose={() => {
+              setDialog(null)
+            }}
+          />
+        ) : null}
+        <NameDialog
+          key={prompt?.request.title ?? 'prompt'}
+          open={prompt !== null}
+          title={prompt?.request.title ?? ''}
+          label={prompt?.request.label ?? ''}
+          initialValue={prompt?.request.defaultValue}
+          submitLabel="Valider"
+          onSubmit={async (text) => {
+            prompt?.resolve(text)
+            await Promise.resolve()
+          }}
+          onOpenChange={(open) => {
+            if (open) return
+            // Sans effet si la valeur a déjà été transmise (une promesse ne se résout qu'une fois).
+            prompt?.resolve(null)
+            setPrompt(null)
           }}
         />
-      ) : null}
-      <NameDialog
-        key={prompt?.request.title ?? 'prompt'}
-        open={prompt !== null}
-        title={prompt?.request.title ?? ''}
-        label={prompt?.request.label ?? ''}
-        initialValue={prompt?.request.defaultValue}
-        submitLabel="Valider"
-        onSubmit={async (text) => {
-          prompt?.resolve(text)
-          await Promise.resolve()
-        }}
-        onOpenChange={(open) => {
-          if (open) return
-          // Sans effet si la valeur a déjà été transmise (une promesse ne se résout qu'une fois).
-          prompt?.resolve(null)
-          setPrompt(null)
-        }}
-      />
-    </EditorActionsContext>
+      </EditorActionsContext>
+    </WorkspaceToolsProvider>
   )
 }
 

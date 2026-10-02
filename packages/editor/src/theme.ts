@@ -160,9 +160,132 @@ function token(mode: ThemeMode, name: EditorToken): string {
   return `var(${EDITOR_VARIABLES[name]}, ${EDITOR_PALETTES[mode][name]})`
 }
 
+/** Jetons de coloration syntaxique (changés par un thème de coloration). */
+export type SyntaxToken = Extract<EditorToken, `syntax-${string}`>
+
+/** Thèmes de coloration proposés dans les paramètres (`editor.syntaxTheme` des préférences). */
+export const SYNTAX_THEMES = [
+  { id: 'default', label: 'Kaxolax' },
+  { id: 'classic', label: 'Classique' },
+  { id: 'solarized', label: 'Solarized' },
+  { id: 'monokai', label: 'Monokai' },
+  { id: 'high-contrast', label: 'Contraste élevé' },
+] as const
+
+export type SyntaxThemeId = (typeof SYNTAX_THEMES)[number]['id']
+
+/** Couleurs des thèmes de coloration autres que `default` (qui suit les variables de @kaxolax/ui). */
+const SYNTAX_PALETTES: Record<
+  Exclude<SyntaxThemeId, 'default'>,
+  Record<ThemeMode, Record<SyntaxToken, string>>
+> = {
+  classic: {
+    dark: {
+      'syntax-command': '#569cd6',
+      'syntax-math': '#c586c0',
+      'syntax-argument': '#4ec9b0',
+      'syntax-number': '#b5cea8',
+      'syntax-comment': '#6a9955',
+      'syntax-string': '#ce9178',
+      'syntax-bracket': '#ffd700',
+      'syntax-math-variable': '#9cdcfe',
+      'syntax-invalid': '#f44747',
+    },
+    light: {
+      'syntax-command': '#0000ff',
+      'syntax-math': '#af00db',
+      'syntax-argument': '#267f99',
+      'syntax-number': '#098658',
+      'syntax-comment': '#008000',
+      'syntax-string': '#a31515',
+      'syntax-bracket': '#795e26',
+      'syntax-math-variable': '#001080',
+      'syntax-invalid': '#cd3131',
+    },
+  },
+  solarized: {
+    dark: {
+      'syntax-command': '#268bd2',
+      'syntax-math': '#d33682',
+      'syntax-argument': '#2aa198',
+      'syntax-number': '#cb4b16',
+      'syntax-comment': '#839496',
+      'syntax-string': '#859900',
+      'syntax-bracket': '#6c71c4',
+      'syntax-math-variable': '#b58900',
+      'syntax-invalid': '#dc322f',
+    },
+    light: {
+      'syntax-command': '#268bd2',
+      'syntax-math': '#d33682',
+      'syntax-argument': '#2aa198',
+      'syntax-number': '#cb4b16',
+      'syntax-comment': '#657b83',
+      'syntax-string': '#859900',
+      'syntax-bracket': '#6c71c4',
+      'syntax-math-variable': '#b58900',
+      'syntax-invalid': '#dc322f',
+    },
+  },
+  monokai: {
+    dark: {
+      'syntax-command': '#f92672',
+      'syntax-math': '#ae81ff',
+      'syntax-argument': '#a6e22e',
+      'syntax-number': '#ae81ff',
+      'syntax-comment': '#88846f',
+      'syntax-string': '#e6db74',
+      'syntax-bracket': '#f8f8f2',
+      'syntax-math-variable': '#fd971f',
+      'syntax-invalid': '#f44747',
+    },
+    light: {
+      'syntax-command': '#c7254e',
+      'syntax-math': '#6f42c1',
+      'syntax-argument': '#4d8a0f',
+      'syntax-number': '#6f42c1',
+      'syntax-comment': '#75715e',
+      'syntax-string': '#998a00',
+      'syntax-bracket': '#272822',
+      'syntax-math-variable': '#c45f00',
+      'syntax-invalid': '#d32f2f',
+    },
+  },
+  'high-contrast': {
+    dark: {
+      'syntax-command': '#7cc4ff',
+      'syntax-math': '#ff9cf5',
+      'syntax-argument': '#7dffb0',
+      'syntax-number': '#ffd27a',
+      'syntax-comment': '#c8c8c8',
+      'syntax-string': '#b9ff7a',
+      'syntax-bracket': '#ffffff',
+      'syntax-math-variable': '#ffe14d',
+      'syntax-invalid': '#ff6b6b',
+    },
+    light: {
+      'syntax-command': '#00308f',
+      'syntax-math': '#6a0080',
+      'syntax-argument': '#005a32',
+      'syntax-number': '#8a3b00',
+      'syntax-comment': '#3d3d3d',
+      'syntax-string': '#1e5c00',
+      'syntax-bracket': '#000000',
+      'syntax-math-variable': '#7a4d00',
+      'syntax-invalid': '#b00000',
+    },
+  },
+}
+
+/** Identifiant de thème de coloration reconnu (`default` pour une valeur inconnue). */
+export function syntaxThemeId(value: string | undefined): SyntaxThemeId {
+  return SYNTAX_THEMES.find((theme) => theme.id === value)?.id ?? 'default'
+}
+
 /** Coloration syntaxique LaTeX (jetons du mode stex : commandes, maths, arguments…). */
-function highlightStyle(mode: ThemeMode): HighlightStyle {
-  const color = (name: EditorToken) => token(mode, name)
+function highlightStyle(mode: ThemeMode, syntax: SyntaxThemeId = 'default'): HighlightStyle {
+  const palette = syntax === 'default' ? null : SYNTAX_PALETTES[syntax][mode]
+  const color = (name: SyntaxToken) => palette?.[name] ?? token(mode, name)
   return HighlightStyle.define(
     [
       { tag: tags.tagName, color: color('syntax-command') },
@@ -179,13 +302,20 @@ function highlightStyle(mode: ThemeMode): HighlightStyle {
   )
 }
 
-const HIGHLIGHT_STYLES: Record<ThemeMode, HighlightStyle> = {
-  dark: highlightStyle('dark'),
-  light: highlightStyle('light'),
+const HIGHLIGHT_STYLES = new Map<string, HighlightStyle>()
+
+function cachedHighlightStyle(mode: ThemeMode, syntax: SyntaxThemeId): HighlightStyle {
+  const key = `${mode}:${syntax}`
+  let style = HIGHLIGHT_STYLES.get(key)
+  if (!style) {
+    style = highlightStyle(mode, syntax)
+    HIGHLIGHT_STYLES.set(key, style)
+  }
+  return style
 }
 
 /** Coloration du thème clair (export historique de l'étape 1). */
-export const latexHighlightStyle = HIGHLIGHT_STYLES.light
+export const latexHighlightStyle = cachedHighlightStyle('light', 'default')
 
 const DEFAULT_FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 
@@ -294,14 +424,29 @@ function themeSpec(mode: ThemeMode, appearance: EditorAppearance) {
       backgroundColor: color('accent'),
       color: '#ffffff',
     },
+    '.cm-completionDetail': { opacity: '0.7', marginLeft: '0.75em', fontStyle: 'normal' },
+    '.cm-completionInfo': { maxWidth: '24em' },
+    // Mots inconnus du correcteur orthographique.
+    '.cm-spellError': {
+      textDecorationLine: 'underline',
+      textDecorationStyle: 'wavy',
+      textDecorationColor: color('syntax-invalid'),
+      textDecorationSkipInk: 'none',
+      textUnderlineOffset: '3px',
+    },
   }
 }
 
-/** Mode et police du thème en place (lus par `reconfigureEditor`). */
-export const themeSettings = Facet.define<
-  { mode: ThemeMode; appearance: EditorAppearance },
-  { mode: ThemeMode; appearance: EditorAppearance }
->({
+/** Réglages du thème en place. */
+export interface ThemeSettings {
+  mode: ThemeMode
+  appearance: EditorAppearance
+  /** Thème de coloration (absent : `default`). */
+  syntax?: SyntaxThemeId
+}
+
+/** Mode, police et coloration du thème en place (lus par `reconfigureEditor`). */
+export const themeSettings = Facet.define<ThemeSettings, ThemeSettings>({
   combine: (values) => values.at(-1) ?? { mode: 'dark', appearance: {} },
 })
 
@@ -310,23 +455,28 @@ export const themeSettings = Facet.define<
  * coloration syntaxique LaTeX et police (variables `--editor-font-*` par défaut). Pose
  * `data-theme` sur `.cm-editor` pour que les variables de @kaxolax/ui y prennent les valeurs du mode.
  */
-export function editorTheme(mode: ThemeMode, appearance: EditorAppearance = {}): Extension {
+export function editorTheme(
+  mode: ThemeMode,
+  appearance: EditorAppearance = {},
+  syntax: SyntaxThemeId = 'default',
+): Extension {
   // Même thème pour les mêmes réglages : CodeMirror ne recrée pas de feuille de style.
   const key = JSON.stringify([
     mode,
     appearance.fontSize,
     appearance.fontFamily,
     appearance.lineHeight,
+    syntax,
   ])
   const cached = themeCache.get(key)
   if (cached) return cached
   const theme = [
     EditorView.theme(themeSpec(mode, appearance), { dark: mode === 'dark' }),
-    syntaxHighlighting(HIGHLIGHT_STYLES[mode]),
+    syntaxHighlighting(cachedHighlightStyle(mode, syntax)),
     // Les variables de @kaxolax/ui suivent `data-theme` : l'éditeur garde son mode même si le
     // reste de la page est dans l'autre thème.
     EditorView.editorAttributes.of({ 'data-theme': mode }),
-    themeSettings.of({ mode, appearance }),
+    themeSettings.of(syntax === 'default' ? { mode, appearance } : { mode, appearance, syntax }),
   ]
   themeCache.set(key, theme)
   return theme

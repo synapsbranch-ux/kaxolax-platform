@@ -103,6 +103,8 @@ describe('sharing errors', () => {
       code: 'E_PLAN_LIMIT',
       message: 'limit',
       limit: { name: 'collaborators', plan: 'free', max: 1 },
+      feature: 'unlimited_collaborators',
+      upgradeUrl: 'https://app.kaxolax.test/pricing',
     })
     expect(planLimitOf(error)).toEqual({ plan: 'free', max: 1 })
     expect(sharingErrorMessage(error)).toContain('1 collaborateur')

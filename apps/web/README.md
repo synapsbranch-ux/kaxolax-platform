@@ -12,7 +12,32 @@ l'API).
   GitHub), `/account` (profil, sécurité : MFA, sessions et appareils, suppression), menu du
   compte (`<UserButton />`). Les pages du groupe `(app)` exigent une session ; sans elle, retour
   sur `/sign-in?redirect_url=…`. Les clés Clerk sont lues à l'exécution (voir le README racine).
+- **Abonnements (Clerk Billing)** : `/pricing` (publique) avec `<PricingTable />`, liée depuis le
+  menu du compte (`components/billing/account-menu.tsx`) ; abonnement, factures et moyens de
+  paiement dans l'onglet Billing de `/account`. `has({ plan })` ne sert qu'à l'affichage. Les
+  refus 403 `E_PLAN_LIMIT` de l'API s'expliquent dans `PlanLimitNotice`
+  (`components/billing/plan-limit-notice.tsx`, message, limite, bouton vers les tarifs) : en
+  ligne dans le résultat d'une compilation en délai dépassé, sinon dans une boîte de dialogue
+  commune (`PlanLimitDialog`, layout `(app)`) pour tout appel de l'API ; un écran qui affiche le
+  refus lui-même (modale de partage) appelle `markPlanLimitHandled(error)` dans son `catch` et
+  passe `error.planLimit` au composant.
 - 404, et `/healthz` (sonde publique).
+- **Galerie de templates** (`components/templates/`) : `/templates` (publique, rendue par le
+  serveur depuis `GET /api/v1/templates`) avec recherche (sans accents, même fonction
+  `filterTemplates` que l'API, appliquée dans le navigateur), catégories avec compteurs (CV,
+  Thèse, Article, Présentation Beamer, Lettre, Rapport) et cartes avec miniature ; fiche
+  `/templates/[id]` : aperçu PDF (la visionneuse pdf.js de l'éditeur, zone claire), compilateur,
+  langue, licence, mots-clés, et « Utiliser ce template » (nom du projet, titre par défaut, puis
+  `POST /api/v1/projects/from-template` et ouverture de l'éditeur). Sans session : connexion
+  Clerk avec retour sur `/templates/[id]?use=1`, où la boîte de dialogue se rouvre. Tableau de
+  bord : « Depuis un template » (sidebar, barre étroite, tableau de bord vide) ouvre la même
+  galerie dans une boîte de dialogue et crée le projet dans le workspace affiché. Miniatures et
+  PDF viennent directement du domaine public R2 du catalogue (URL fournies par l'API) :
+  miniatures par `next/image` en `unoptimized` (déjà à 600 px, aucun `remotePatterns` à figer au
+  build) ; l'aperçu pdf.js lit le PDF par `fetch`, ce qui exige une règle CORS du bucket
+  (`GET`/`HEAD` depuis l'origine de l'application, en-tête `Range`) ; sinon la fiche garde le
+  message d'erreur et un lien « Ouvrir le PDF ». Le refus `E_PLAN_LIMIT` (stockage) s'affiche
+  dans la boîte de dialogue.
 - **Bannière système** (`components/system-banner.tsx`) : annonces publiées depuis l'admin, sur
   toutes les pages connectées, en bandeau fixe en haut de l'écran (aucune hauteur ajoutée à
   l'éditeur plein écran ; la nouvelle interface de la tâche 3 pourra leur réserver une place),
@@ -43,15 +68,80 @@ l'API).
     section courante surlignée), pied (utilisateur, workspace, `<UserButton />`).
   - Éditeur : onglets des fichiers ouverts (mémorisés par projet), bouton + (ouvrir ou créer),
     bouton Outils (barre de menus du registre d'actions de `@kaxolax/editor`), CodeMirror 6 sur
-    Yjs en thème sombre, aperçu des images, panneau Review (voir plus bas), emplacement
-    de l'assistant (étape 3), tiroir Historique (voir plus bas). Les outils s'ajoutent par `useEditorActions()` (registre partagé, raccourcis) et
-    `ACTION_DIALOGS` (`workspace/action-dialogs.tsx`).
+    Yjs en thème sombre, aperçu des images, panneau Review (voir plus bas), emplacement de
+    l'assistant (étape 3), tiroir Historique (voir plus bas). Les outils s'ajoutent par
+    `useEditorActions()` (registre partagé, raccourcis) et `ACTION_DIALOGS`
+    (`workspace/action-dialogs.tsx`, boîtes chargées à la demande).
+  - Outils d'écriture (`workspace/writing/`, logique dans `@kaxolax/editor`, désactivés en
+    lecture seule) : **éditeur de formules** (Maths, Ctrl+Maj+E : champ MathLive chargé à la
+    première ouverture, LaTeX éditable en texte brut, bibliothèque, en ligne / centrée / numérotée
+    avec label, aperçu du texte inséré ; ouvert sur la formule sous le curseur, il la remplace
+    exactement) ; **symboles** (Maths : onglets par catégorie, recherche, récents mémorisés dans
+    les préférences, flèches dans la palette, package manquant ajouté en un clic ou à
+    l'insertion) ; **tableau** (Structures : grille au clavier — flèches, Tab, Entrée,
+    Alt+Maj+flèches pour sélectionner —, lignes et colonnes, fusion `\multicolumn`/`\multirow`,
+    alignement, filets booktabs/classiques/verticaux, collage depuis un tableur ou un CSV, légende
+    et label, aperçu du code ; ouvert sur le tableau sous le curseur, texte brut s'il n'est pas
+    représentable ; insertion refusée tant qu'une case ou la légende ne compilerait pas, avec
+    échappement en un clic ; pas de flottant `table` dans une figure ou une minipage). Formule
+    tapée en LaTeX : insertion refusée si elle ne compilerait pas (accolades, `$`, `&`…). Un
+    outil qui ne se charge pas (hors ligne, nouvelle version) ou qui échoue affiche « Outil
+    indisponible » (Réessayer, Fermer) sans fermer l'éditeur. Packages requis ajoutés au préambule dans la même étape d'annulation ; dans
+    un fichier sans préambule, rappel à charger dans le document principal. MathLive n'utilise
+    aucune ressource externe (polices servies par Next.js, sons coupés) ; ses extensions HTML
+    (`\href`, `\htmlStyle`…) sont retirées des valeurs chargées et aucun lien n'est ouvert.
+  - Outils de la tâche 10 (`workspace/tools/`, `workspace/spellcheck/`) :
+    - **Gestionnaire de packages** (Packages → Gestionnaire de packages) : recherche dans l'index
+      TeX Live de l'API (`GET /texlive/packages`, pages de 20), fiche (description, catégorie,
+      sujets, licence, liens CTAN et documentation), ajout d'un `\usepackage` avec options
+      (aperçu de la commande, options validées), liste des packages du fichier ouvert (ligne,
+      options, retrait, une étape d'annulation par opération) ; lecture seule : recherche et liste.
+      Dans les logs, une erreur « File `xyz.sty' not found » (ou `.cls`) affiche les noms proches
+(`GET /texlive/suggestions`, mémorisés pour la session) et, pour un éditeur, un bouton qui
+ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
+`\usepackage`/`\documentclass` de cette ligne (`planRenamePackage`, `lib/package-tools.ts`).
+    - **Autocomplétion** (`use-project-index.ts`) : `ProjectIndex` de `@kaxolax/editor` alimenté
+      par des lecteurs Yjs sans présence de tous les `.tex`/`.sty`/`.cls`/`.bib` du projet (200 au
+      plus, `.bib` d'abord ; ouverts et fermés au fil de l'arborescence, renommages suivis) et par
+      le document ouvert (pause de 250 ms) ; chemins de toute l'arborescence. Après
+      `\usepackage{`, les noms de tout TeX Live sont demandés à l'API pendant la frappe
+      (`editor/package-name-completion.ts`, réponses mémorisées par préfixe).
+    - **Correcteur** : worker `src/workers/spellcheck.worker.ts` créé à la première activation
+      (Hunspell WebAssembly), dictionnaires `fr`/`en` servis par l'application
+      (`app/dictionaries/[file]`, route statique générée au build depuis `dictionary-fr` et
+      `dictionary-en`, aucun CDN) et téléchargés à la première vérification de la langue ; langue
+      du projet (paramètres → Projet, propriétaire et éditeurs) ; clic droit ou F7 (Remplacer →
+      Corriger l'orthographe) sur un mot souligné : suggestions, ajout au dictionnaire personnel.
+    - **Compteur de mots** (Fichier → Compteur de mots, ou « Mots » dans la barre d'état) :
+      `POST /projects/:id/word-count` (texcount dans le sandbox) après envoi des dernières
+      frappes ; document principal ou fichier ouvert ; total, texte, titres, légendes, formules,
+      détail par section ; chargement, erreurs traduites, Recompter.
+    - **Barre d'état** sous l'éditeur : ligne et colonne, mode Vim/Emacs, langue du correcteur,
+      compteur de mots, paramètres.
   - PDF (pdf.js) : pastille de statut (Recompiler, Ctrl+Entrée) et son menu (auto-compilation,
     compilateur, brouillon, arrêt à la première erreur, arrêt, vider le cache, logs), zoom
     (page, largeur, 50 à 400 %), téléchargement, menu ⋯ (zip des sources, fichiers de sortie,
     nouvel onglet, impression), tiroir des logs (erreurs cliquables, log brut), barre flottante (annuler,
     pages, « Aller au PDF » par SyncTeX) ; un double-clic dans le PDF place le curseur sur la
     ligne source. Le PDF de la dernière compilation s'affiche dès l'ouverture du projet.
+    Compilation asynchrone (API en `COMPILE_BACKEND=cloudflare`) : machine d'état sans React
+    `lib/compile-controller.ts` (testée), enveloppée par `workspace/use-compile.ts`. Le mode est
+    reconnu à la réponse : résultat direct (`gateway`), ou 202 `{ buildId, status }` dont l'état
+    avance par les événements `compile.updated` du document meta (ceux d'un autre `buildId` sont
+    ignorés ; jamais de retour en arrière, `lib/builds.ts`), avec un sondage de repli de
+    `GET …/builds/:buildId` (3 s, puis 5 s et 10 s ; arrêt sur état final, abandon après
+    15 min). La pastille affiche « Préparation du compilateur… » (réveil du conteneur),
+    « En attente… » (file) ou « Compilation… » ; le résultat (PDF, logs, erreurs, SyncTeX,
+    limite du plan) s'affiche comme en mode synchrone, et un résultat retiré de l'événement
+    (`resultOmitted`) est relu par l'API. Double clic : en mode synchrone, la dernière demande
+    remplace la précédente ; en asynchrone (ou tant que le mode est inconnu), une seule relance
+    est mise en attente jusqu'à la fin de la compilation suivie, de même après un 409
+    `E_COMPILE_IN_PROGRESS`. Arrêter annule cette relance et termine l'état local dès que l'API
+    confirme. Une compilation déjà en cours à l'ouverture (autre onglet, autre membre,
+    auto-compilation) est suivie dès son premier événement. Pour qui peut modifier le projet,
+    l'éditeur appelle `compiler/warm` sans attendre sa réponse, à l'ouverture seulement, au plus
+    une fois par projet toutes les 10 min (`WarmSchedule`), et plus du tout si l'API répond
+    `unsupported`.
   - Temps réel du projet (`workspace/use-project-meta.ts`) : à l'ouverture, connexion au
     document meta `project:{id}:meta` sur le WebSocket partagé. La page y publie sa présence
     (identité, fichier de l'onglet actif) et reçoit les événements sans état :
@@ -119,8 +209,9 @@ l'API).
     un rôle (éditeur, relecteur, lecteur ; usage de la limite du plan affiché), membres (changer
     le rôle, retirer, transférer la propriété, avec confirmation), invitations en attente
     (échéance, relancer une fois par minute, annuler), liens de partage lecture seule et édition
-    (activer, désactiver, copier, régénérer avec confirmation). `E_PLAN_LIMIT` : la limite et un
-    lien vers les tarifs (`PRICING_URL`, page de la tâche 12). Autres rôles : vue limitée (membres
+    (activer, désactiver, copier, régénérer avec confirmation). `E_PLAN_LIMIT` : `PlanLimitNotice`
+    dans la modale (limite et lien `upgradeUrl` vers les tarifs), l'erreur marquée
+    (`markPlanLimitHandled`) pour que la boîte des limites globale ne s'ouvre pas aussi. Autres rôles : vue limitée (membres
     et rôles, « Quitter » le projet). Réponses validées par les schémas zod des contrats.
   - États : squelettes pendant le chargement, page d'erreur (nouvel essai) si le projet ne se
     charge pas, « Projet introuvable » (404), message si le service temps réel refuse la
@@ -133,10 +224,20 @@ l'API).
 - **Préférences** (`components/preferences/`) : `usePreferences()` charge `GET /me/preferences`
   une fois (layout `(app)`) et enregistre les modifications par `PATCH` (optimiste, regroupé
   800 ms, envoyé aussitôt quand la page est masquée). Clés utilisées : `theme` (bascule
-  soleil/lune du pied de sidebar ; paramètres complets à la tâche 10), `layout` (tailles des
-  colonnes, repli), `toolsVisible`, `autoCompile`, `compile` (brouillon, arrêt à la première
-  erreur), `openTabs` (onglets par projet). Le thème est recopié dans le cookie `kaxolax-theme`
-  (rendu serveur de `data-theme`, sans flash) et dans localStorage (`ThemeScript`).
+  soleil/lune du pied de sidebar, et paramètres), `layout` (tailles des colonnes, repli),
+  `toolsVisible`, `autoCompile`, `compile` (brouillon, arrêt à la première erreur), `openTabs`
+  (onglets par projet), `recentSymbols` (sélecteur de symboles), `editor` (paramètres de
+  l'éditeur) et `spellcheckDictionary` (dictionnaire personnel).
+- **Paramètres** (`components/preferences/settings-*.tsx`, chargés à la première ouverture) :
+  depuis le pied de sidebar (roue dentée), le menu du compte (`UserButton`), la barre d'état ou
+  Fichier → Paramètres de l'éditeur. Onglets Éditeur (thème clair/sombre, coloration, police
+  prédéfinie ou saisie, taille, hauteur de ligne, raccourcis par défaut/Vim/Emacs, retour à la
+  ligne, aperçu), Correcteur (activation, dictionnaire personnel : ajout, retrait) et Projet
+  (langue du correcteur, page projet). Enregistrés dans les préférences (tous les appareils) et
+  appliqués à chaud par `reconfigureEditor` : seuls les réglages modifiés sont reconfigurés
+  (`settingsChange`), le document, l'historique et l'état Vim sont gardés. Le thème
+  est recopié dans le cookie `kaxolax-theme` (rendu serveur de `data-theme`, sans flash) et dans
+  localStorage (`ThemeScript`).
 
 ## Développement
 

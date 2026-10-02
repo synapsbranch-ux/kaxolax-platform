@@ -18,6 +18,7 @@ import {
   cn,
 } from '@kaxolax/ui'
 import { CheckIcon, ChevronDownIcon, CircleAlertIcon, PlayIcon, TimerOffIcon } from 'lucide-react'
+import { type CompilePhase, phaseLabel } from '@/lib/builds'
 import { compileStatusKind } from '@/lib/pdf'
 
 export const COMPILERS: { id: Compiler; label: string }[] = [
@@ -41,6 +42,7 @@ export interface CompileSettings {
 export function CompileStatus({
   result,
   compiling,
+  phase = null,
   settings,
   canEdit,
   onCompile,
@@ -51,6 +53,8 @@ export function CompileStatus({
 }: {
   result: CompileResult | null
   compiling: boolean
+  /** Étape en cours : « Préparation du compilateur… » pendant le réveil du conteneur. */
+  phase?: CompilePhase | null
   settings: CompileSettings
   /** Le compilateur est un réglage du projet : éditeurs et propriétaire seulement. */
   canEdit: boolean
@@ -84,7 +88,8 @@ export function CompileStatus({
         >
           {kind === 'compiling' ? (
             <>
-              <Spinner label="" className="size-3.5" /> Compilation…
+              <Spinner label="" className="size-3.5" />
+              <span aria-live="polite">{phase === null ? 'Compilation…' : phaseLabel(phase)}</span>
             </>
           ) : kind === 'success' ? (
             <>

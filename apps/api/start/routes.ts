@@ -8,6 +8,7 @@ import { registerAdminRoutes } from '#start/admin_routes'
 import { middleware } from '#start/kernel'
 
 const MeController = () => import('#controllers/me_controller')
+const PlanController = () => import('#controllers/plan_controller')
 const PreferencesController = () => import('#controllers/preferences_controller')
 const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
 const WorkspacesController = () => import('#controllers/workspaces_controller')
@@ -28,6 +29,9 @@ const JoinController = () => import('#controllers/join_controller')
 const ChatController = () => import('#controllers/chat_controller')
 const CommentsController = () => import('#controllers/comments_controller')
 const HistoryController = () => import('#controllers/history_controller')
+const TexliveController = () => import('#controllers/texlive_controller')
+const WordCountsController = () => import('#controllers/word_counts_controller')
+const TemplatesController = () => import('#controllers/templates_controller')
 
 router
   .group(() => {
@@ -43,10 +47,15 @@ router
     // Aperçus publics d'une invitation et d'un lien de partage (nom du projet, rôle).
     router.get('invitations/:token', [JoinController, 'invitation'])
     router.get('share/:token', [JoinController, 'shareLink'])
+    // Galerie de templates publique (catalogue kaxolax-templates, packages/contracts templates.ts).
+    router.get('templates', [TemplatesController, 'index'])
+    router.get('templates/:id', [TemplatesController, 'show'])
 
     router
       .group(() => {
         router.get('me', [MeController, 'show'])
+        // Plan, features, limites et usage (Clerk Billing ; affichage, limites appliquées par route).
+        router.get('me/plan', [PlanController, 'show'])
         router.get('me/preferences', [PreferencesController, 'show'])
         router.patch('me/preferences', [PreferencesController, 'update'])
         // Bannières système actives (affichées en haut de l'application).
@@ -54,8 +63,14 @@ router
 
         router.get('workspaces', [WorkspacesController, 'index'])
 
+        // Index des packages TeX Live (packages/contracts/src/texlive.ts).
+        router.get('texlive/packages', [TexliveController, 'index'])
+        router.get('texlive/packages/:name', [TexliveController, 'show'])
+        router.get('texlive/suggestions', [TexliveController, 'suggestions'])
+
         router.get('projects', [ProjectsController, 'index'])
         router.post('projects', [ProjectsController, 'store'])
+        router.post('projects/from-template', [TemplatesController, 'store'])
         router.get('projects/:id', [ProjectsController, 'show'])
         router.patch('projects/:id', [ProjectsController, 'update'])
         router.post('projects/:id/archive', [ProjectsController, 'archive'])
@@ -153,6 +168,7 @@ router
         router.get('projects/:id/synctex/pdf', [CompilesController, 'synctexPdf'])
         router.get('projects/:id/builds/:buildId', [BuildsController, 'show'])
         router.post('projects/:id/compiler/warm', [BuildsController, 'warm'])
+        router.post('projects/:id/word-count', [WordCountsController, 'count'])
         router.get('projects/:id/download.zip', [ExportsController, 'download'])
         router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })

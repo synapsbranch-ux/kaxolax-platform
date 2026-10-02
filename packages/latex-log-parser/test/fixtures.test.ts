@@ -190,6 +190,13 @@ const fixtures: Record<string, Expected[]> = {
     ],
   ],
   'fatal-no-end': [['error', null, null, 'job aborted, no legal \\end found']],
+  'xelatex-missing-package': [
+    ['error', 'main.tex', 4, "LaTeX Error: File `graphix.sty' not found."],
+  ],
+  'lualatex-missing-package': [
+    ['error', 'main.tex', 3, "LaTeX Error: File `hyperef.sty' not found."],
+  ],
+  'missing-class': [['error', 'main.tex', 2, "LaTeX Error: File `artcle.cls' not found."]],
 }
 
 const fixturesDir = join(import.meta.dirname, 'fixtures')
@@ -221,6 +228,20 @@ describe('real TeX Live 2026 logs', () => {
       expect(logEntrySchema.parse(entry)).toEqual(entry)
       expect(entry.raw.length).toBeGreaterThan(0)
     }
+  })
+
+  it.each([
+    ['missing-package', 'thispackagedoesnotexist.sty'],
+    ['xelatex-missing-package', 'graphix.sty'],
+    ['lualatex-missing-package', 'hyperef.sty'],
+    ['missing-class', 'artcle.cls'],
+    ['classic-error-format', 'missing-file-that-does-not-exist.tex'],
+    ['nested-files', 'missing-image'],
+  ])('extracts the missing file of %s', (name, missingFile) => {
+    const entries = load(name)
+    expect(entries.filter((entry) => entry.missingFile !== undefined)).toEqual([
+      expect.objectContaining({ level: 'error', missingFile }),
+    ])
   })
 
   it('keeps the TeX context in the raw text of an error', () => {

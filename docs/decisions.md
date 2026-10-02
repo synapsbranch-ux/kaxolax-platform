@@ -466,6 +466,25 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `pg-restore-test.sh` : restauration dans une base temporaire, égalité exacte des comptes avec le manifeste, échec si la sauvegarde a plus de 26 h ; jeton R2 `backup_read` (lecture seule), puisqu'il détient la clé privée. `test-local.sh` le rejoue en CI sur la pile locale.
 - Image `scripts/backup/Dockerfile` : PostgreSQL 18.6, rclone 1.75.1 et age 1.3.2 épinglés par empreinte (pas d'apk ni d'aws-cli). Remplace l'image `backup/` provisoire de kaxolax-infra.
 
+## 2026-10-02 · Droits Billing : claims du jeton d'abord, miroir des webhooks ensuite
+
+- Plan et features lus dans les claims `pla`/`fea` du jeton Clerk vérifié (lecture de `has()` refaite dans l'API, sans dépendre de @clerk/shared) ; sans ces claims, miroir `subscriptions` des webhooks ; sinon `free`. Valeurs chiffrées dans `plan_limits` (cache 60 s), plan inconnu = limites de Free.
+- Une feature absente ramène sa limite à la valeur de Free (le plan donne les nombres, la feature les débloque) ; sans claims, les features se déduisent des valeurs du plan.
+- Un élément `canceled` garde son plan jusqu'à `period_end` pour les droits ; l'admin (fiche, statistiques) compte toujours `active` et `past_due` seulement.
+
+## 2026-10-02 · Limites d'un projet : celles de son propriétaire
+
+- Compilation, collaborateurs et stockage d'un projet suivent le plan du propriétaire, même quand un collaborateur agit (un collaborateur Pro sur un projet Free compile 20 s). Les claims de la requête ne servent que si le propriétaire la fait lui-même ; sinon la plus récente de deux sources : relevé des claims de son dernier jeton (`users.claimed_plan_*`, écrit par le guard, date = `iat`) ou miroir des webhooks (`subscriptions.updated_at`). Ainsi une invitation envoyée sous des claims Pro est acceptée même si le webhook tarde ou a échoué (payeur inconnu jusqu'à épuisement des réessais) ; un relevé de plus de 35 jours sans nouveau jeton n'est plus utilisé.
+- Stockage = fichiers binaires + états Yjs des projets possédés ; vérifié à la création de document et de projet, au début et à la fin d'un upload et d'un import zip (verrou consultatif par compte), au transfert de propriété, et par le service temps réel : quand l'usage enregistré atteint la limite, les connexions qui éditent passent en lecture seule (message `plan.storage`, boîte des limites dans le web) jusqu'à libération de place. Dépassement borné à ce qui arrive entre deux enregistrements (10 s) et deux lectures de l'usage (10 s).
+- Transfert de propriété (propriétaire et admin, sans exception) : refusé (403 `E_PLAN_LIMIT`) si le stockage du nouveau propriétaire ne peut pas accueillir le projet, ou si les collaborateurs après transfert (ancien propriétaire devenu éditeur compris) dépassent sa limite. L'admin affiche le motif au lieu de « Accès refusé ».
+- Refus homogène 403 `E_PLAN_LIMIT` `{ limit: { name, plan, max }, feature, current?, upgradeUrl }` ; une compilation en délai dépassé sous une limite levable porte `planLimit` dans son résultat.
+
+## 2026-10-02 · Webhooks Billing : ordre par horodatage Clerk, emails par transition
+
+- `subscription.*` et `subscriptionItem.*` sur la même route ; rejeu écarté par `clerk_webhook_events`. Chaque élément est reflété par son id ; `subscriptions.updated_at` = `timestamp` de l'événement : un événement plus ancien n'écrase rien.
+- Payeur sans miroir local (webhook `user.created` pas encore reçu) : 409 et rien d'enregistré, Clerk réessaie. Payeur organisation ignoré (étape 3).
+- Emails après validation, décidés par la transition de statut sous verrou de ligne : bienvenue à l'entrée en `active` d'un plan payant (pas depuis `past_due` ni `canceled`), paiement en retard à l'entrée en `past_due`. Deux événements portant la même transition n'en envoient qu'un.
+
 ## 2026-10-02 · Document meta du projet
 
 - `project:{projectId}:meta` (`@kaxolax/collab`) : un document Hocuspocus par projet, sans contenu, jamais enregistré en base ; même autorisation que les documents du projet (tout membre, rôle relu en base).
@@ -535,5 +554,156 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - Textes compressés adressés par sha256 (`history/texts/`, référencés par `version_documents`) : un texte inchangé n'est stocké qu'une fois ; manifeste et diffs sous le préfixe de la version. Binaires laissés à leur clé (immuable par identifiant), référencés par `version_files` : la suppression dans l'arborescence et la purge ne suppriment l'objet que si plus rien ne le référence, sous le verrou de l'historique. La purge valide d'abord la suppression des lignes (label revérifié par le DELETE), puis supprime les objets : un échec laisse des orphelins, jamais une version qui cite un objet absent.
 - Restauration : version de l'état courant d'abord ; texte remplacé par le service temps réel (modification minimale au nom de la personne qui restaure, reçue par les clients, ancres des commentaires gardées hors de la plage changée), puis arborescence exacte (identifiants réutilisés, déplacements en deux temps à cause des index d'unicité des noms). Échec d'un remplacement ou de la transaction : textes remis dans l'état de la sauvegarde (503), ou 503 `E_HISTORY_RESTORE_INCOMPLETE` si la remise échoue. Fichier seul : l'élément qui occupe son chemin est remplacé. Les fils de commentaires des documents retirés sont perdus (prévenu dans le dialogue).
-- Conservation lue dans `plan_limits.history_retention_days` du plan du propriétaire (fonction isolée `historyRetentionDays`, à remplacer par celle de la tâche 12) ; la version la plus récente et les versions avec label ne sont jamais purgées.
+- Conservation : celle du plan du propriétaire, lue par `historyRetention` (`entitlements.ts`, tâche 12, depuis la fusion des tâches 6 à 8 avec main) ; la version la plus récente et les versions avec label ne sont jamais purgées.
 - L'auto-compilation envoie `trigger: 'auto'` et ne crée pas de version ; seules les compilations manuelles d'un owner ou editor en créent, une fois la compilation acceptée (un lecteur ne déclenche pas ce travail).
+
+## 2026-10-02 · Outils d'écriture : logique dans `@kaxolax/editor`, interface dans l'application
+
+- Détection, génération et analyse (formules, symboles, tableaux) sont des fonctions pures de `packages/editor`, sans React ni MathLive : testées sous Node, réutilisables par d'autres interfaces.
+- `math.formula` (`Mod-Shift-e`), `math.symbols` et `structures.table` sont dans `createDefaultRegistry()` et passent par `host.openDialog(id, payload)` ; le payload typé porte la plage et le texte détectés. « Tableau » remplace l'ancien modèle fixe `structures.table`.
+- Insertion en une étape d'annulation, packages manquants ajoutés au préambule ; la plage est suivie à travers les modifications faites pendant l'édition (collaborateurs) ; modifiée ou disparue : `stale` et rien n'est écrit.
+- Une formule ou un tableau inchangé n'est pas réécrit (`unchanged`) ; une formule modifiée garde délimiteurs, environnement et `\label` (seul le corps change).
+
+## 2026-10-02 · Tableaux : grille avec aller-retour exact, texte brut sinon
+
+- Modèle : colonnes et séparateurs bruts (`|`, `@{}`, `>{…}`), cellules avec `colspan`/`rowspan` (cases couvertes à `null`), filets par frontière (`\hline`, `\cline`, booktabs, commandes brutes comme `\addlinespace`).
+- `parseTable(generateTable(m))` redonne `m` et le même texte ; un tableau écrit à la main est relu avec avertissements (commentaires retirés, `*{n}{…}` développé, lignes complétées, `\multirow` chevauchant gardé dans la cellule) ou `ok: false` + texte brut (plus de cellules que de colonnes, spécification inconnue).
+- Le flottant `table` n'est repris que s'il ne contient que `\centering`, `\caption`, `\label` et le tableau ; sinon seule la grille est remplacée.
+- Collage : TSV (Excel, Google Sheets) ou CSV RFC 4180 (`,` ou `;` détecté), contenu échappé par défaut.
+
+## 2026-10-02 · Formules : normalisation de MathLive et packages calculés
+
+- `normalizeMathLive` convertit les commandes propres à MathLive (`\exponentialE`, `\differentialD`, `\mleft`, `\placeholder`…) par une table testée ; le résultat compile avec amsmath seul, sauf couleurs (xcolor) et `\cancel` (cancel), signalés.
+- Les packages d'une formule ou d'un symbole viennent du catalogue et d'une table de commandes et d'environnements ; `mathtools` vaut `amsmath`, `amssymb` vaut `amsfonts`.
+- Vérifié en compilant avec TeX Live 2026 (pdflatex, sans réseau) chaque symbole avec ses seuls packages déclarés, la bibliothèque de formules et les tableaux générés.
+
+## 2026-10-02 · Outils d'écriture dans l'application : MathLive à la demande
+
+- `mathlive` 0.110.0 (MIT, dernière version publiée avant le 2026-09-30) : seul éditeur visuel de formules web maintenu qui produit du LaTeX ; KaTeX/MathJax n'affichent que.
+- Chargé à la demande : boîtes de dialogue en `import()` dans un effet (échec de chargement ou de rendu : « Outil indisponible » avec Réessayer, l'éditeur reste ouvert) et `import('mathlive')` dans un effet, donc hors du bundle initial de la page projet et jamais exécuté au rendu serveur.
+- Aucune ressource externe : polices KaTeX importées par `mathlive/fonts.css` (servies par Next.js sous `/_next/static/media`), `fontsDirectory`, sons et moteur de calcul à `null` ; clavier virtuel, menu et suggestions de MathLive masqués (hors de la boîte modale).
+- Symboles récents dans les préférences (`recentSymbols`, 24 au plus, défaut vide) : ils suivent l'utilisateur sur ses appareils. Packages manquants : ajoutés à l'insertion ou en un clic ; fichier sans préambule, simple rappel (document principal).
+
+## 2026-10-02 · Outils d'écriture : plages suivies, cases et commentaires sûrs
+
+- La plage ouverte est suivie par un champ d'état CodeMirror (`trackTarget`, positions recalculées à chaque transaction, collaborateurs compris) ; si elle ne contient plus le texte d'origine : `stale`. Écarté : chercher l'occurrence la plus proche, qui remplaçait une autre formule identique.
+- Tableau : insertion refusée tant qu'une case contient `%`, `#`, `&`, `$` seul, `_`/`^` hors formule (colonnes `>{$}` comprises) ; échappement en un clic. Pas d'échappement à la frappe : le LaTeX tapé (`\textbf{…}`, `$x_1$`) doit rester tel quel.
+- Formules : sauts de ligne et commentaires `%` gardés par `normalizeMathLive` ; un `align` réécrit par MathLive (une seule ligne) reprend une ligne par `\\` ; comparaison « inchangée » sans commentaires, espaces des groupes texte gardés.
+- MathLive affiche du LaTeX écrit par des collaborateurs : `\href`, `\htmlStyle`, `\class`, `\cssId`, `\htmlData` retirés à l'entrée, `openUrl` neutralisé (ni requête externe ni lien ouvert).
+
+## 2026-10-02 · Outils d'écriture : rien d'inséré qui ne compile pas
+
+- Même règle que les cases pour la légende d'un tableau ; formule tapée en LaTeX vérifiée (accolades, `$`, `#`, `&` hors `align`/`aligned`/`split`, délimiteurs imbriqués, commandes MathLive `\unicode`/`\error`) : insertion refusée (`invalid`) plutôt qu'échappée ; `\href` ajoute hyperref.
+- Labels réduits à `A-Z a-z 0-9 : . _ / + -` à la saisie ; équation passée en ligne ou centrée : perte du `\label` annoncée.
+- Pas de flottant `table` inséré dans une figure, une minipage ou un argument de commande ; packages ajoutés seulement s'ils manquent (fournisseurs compris).
+- Collage : une colonne de nombres à virgule décimale (`3,5`) n'est jamais coupée sur la virgule ; ambigu (`1,2` sur chaque ligne) : lu comme décimal.
+
+## 2026-10-02 · Fusion des tâches 5 et 12 : limites du plan dans le partage et le temps réel
+
+- La modale de partage et les pages d'adhésion affichent un refus `E_PLAN_LIMIT` par `PlanLimitNotice` (`ApiError.planLimit`, lien `upgradeUrl` de l'API) et marquent l'erreur (`markPlanLimitHandled`) : la boîte des limites globale ne s'ouvre pas en plus. `PRICING_URL` disparaît, l'URL des tarifs vient du refus.
+- Le document meta n'est jamais concerné par le stockage du plan (`apps/realtime/src/storage.ts`) : il reste en lecture seule quel que soit l'état du stockage, et ses mises à jour refusées comptent toujours pour la fermeture.
+
+## 2026-10-02 · Galerie : catalogue lu par l'API, mis en cache, avec repli
+
+- L'API lit `templates.json` (contrat v1 de kaxolax-templates) à `TEMPLATES_CATALOG_URL`, le valide par zod (`packages/contracts/src/templates.ts`) : un template invalide fait refuser tout le catalogue, les champs inconnus sont ignorés (règle du contrat). Pas de table : le catalogue publié reste la source.
+- Copie en mémoire servie 60 s (le `max-age` du fichier), puis requête conditionnelle (ETag) ; en cas d'échec, dernière copie valide jusqu'à 24 h, sinon 503 `E_TEMPLATES_UNAVAILABLE`. Plusieurs instances : chacune sa copie, sans état partagé.
+- Sans URL, hors production seulement : catalogue de démonstration (métadonnées réelles des dix templates, fichiers non publiés, URL nulles). Écarté : committer PDF, PNG et zip dans le monorepo.
+
+## 2026-10-02 · Projet depuis un template : zip vérifié, import zip commun
+
+- `POST /projects/from-template` télécharge le zip du catalogue (taille plafonnée à celle annoncée, sha256 comparé), puis passe par `createProjectFromZip`, extrait de l'import zip : mêmes contrôles (chemins, bombes), même comptage du stockage, même nettoyage S3 en cas d'échec.
+- Workspace et stockage du plan (taille du zip) vérifiés avant tout téléchargement ; stockage revérifié sur le contenu extrait dans la transaction.
+- Compilateur et document principal repris du catalogue (le validateur du dépôt garantit qu'ils sont ceux que l'import détecterait) ; nom par défaut : titre du template.
+
+## 2026-10-02 · Galerie web : rendu serveur, fichiers servis par R2
+
+- `/templates` et `/templates/[id]` sont publiques et rendues par le serveur (indexables) ; la recherche se fait dans le navigateur avec `filterTemplates`, la fonction de l'API (catalogue de quelques dizaines d'entrées).
+- Miniatures en `next/image` `unoptimized` : PNG déjà à 600 px, et pas de `remotePatterns` figé au build alors que la même image sert tous les environnements. Aperçu PDF par la visionneuse pdf.js de l'éditeur : exige une règle CORS du bucket public (sinon lien « Ouvrir le PDF »).
+- Aucune CSP n'existe aujourd'hui dans apps/web : si elle est ajoutée, `img-src` et `connect-src` doivent inclure le domaine public du catalogue.
+- Sans session, « Utiliser ce template » passe par la connexion Clerk et revient sur la fiche avec `?use=1`, qui rouvre la boîte de dialogue (aucune création automatique au retour).
+
+## 2026-10-02 · Compilation asynchrone dans le web
+
+- Machine d'état sans React (`apps/web/src/lib/compile-controller.ts`, testée avec une horloge simulée), mode reconnu à la réponse de `POST …/compile` : résultat (`gateway`) ou 202 `{ buildId, status }` (`cloudflare`) suivi par `compile.updated` et un sondage de repli (3 → 10 s, arrêt sur état final).
+- États fusionnés par `buildId` sans retour en arrière (`lib/builds.ts`) : la 202 peut arriver après les événements du même build ; autres builds ignorés ; `resultOmitted` relu par l'API.
+- Une demande pendant une compilation asynchrone (ou 409 `E_COMPILE_IN_PROGRESS`) ne l'arrête pas : une seule relance à sa fin. Arrêter annule la relance ; l'état local se termine dès que l'API confirme.
+- `compiler/warm` sans attente, à l'ouverture seulement et pour owner/editor, au plus une fois par projet et par 10 min ; plus d'appel après `unsupported`. Côté API, le réveil ne refuse jamais et laisse le dernier emplacement du plafond à une vraie compilation (`skipped`).
+- Compilation d'autrui en cours à l'ouverture : la page suit tout `compile.updated` actif quand elle ne suit rien, et affiche un résultat final reçu.
+
+## 2026-10-02 · Index des packages TeX Live servi par l'API
+
+- L'API lit l'index publié par kaxolax-texlive-images (`texlive/2026/packages.json`) dans le bucket `TEXLIVE_INDEX_BUCKET` avec ses clés `S3_*`, le garde en mémoire (2 Mo) et le revalide toutes les heures par une lecture conditionnelle sur l'ETag, en arrière-plan ; en cas d'échec, la copie en mémoire sert encore.
+- Sans bucket : fixture de 73 packages réels (`resources/fixtures/texlive-packages.json`) en développement et en test, 503 `E_PACKAGE_INDEX_UNAVAILABLE` en production plutôt qu'un index partiel silencieux.
+- Réponses avec ETag (index + URL), `Cache-Control: private` : routes réservées aux comptes connectés, comme le reste de l'API.
+- Suggestions : Damerau-Levenshtein restreinte (1 à 3 fautes selon la longueur, casse ignorée) sur les fichiers `.sty` (ou `.cls`) de l'index, puis préfixe ; à distance égale, une courte liste de packages courants l'emporte (`graphix` → `graphicx`, pas `graphbox`). Vérifié sur l'index complet de TeX Live 2026 (4 821 packages).
+
+## 2026-10-02 · « File `xyz.sty' not found » : nom extrait par le parseur
+
+- `LogEntry.missingFile` (facultatif) porte le fichier introuvable des erreurs « LaTeX Error: File `…' not found » et « I can't find file `…' » ; même message sous pdfLaTeX, XeLaTeX et LuaLaTeX (fixtures réelles TeX Live 2026).
+- Les suggestions ne sont pas calculées par l'agent ni stockées avec le log : l'interface les demande à `GET /texlive/suggestions?name=` (même chemin en mode `gateway` et `cloudflare`, index toujours à jour).
+- Corrigé au passage : le résumé « ==> Fatal error occurred » au format `-file-line-error` ne donne plus une seconde erreur.
+- Nom de plus de 255 caractères (`MAX_MISSING_FILE_LENGTH`, même borne pour `/texlive/suggestions`) : pas de `missingFile`, l'erreur reste dans le message ; sinon la réponse de l'agent, validée par le contrat, serait refusée en entier.
+
+## 2026-10-02 · Compteur de mots : texcount dans le sandbox
+
+- `texcount -merge -sub=section -utf8 -nocol ./<principal>` : `-merge` place les fichiers inclus dans la bonne section ; le nom passe en `./…` (jamais une option). texcount (Perl) n'exécute pas TeX : pas de shell escape possible.
+- texcount ne lit pas texmf.cnf (`openin_any = p` sans effet) et ouvre les inclusions par un `open` Perl à deux arguments (chemin absolu, `..`, et même `\input{/usr/bin/id |}` qui lance la commande) : il tourne sous une garde Perl (`TEXCOUNT_GUARD`) qui charge le script installé avec sa lecture (`read_binary`) limitée au répertoire du comptage ; la garde échoue si une version future n'a plus cette fonction. Vérifié dans l'image TeX Live 2026 (texcount 3.1.1).
+- Conteneur neuf sans réseau, UID 1000, lecture seule, 20 s, sur un répertoire temporaire `COMPILES_DIR/.wordcount/<aléa>` avec les seuls documents `.tex`/`.ltx` : hors des projets, ni « vider le cache » ni le nettoyage LRU ne le suppriment pendant un comptage, le cache incrémental n'est pas touché, aucun binaire ne voyage.
+- Synchrone (quelques secondes) : gateway → agent sans le verrou du projet ; en mode `cloudflare`, Worker → Durable Object → conteneur réveillé au besoin, 95 s au plus (coupure Cloudflare à 100 s), compté dans le plafond de compilateurs par utilisateur. Dans la VM, le comptage attend la fin d'une compilation (`ProcessSandbox` tue les processus de l'UID à chaque exécution).
+
+## 2026-10-02 · Correcteur : Hunspell en WebAssembly dans un Web Worker
+
+- `hunspell-asm` 4.0.2 (MIT, Hunspell compilé en WebAssembly) plutôt que `nspell` : mesuré avec le dictionnaire français, 47 ms et ~80 Mo contre 4,2 s et ~440 Mo de tas pour nspell, et le vrai Hunspell (affixes, mots composés, suggestions). Seulement via `@kaxolax/editor/spellcheck-worker` : hors du bundle principal.
+- Dictionnaires `dictionary-fr` 3.0.0 (MPL-2.0, Grammalecte) et `dictionary-en` 4.0.0 (MIT et BSD, SCOWL) : servis par l'application avec ses fichiers, chargés à la première vérification de la langue du projet ; jamais de CDN.
+- Mots extraits côté page (commandes, arguments non textuels, maths, commentaires, verbatim ignorés), vérifiés par lots dans le worker, résultats mémorisés des deux côtés ; protocole validé à la réception.
+- Dictionnaire personnel dans les préférences (`spellcheckDictionary`), toutes langues ; un mot en minuscules vaut aussi capitalisé. Bornes et ajout refusé une fois plein : voir l'entrée suivante.
+- Prose seulement (`.tex`, `.ltx`, `.txt`) : ni `.bib` ni `.sty`/`.cls`/`.cfg`. Langue changée : événement `project.updated` du document meta, les pages ouvertes des autres membres changent de dictionnaire sans recharger.
+
+## 2026-10-02 · Dictionnaire personnel et taille des préférences
+
+- 1 000 mots de 40 caractères et 20 Kio sérialisé (UTF-8) au plus, vérifiés par le schéma et par l'éditeur (`personalWordStatus`) : une fois plein, l'ajout est refusé avec un message (menu du correcteur, onglet Correcteur), aucun mot ancien ne sort en silence.
+- `MAX_PREFERENCES_BYTES` passe de 32 à 64 Kio : la somme des pires cas de chaque clé (onglets ~26 Kio, dictionnaire 20 Kio, symboles récents ~10 Kio) y tient, vérifiée par un test des contrats ; une table dédiée n'apporte rien à cette taille.
+- Un `PATCH /me/preferences` refusé affiche une alerte (au lieu d'un retour silencieux à l'état enregistré).
+
+## 2026-10-02 · Comptage de mots : bornes par utilisateur et file de l'agent bornée
+
+- API : un comptage en cours par (utilisateur, projet), la même demande réutilise le résultat attendu, un autre document répond 429 `E_WORD_COUNT_BUSY` ; 2 comptages en cours par utilisateur. Bornes en mémoire, par instance (pas de Redis côté API) : suffisant contre une boucle de requêtes d'un membre, lecteur compris.
+- Agent : 8 comptages en attente au plus (chacun garde jusqu'à 16 Mo), au-delà 503 immédiat, relayé par le gateway (`E_COMPILE_UNAVAILABLE` côté API).
+- Index TeX Live sans copie en mémoire : après un échec, 503 immédiat sans relire le stockage pendant `retryAfterErrorMs` (une minute).
+
+## 2026-10-02 · Autocomplétion : index du projet côté client
+
+- `ProjectIndex` (labels, clés BibTeX, commandes et environnements définis, packages, chemins) alimenté par l'application à chaque modification ; listes de propositions construites une fois par version de l'index : `\cite{` répond en moins de 100 ms sur 5 000 clés.
+- Analyse BibTeX/biblatex maison et tolérante (pas de dépendance) : une entrée mal formée est signalée et n'empêche pas les suivantes.
+- Commandes des packages : table embarquée des packages courants, proposées seulement si le package (ou un package qui le charge) est chargé dans le projet ; les autres packages restent proposés après `\usepackage{` grâce à l'index TeX Live de l'API.
+- Chemins après `\input{`, `\includegraphics{`… relatifs au dossier du document principal (où tournent LaTeX et texcount), fichiers hors de ce dossier en `../…` ; `\graphicspath` pris en compte.
+
+## 2026-10-02 · Paramètres de l'éditeur appliqués à chaud
+
+- Un compartiment CodeMirror par réglage (thème et coloration, raccourcis, correcteur, retour à la ligne, lecture seule) : changer une préférence ne recrée pas l'éditeur (document, historique, curseurs et liaison Yjs gardés).
+- Raccourcis Vim et Emacs : `@replit/codemirror-vim` 6.4.0 et `@replit/codemirror-emacs` 6.1.0 (MIT), les implémentations de référence pour CodeMirror 6, en priorité la plus haute.
+- Thèmes de coloration embarqués (5) ; police par préréglage ou nom saisi, filtré (lettres, chiffres, espaces, virgules, tirets, guillemets) avant d'entrer dans une feuille de style.
+- Polices préréglées servies par l'application : `@fontsource/jetbrains-mono`, `fira-code`, `source-code-pro`, `ibm-plex-mono` 5.3.0 (OFL-1.1, fichiers woff2 empaquetés), graisse 400 importée dans le layout racine ; le navigateur ne télécharge que la police choisie (et ses sous-ensembles utiles), jamais depuis un CDN.
+
+## 2026-10-02 · Interface des outils d'écriture (apps/web)
+
+- Index de l'autocomplétion alimenté par des lecteurs Yjs sans présence de tous les `.tex`/`.sty`/`.cls`/`.bib` (200 au plus, `.bib` d'abord) sur la connexion du projet, plutôt qu'une route de l'API : texte toujours à jour, y compris pendant la frappe des autres.
+- `\usepackage{` : noms de tout TeX Live demandés à `GET /texlive/packages?q=` pendant la frappe (mémorisés par préfixe, liste rouverte à la réponse) plutôt que l'index complet téléchargé à l'ouverture.
+- Dictionnaires servis par une route statique de Next.js (`/dictionaries/fr.dic`…, générée au build depuis `dictionary-fr`/`dictionary-en`, `serverExternalPackages`) : rien à copier dans `public/`, rien à servir depuis un CDN. Worker créé à la première activation du correcteur.
+- Correction d'un package introuvable : remplacement du seul nom fautif dans le `\usepackage` (ou `\documentclass`) de la ligne du log, après ouverture du fichier ; jamais en lecture seule.
+- Paramètres dans une boîte chargée à la demande (pied de sidebar, menu du compte, barre d'état, Fichier) ; seuls les réglages modifiés sont reconfigurés (l'état Vim survit à un changement de police).
+
+## 2026-10-02 · Fusion des tâches 10, 11 et 12 : paramètres, limites du plan, comptage de mots
+
+- Les paramètres de l'éditeur s'ouvrent depuis `AccountMenu` (entrée « Paramètres de l’éditeur » à côté de « Tarifs », prop `onOpenSettings`), dans le pied de sidebar comme dans la barre du tableau de bord sur écran étroit ; le bouton du pied de sidebar reste. `SettingsProvider` englobe aussi `PlanLimitDialog`.
+- Les appels de la tâche 10 (`/texlive/*`, `word-count`) passent par `request` et `errorFrom` : un refus `E_PLAN_LIMIT` atteint la boîte des limites globale.
+- Le comptage de mots garde sa borne fixe (`WORD_COUNT_TIMEOUT_MS`, 20 s) plutôt que la durée de compilation du plan : texcount n'exécute pas TeX, et Free autorise déjà 20 s. En mode `cloudflare`, il occupe un emplacement du plafond de compilateurs (`reserveCompiler`, sans `warm`), comme une compilation.
+- Fixtures du parseur de logs en `-text` (`.gitattributes`) : les logs réels sont gardés octet pour octet (CR recopié par LuaLaTeX).
+
+## 2026-10-02 · Fusion des tâches 6 à 8 avec main (tâches 9 à 12)
+
+- Conservation de l'historique : `historyRetention` de `entitlements.ts` (plan du propriétaire, claims comprises si c'est lui qui consulte) remplace la fonction provisoire `historyRetentionDays` (supprimée) dans la liste des versions et la purge ; les versions avec label et la plus récente ne sont jamais purgées.
+- Compilation manuelle : une version dans les deux modes (`gateway` synchrone et `cloudflare` asynchrone, après l'acceptation 202). Côté web, `CompileController` porte le déclencheur (`manual` / `auto`) jusqu'à `POST /compile` ; une relance groupée reste manuelle si l'une des demandes l'était.
+- Import zip et projet depuis un template passent tous deux par `createProjectFromZip` : contenu attribué à la personne qui crée le projet dans le journal de l'historique (`recordInitialStates`) et compté dans son stockage (`assertStorageAvailable`).
+- Restauration d'une version : stockage du propriétaire vérifié pour ce qu'elle ajoute (textes plus longs avant tout remplacement ; documents et binaires recréés mesurés dans la transaction, option `applied` de `assertStorageAvailable`) ; une restauration qui libère de la place passe toujours. `tree.changed` publié après la validation.
+- Temps réel : journal des mises à jour par auteur et garde du stockage côte à côte ; une connexion en lecture seule (stockage plein) ne produit aucune mise à jour à journaliser, le document meta reste en lecture seule.

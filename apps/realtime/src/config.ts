@@ -27,6 +27,8 @@ export const configSchema = z.object({
   HISTORY_FLUSH_MS: z.coerce.number().int().positive().default(100),
   /** Relecture périodique du rôle de toutes les connexions (0 : désactivée). */
   ROLE_SWEEP_MS: z.coerce.number().int().nonnegative().default(30_000),
+  /** État du stockage du propriétaire d'un projet réutilisé pendant cette durée (limite du plan). */
+  STORAGE_CHECK_MS: z.coerce.number().int().nonnegative().default(10_000),
   /**
    * Redis partagé par les instances (`redis://` ou `rediss://`) : absent, une seule instance.
    * Active l'extension Redis de Hocuspocus et le bus entre instances.

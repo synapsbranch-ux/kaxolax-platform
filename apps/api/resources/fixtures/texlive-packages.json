@@ -1,0 +1,3630 @@
+{
+  "texliveYear": 2026,
+  "generatedFrom": "texlive.tlpdb",
+  "packages": [
+    {
+      "name": "acro",
+      "shortdesc": "Typeset acronyms",
+      "category": "Package",
+      "topics": [
+        "acronym",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "3.8",
+      "ctanUrl": "https://ctan.org/pkg/acro",
+      "docUrl": "https://texdoc.org/pkg/acro",
+      "styles": [
+        "acro-examples.sty",
+        "acro.sty",
+        "acro2.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "algorithmicx",
+      "shortdesc": "The algorithmic style you always wanted",
+      "category": "Package",
+      "topics": [
+        "listing",
+        "pseudocode",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/algorithmicx",
+      "docUrl": "https://texdoc.org/pkg/algorithmicx",
+      "styles": [
+        "algc.sty",
+        "algcompatible.sty",
+        "algmatlab.sty",
+        "algorithmicx.sty",
+        "algpascal.sty",
+        "algpseudocode.sty"
+      ],
+      "collection": "collection-mathscience"
+    },
+    {
+      "name": "algorithms",
+      "shortdesc": "A suite of tools for typesetting algorithms in pseudo-code",
+      "category": "Package",
+      "topics": [
+        "pseudocode",
+        "tagged-pdf-partially"
+      ],
+      "license": "lgpl2.1",
+      "version": "0.1",
+      "ctanUrl": "https://ctan.org/pkg/algorithms",
+      "docUrl": "https://texdoc.org/pkg/algorithms",
+      "styles": [
+        "algorithm.sty",
+        "algorithmic.sty"
+      ],
+      "collection": "collection-mathscience"
+    },
+    {
+      "name": "amscls",
+      "shortdesc": "AMS document classes for LaTeX",
+      "category": "Package",
+      "topics": [
+        "class",
+        "maths",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3c",
+      "version": "2.20.6",
+      "ctanUrl": "https://ctan.org/pkg/amscls",
+      "docUrl": "https://texdoc.org/pkg/amscls",
+      "styles": [
+        "amsart.cls",
+        "amsbook.cls",
+        "amsbooka.sty",
+        "amsdtx.cls",
+        "amsldoc.cls",
+        "amsmidx.sty",
+        "amsproc.cls",
+        "amsthm.sty",
+        "upref.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "amsfonts",
+      "shortdesc": "TeX fonts from the American Mathematical Society",
+      "category": "Package",
+      "topics": [
+        "font",
+        "font-bbd",
+        "font-maths",
+        "font-mf",
+        "font-symbol-maths",
+        "font-type1",
+        "tagged-pdf-partially"
+      ],
+      "license": "ofl",
+      "version": "3.04",
+      "ctanUrl": "https://ctan.org/pkg/amsfonts",
+      "docUrl": "https://texdoc.org/pkg/amsfonts",
+      "styles": [
+        "amsfonts.sty",
+        "amssymb.sty",
+        "cmmib57.sty",
+        "eucal.sty",
+        "eufrak.sty",
+        "euscript.sty"
+      ],
+      "collection": "collection-basic"
+    },
+    {
+      "name": "amsmath",
+      "shortdesc": "AMS mathematical facilities for LaTeX",
+      "category": "Package",
+      "topics": [
+        "maths",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/latex-amsmath",
+      "docUrl": "https://texdoc.org/pkg/amsmath",
+      "styles": [
+        "amsbsy.sty",
+        "amscd.sty",
+        "amsgen.sty",
+        "amsmath-2018-12-01.sty",
+        "amsmath.sty",
+        "amsopn.sty",
+        "amstex.sty",
+        "amstext.sty",
+        "amsxtra.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "appendix",
+      "shortdesc": "Extra control of appendices",
+      "category": "Package",
+      "topics": [
+        "appendix",
+        "headings",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3c",
+      "version": "1.2c",
+      "ctanUrl": "https://ctan.org/pkg/appendix",
+      "docUrl": "https://texdoc.org/pkg/appendix",
+      "styles": [
+        "appendix.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "babel",
+      "shortdesc": "Multilingual support for LaTeX, LuaLaTeX, XeLaTeX, and Plain TeX",
+      "category": "Package",
+      "topics": [
+        "multilingual"
+      ],
+      "license": "lppl1.3",
+      "version": "26.12",
+      "ctanUrl": "https://ctan.org/pkg/babel",
+      "docUrl": "https://texdoc.org/pkg/babel",
+      "styles": [
+        "UKenglish.sty",
+        "USenglish.sty",
+        "afrikaans.sty",
+        "albanian.sty",
+        "american.sty",
+        "austrian.sty",
+        "babel.sty",
+        "bahasa.sty",
+        "bahasam.sty",
+        "basque.sty",
+        "breton.sty",
+        "british.sty",
+        "bulgarian.sty",
+        "catalan.sty",
+        "croatian.sty",
+        "czech.sty",
+        "danish.sty",
+        "dutch.sty",
+        "english.sty",
+        "esperanto.sty",
+        "estonian.sty",
+        "finnish.sty",
+        "francais.sty",
+        "galician.sty",
+        "germanb.sty",
+        "greek.sty",
+        "hebrew.sty",
+        "icelandic.sty",
+        "interlingua.sty",
+        "irish.sty",
+        "italian.sty",
+        "latin.sty",
+        "lsorbian.sty",
+        "magyar.sty",
+        "naustrian.sty",
+        "ngermanb.sty",
+        "norsk.sty",
+        "polish.sty",
+        "portuges.sty",
+        "romanian.sty",
+        "russianb.sty",
+        "samin.sty",
+        "scottish.sty",
+        "serbian.sty",
+        "slovak.sty",
+        "slovene.sty",
+        "spanish.sty",
+        "swedish.sty",
+        "turkish.sty",
+        "ukraineb.sty",
+        "usorbian.sty",
+        "welsh.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "babel-english",
+      "shortdesc": "Babel support for English",
+      "category": "Package",
+      "topics": [
+        "english",
+        "multilingual-addon",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3",
+      "version": "3.3r",
+      "ctanUrl": "https://ctan.org/pkg/babel-english",
+      "docUrl": "https://texdoc.org/pkg/babel-english",
+      "styles": [],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "babel-french",
+      "shortdesc": "Babel contributed support for French",
+      "category": "Package",
+      "topics": [
+        "french",
+        "multilingual-addon",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/babel-french",
+      "docUrl": "https://texdoc.org/pkg/babel-french",
+      "styles": [],
+      "collection": "collection-langfrench"
+    },
+    {
+      "name": "beamer",
+      "shortdesc": "A LaTeX class for producing presentations and slides",
+      "category": "Package",
+      "topics": [
+        "class",
+        "presentation",
+        "tagged-pdf-unsupported"
+      ],
+      "license": "lppl1.3c gpl2+ fdl",
+      "version": "3.78",
+      "ctanUrl": "https://ctan.org/pkg/beamer",
+      "docUrl": "https://texdoc.org/pkg/beamer",
+      "styles": [
+        "beamer.cls",
+        "beamerarticle.sty",
+        "beamerbasearticle.sty",
+        "beamerbaseauxtemplates.sty",
+        "beamerbaseboxes.sty",
+        "beamerbasecolor.sty",
+        "beamerbasecompatibility.sty",
+        "beamerbasedecode.sty",
+        "beamerbasefont.sty",
+        "beamerbaseframe.sty",
+        "beamerbaseframecomponents.sty",
+        "beamerbaseframesize.sty",
+        "beamerbaselocalstructure.sty",
+        "beamerbasemisc.sty",
+        "beamerbasemodes.sty",
+        "beamerbasenavigation.sty",
+        "beamerbasenotes.sty",
+        "beamerbaseoptions.sty",
+        "beamerbaseoverlay.sty",
+        "beamerbaserequires.sty",
+        "beamerbasesection.sty",
+        "beamerbasetemplates.sty",
+        "beamerbasethemes.sty",
+        "beamerbasetheorems.sty",
+        "beamerbasetitle.sty",
+        "beamerbasetoc.sty",
+        "beamerbasetranslator.sty",
+        "beamerbasetwoscreens.sty",
+        "beamerbaseverbatim.sty",
+        "beamercolorthemealbatross.sty",
+        "beamercolorthemebeaver.sty",
+        "beamercolorthemebeetle.sty",
+        "beamercolorthemecrane.sty",
+        "beamercolorthemedefault.sty",
+        "beamercolorthemedolphin.sty",
+        "beamercolorthemedove.sty",
+        "beamercolorthemefly.sty",
+        "beamercolorthemelily.sty",
+        "beamercolorthememonarca.sty",
+        "beamercolorthemeorchid.sty",
+        "beamercolorthemerose.sty",
+        "beamercolorthemeseagull.sty",
+        "beamercolorthemeseahorse.sty",
+        "beamercolorthemesidebartab.sty",
+        "beamercolorthemespruce.sty",
+        "beamercolorthemestructure.sty",
+        "beamercolorthemewhale.sty",
+        "beamercolorthemewolverine.sty",
+        "beamerfoils.sty",
+        "beamerfontthemedefault.sty",
+        "beamerfontthemeprofessionalfonts.sty",
+        "beamerfontthemeserif.sty",
+        "beamerfontthemestructurebold.sty",
+        "beamerfontthemestructureitalicserif.sty",
+        "beamerfontthemestructuresmallcapsserif.sty",
+        "beamerinnerthemecircles.sty",
+        "beamerinnerthemedefault.sty",
+        "beamerinnerthemeinmargin.sty",
+        "beamerinnerthemerectangles.sty",
+        "beamerinnerthemerounded.sty",
+        "beamerouterthemedefault.sty",
+        "beamerouterthemeinfolines.sty",
+        "beamerouterthememiniframes.sty",
+        "beamerouterthemeshadow.sty",
+        "beamerouterthemesidebar.sty",
+        "beamerouterthemesmoothbars.sty",
+        "beamerouterthemesmoothtree.sty",
+        "beamerouterthemesplit.sty",
+        "beamerouterthemetree.sty",
+        "beamerpatchparalist.sty",
+        "beamerprosper.sty",
+        "beamerseminar.sty",
+        "beamertexpower.sty",
+        "beamerthemeAnnArbor.sty",
+        "beamerthemeAntibes.sty",
+        "beamerthemeBergen.sty",
+        "beamerthemeBerkeley.sty",
+        "beamerthemeBerlin.sty",
+        "beamerthemeBoadilla.sty",
+        "beamerthemeCambridgeUS.sty",
+        "beamerthemeCopenhagen.sty",
+        "beamerthemeDarmstadt.sty",
+        "beamerthemeDresden.sty",
+        "beamerthemeEastLansing.sty",
+        "beamerthemeFrankfurt.sty",
+        "beamerthemeGoettingen.sty",
+        "beamerthemeHannover.sty",
+        "beamerthemeIlmenau.sty",
+        "beamerthemeJuanLesPins.sty",
+        "beamerthemeLuebeck.sty",
+        "beamerthemeMadrid.sty",
+        "beamerthemeMalmoe.sty",
+        "beamerthemeMarburg.sty",
+        "beamerthemeMontpellier.sty",
+        "beamerthemePaloAlto.sty",
+        "beamerthemePittsburgh.sty",
+        "beamerthemeRochester.sty",
+        "beamerthemeSingapore.sty",
+        "beamerthemeSzeged.sty",
+        "beamerthemeWarsaw.sty",
+        "beamerthemebars.sty",
+        "beamerthemeboxes.sty",
+        "beamerthemeclassic.sty",
+        "beamerthemecompatibility.sty",
+        "beamerthemedefault.sty",
+        "beamerthemelined.sty",
+        "beamerthemeplain.sty",
+        "beamerthemeshadow.sty",
+        "beamerthemesidebar.sty",
+        "beamerthemesplit.sty",
+        "beamerthemetree.sty",
+        "multimedia.sty",
+        "multimediasymbols.sty",
+        "xmpmulti.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "biblatex",
+      "shortdesc": "Sophisticated Bibliographies in LaTeX",
+      "category": "Package",
+      "topics": [
+        "biblatex",
+        "biblio",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3",
+      "version": "3.22a",
+      "ctanUrl": "https://ctan.org/pkg/biblatex",
+      "docUrl": "https://texdoc.org/pkg/biblatex",
+      "styles": [
+        "biblatex.sty",
+        "blx-case-expl3.sty",
+        "blx-case-latex2e.sty"
+      ],
+      "collection": "collection-bibtexextra"
+    },
+    {
+      "name": "bigfoot",
+      "shortdesc": "Footnotes for critical editions",
+      "category": "Package",
+      "topics": [
+        "footnote",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "gpl2",
+      "version": "2.1",
+      "ctanUrl": "https://ctan.org/pkg/bigfoot",
+      "docUrl": "https://texdoc.org/pkg/bigfoot",
+      "styles": [
+        "bigfoot.sty",
+        "perpage.sty",
+        "suffix.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "bookmark",
+      "shortdesc": "A new bookmark (outline) organization for hyperref",
+      "category": "Package",
+      "topics": [
+        "hyper",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "1.32",
+      "ctanUrl": "https://ctan.org/pkg/bookmark",
+      "docUrl": "https://texdoc.org/pkg/bookmark",
+      "styles": [
+        "bookmark.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "booktabs",
+      "shortdesc": "Publication quality tables in LaTeX",
+      "category": "Package",
+      "topics": [
+        "table",
+        "table-rule",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "1.61803398",
+      "ctanUrl": "https://ctan.org/pkg/booktabs",
+      "docUrl": "https://texdoc.org/pkg/booktabs",
+      "styles": [
+        "booktabs.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "cancel",
+      "shortdesc": "Place lines through maths formulae",
+      "category": "Package",
+      "topics": [
+        "maths",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "pd",
+      "version": "2.2",
+      "ctanUrl": "https://ctan.org/pkg/cancel",
+      "docUrl": "https://texdoc.org/pkg/cancel",
+      "styles": [
+        "cancel.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "caption",
+      "shortdesc": "Customising captions in floating environments",
+      "category": "Package",
+      "topics": [
+        "caption",
+        "float",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/caption",
+      "docUrl": "https://texdoc.org/pkg/caption",
+      "styles": [
+        "bicaption.sty",
+        "caption-light.sty",
+        "caption.sty",
+        "caption2.sty",
+        "caption2_1995-10-09.sty",
+        "caption2_2005-10-03.sty",
+        "caption3.sty",
+        "caption3_2007-04-11.sty",
+        "caption3_2010-01-14.sty",
+        "caption3_2011-11-01.sty",
+        "caption3_2019-09-01.sty",
+        "caption3_2020-07-29.sty",
+        "caption3_2020-10-26.sty",
+        "caption_1995-04-05.sty",
+        "caption_2007-04-16.sty",
+        "caption_2010-01-09.sty",
+        "caption_2011-11-10.sty",
+        "caption_2019-09-01.sty",
+        "caption_2020-07-29.sty",
+        "caption_2020-10-26.sty",
+        "ltcaption.sty",
+        "subcaption.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "chemfig",
+      "shortdesc": "Draw molecules with easy syntax",
+      "category": "Package",
+      "topics": [
+        "chemistry",
+        "diagram",
+        "etex",
+        "graphics",
+        "macro-gen",
+        "pgf-tikz",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3c",
+      "version": "1.82",
+      "ctanUrl": "https://ctan.org/pkg/chemfig",
+      "docUrl": "https://texdoc.org/pkg/chemfig",
+      "styles": [
+        "chemfig.sty"
+      ],
+      "collection": "collection-pictures"
+    },
+    {
+      "name": "cite",
+      "shortdesc": "Improved citation handling in LaTeX",
+      "category": "Package",
+      "topics": [
+        "cite-supp",
+        "tagged-pdf-partially"
+      ],
+      "license": "other-free",
+      "version": "5.5",
+      "ctanUrl": "https://ctan.org/pkg/cite",
+      "docUrl": "https://texdoc.org/pkg/cite",
+      "styles": [
+        "chapterbib.sty",
+        "cite.sty",
+        "drftcite.sty",
+        "overcite.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "cleveref",
+      "shortdesc": "Intelligent cross-referencing",
+      "category": "Package",
+      "topics": [
+        "label-ref",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.2",
+      "version": "0.21.4",
+      "ctanUrl": "https://ctan.org/pkg/cleveref",
+      "docUrl": "https://texdoc.org/pkg/cleveref",
+      "styles": [
+        "cleveref.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "comment",
+      "shortdesc": "Selectively include/exclude portions of text",
+      "category": "Package",
+      "topics": [
+        "cond-comp",
+        "editorial",
+        "tagged-pdf"
+      ],
+      "license": "gpl2",
+      "version": "3.8",
+      "ctanUrl": "https://ctan.org/pkg/comment",
+      "docUrl": "https://texdoc.org/pkg/comment",
+      "styles": [
+        "comment.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "csquotes",
+      "shortdesc": "Context sensitive quotation facilities",
+      "category": "Package",
+      "topics": [
+        "etex",
+        "quote-marks",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3c",
+      "version": "5.2p",
+      "ctanUrl": "https://ctan.org/pkg/csquotes",
+      "docUrl": "https://texdoc.org/pkg/csquotes",
+      "styles": [
+        "csquotes.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "datetime2",
+      "shortdesc": "Formats for dates, times and time zones",
+      "category": "Package",
+      "topics": [
+        "date-time",
+        "multilingual",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3",
+      "version": "1.5.7",
+      "ctanUrl": "https://ctan.org/pkg/datetime2",
+      "docUrl": "https://texdoc.org/pkg/datetime2",
+      "styles": [
+        "datetime2-calc.sty",
+        "datetime2.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "enumitem",
+      "shortdesc": "Control layout of itemize, enumerate, description",
+      "category": "Package",
+      "topics": [
+        "list",
+        "tagged-pdf-partially"
+      ],
+      "license": "mit",
+      "version": "3.11",
+      "ctanUrl": "https://ctan.org/pkg/enumitem",
+      "docUrl": "https://texdoc.org/pkg/enumitem",
+      "styles": [
+        "enumitem.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "esint",
+      "shortdesc": "Extended set of integrals for Computer Modern",
+      "category": "Package",
+      "topics": [
+        "font",
+        "font-mf",
+        "font-supp",
+        "font-symbol-maths",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl",
+      "version": "1.2d",
+      "ctanUrl": "https://ctan.org/pkg/esint",
+      "docUrl": "https://texdoc.org/pkg/esint",
+      "styles": [
+        "esint.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "etoolbox",
+      "shortdesc": "e-TeX tools for LaTeX",
+      "category": "Package",
+      "topics": [
+        "etex",
+        "macro-supp",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "2.5m",
+      "ctanUrl": "https://ctan.org/pkg/etoolbox",
+      "docUrl": "https://texdoc.org/pkg/etoolbox",
+      "styles": [
+        "etoolbox.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "fancyhdr",
+      "shortdesc": "Extensive control of page headers and footers in LaTeX2e",
+      "category": "Package",
+      "topics": [
+        "page-hf",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3",
+      "version": "5.2",
+      "ctanUrl": "https://ctan.org/pkg/fancyhdr",
+      "docUrl": "https://texdoc.org/pkg/fancyhdr",
+      "styles": [
+        "extramarks-v4.sty",
+        "extramarks.sty",
+        "fancyhdr.sty",
+        "fancyheadings.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "fancyvrb",
+      "shortdesc": "Sophisticated verbatim text",
+      "category": "Package",
+      "topics": [
+        "macro-demo",
+        "tagged-pdf-partially",
+        "verbatim"
+      ],
+      "license": "lppl1.3",
+      "version": "4.7",
+      "ctanUrl": "https://ctan.org/pkg/fancyvrb",
+      "docUrl": "https://texdoc.org/pkg/fancyvrb",
+      "styles": [
+        "fancyvrb-ex.sty",
+        "fancyvrb.sty",
+        "hbaw.sty",
+        "hcolor.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "float",
+      "shortdesc": "Improved interface for floating objects",
+      "category": "Package",
+      "topics": [
+        "float",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1",
+      "version": "1.3d",
+      "ctanUrl": "https://ctan.org/pkg/float",
+      "docUrl": "https://texdoc.org/pkg/float",
+      "styles": [
+        "float.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "fontspec",
+      "shortdesc": "Advanced font selection in XeLaTeX and LuaLaTeX",
+      "category": "Package",
+      "topics": [
+        "font-sel",
+        "luatex",
+        "tagged-pdf",
+        "xetex"
+      ],
+      "license": "lppl1.3c",
+      "version": "2.9h",
+      "ctanUrl": "https://ctan.org/pkg/fontspec",
+      "docUrl": "https://texdoc.org/pkg/fontspec",
+      "styles": [
+        "fontspec-luatex.sty",
+        "fontspec-xetex.sty",
+        "fontspec.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "footmisc",
+      "shortdesc": "A range of footnote options",
+      "category": "Package",
+      "topics": [
+        "footnote",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "7.0b",
+      "ctanUrl": "https://ctan.org/pkg/footmisc",
+      "docUrl": "https://texdoc.org/pkg/footmisc",
+      "styles": [
+        "footmisc-2011-06-06.sty",
+        "footmisc-2022-02-14.sty",
+        "footmisc.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "geometry",
+      "shortdesc": "Flexible and complete interface to document dimensions",
+      "category": "Package",
+      "topics": [
+        "geometry",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "6.0",
+      "ctanUrl": "https://ctan.org/pkg/geometry",
+      "docUrl": "https://texdoc.org/pkg/geometry",
+      "styles": [
+        "geometry.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "glossaries",
+      "shortdesc": "Create glossaries and lists of acronyms",
+      "category": "Package",
+      "topics": [
+        "acronym",
+        "glossary"
+      ],
+      "license": "lppl1.3",
+      "version": "5.1",
+      "ctanUrl": "https://ctan.org/pkg/glossaries",
+      "docUrl": "https://texdoc.org/pkg/glossaries",
+      "styles": [
+        "glossaries-2020-03-19.sty",
+        "glossaries-2021-11-01.sty",
+        "glossaries-2022-11-03.sty",
+        "glossaries-2024-04-03.sty",
+        "glossaries-2025-03-19.sty",
+        "glossaries-accsupp-2020-03-19.sty",
+        "glossaries-accsupp-2021-11-01.sty",
+        "glossaries-accsupp.sty",
+        "glossaries-babel-2020-03-19.sty",
+        "glossaries-babel-2021-11-01.sty",
+        "glossaries-babel.sty",
+        "glossaries-compatible-207-2020-03-19.sty",
+        "glossaries-compatible-207-2021-11-01.sty",
+        "glossaries-compatible-207.sty",
+        "glossaries-compatible-307-2020-03-19.sty",
+        "glossaries-compatible-307-2021-11-01.sty",
+        "glossaries-compatible-307.sty",
+        "glossaries-polyglossia-2020-03-19.sty",
+        "glossaries-polyglossia-2021-11-01.sty",
+        "glossaries-polyglossia.sty",
+        "glossaries-prefix-2020-03-19.sty",
+        "glossaries-prefix-2021-11-01.sty",
+        "glossaries-prefix.sty",
+        "glossaries.sty",
+        "glossary-hypernav-2020-03-19.sty",
+        "glossary-hypernav-2021-11-01.sty",
+        "glossary-hypernav-2022-11-03.sty",
+        "glossary-hypernav.sty",
+        "glossary-inline-2020-03-19.sty",
+        "glossary-inline-2021-11-01.sty",
+        "glossary-inline.sty",
+        "glossary-list-2020-03-19.sty",
+        "glossary-list-2021-11-01.sty",
+        "glossary-list.sty",
+        "glossary-long-2020-03-19.sty",
+        "glossary-long-2021-11-01.sty",
+        "glossary-long.sty",
+        "glossary-longbooktabs-2020-03-19.sty",
+        "glossary-longbooktabs-2021-11-01.sty",
+        "glossary-longbooktabs.sty",
+        "glossary-longragged-2020-03-19.sty",
+        "glossary-longragged-2021-11-01.sty",
+        "glossary-longragged.sty",
+        "glossary-mcols-2020-03-19.sty",
+        "glossary-mcols-2021-11-01.sty",
+        "glossary-mcols-2025-03-19.sty",
+        "glossary-mcols.sty",
+        "glossary-super-2020-03-19.sty",
+        "glossary-super-2021-11-01.sty",
+        "glossary-super.sty",
+        "glossary-superragged-2020-03-19.sty",
+        "glossary-superragged-2021-11-01.sty",
+        "glossary-superragged.sty",
+        "glossary-tree-2020-03-19.sty",
+        "glossary-tree-2021-11-01.sty",
+        "glossary-tree-2025-03-19.sty",
+        "glossary-tree.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "graphbox",
+      "shortdesc": "Extend graphicx to improve placement of graphics",
+      "category": "Package",
+      "topics": [
+        "graphics",
+        "graphics-incl",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3",
+      "version": "1.1.1",
+      "ctanUrl": "https://ctan.org/pkg/graphbox",
+      "docUrl": "https://texdoc.org/pkg/graphbox",
+      "styles": [
+        "graphbox.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "graphics",
+      "shortdesc": "The LaTeX standard graphics bundle",
+      "category": "Package",
+      "topics": [
+        "collection",
+        "graphics"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/latex-graphics",
+      "docUrl": "https://texdoc.org/pkg/graphics",
+      "styles": [
+        "color.sty",
+        "epsfig.sty",
+        "graphics-2017-06-25.sty",
+        "graphics.sty",
+        "graphicx.sty",
+        "keyval.sty",
+        "lscape.sty",
+        "rotating.sty",
+        "trig.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "graphics-cfg",
+      "shortdesc": "Sample configuration files for LaTeX color and graphics",
+      "category": "Package",
+      "topics": [
+        "colour",
+        "graphics"
+      ],
+      "license": "pd",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/graphics-cfg",
+      "docUrl": "https://texdoc.org/pkg/graphics-cfg",
+      "styles": [],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "hyper",
+      "shortdesc": "Hypertext cross referencing",
+      "category": "Package",
+      "topics": [
+        "hyper"
+      ],
+      "license": "lppl1",
+      "version": "4.2d",
+      "ctanUrl": "https://ctan.org/pkg/hyper",
+      "docUrl": "https://texdoc.org/pkg/hyper",
+      "styles": [
+        "hxt-bc.sty",
+        "hyper.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "hyperref",
+      "shortdesc": "Extensive support for hypertext in LaTeX",
+      "category": "Package",
+      "topics": [
+        "adobe-distiller",
+        "etex",
+        "form-fillin",
+        "hyper",
+        "pdf-feat",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3",
+      "version": "7.01r",
+      "ctanUrl": "https://ctan.org/pkg/hyperref",
+      "docUrl": "https://texdoc.org/pkg/hyperref",
+      "styles": [
+        "backref.sty",
+        "hyperref-patches.sty",
+        "hyperref.sty",
+        "minitoc-hyper.sty",
+        "nameref.sty",
+        "nohyperref.sty",
+        "ntheorem-hyper.sty",
+        "xr-hyper.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "hyphenat",
+      "shortdesc": "Disable/enable hyphenation",
+      "category": "Package",
+      "topics": [
+        "hyphenation",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3",
+      "version": "2.3c",
+      "ctanUrl": "https://ctan.org/pkg/hyphenat",
+      "docUrl": "https://texdoc.org/pkg/hyphenat",
+      "styles": [
+        "hyphenat.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "koma-script",
+      "shortdesc": "A bundle of versatile classes and packages",
+      "category": "TLCore",
+      "topics": [
+        "addr-list",
+        "book-pub",
+        "class",
+        "date-time",
+        "float",
+        "geometry",
+        "io-mgmt",
+        "keyval",
+        "legal",
+        "letter",
+        "notes",
+        "package-mgmt",
+        "page-hf",
+        "toc-etc"
+      ],
+      "license": "lppl1.3c",
+      "version": "3.49.2",
+      "ctanUrl": "https://ctan.org/pkg/koma-script",
+      "docUrl": "https://texdoc.org/pkg/koma-script",
+      "styles": [
+        "koma-script-source-doc.cls",
+        "scraddr.sty",
+        "scrartcl.cls",
+        "scrarticle.cls",
+        "scrbase.sty",
+        "scrbook.cls",
+        "scrdate.sty",
+        "scrextend.sty",
+        "scrfontsizes.sty",
+        "scrjura.sty",
+        "scrkbase.sty",
+        "scrlayer-notecolumn.sty",
+        "scrlayer-scrpage.sty",
+        "scrlayer.sty",
+        "scrletter.cls",
+        "scrletter.sty",
+        "scrlfile-hook-3.34.sty",
+        "scrlfile-hook.sty",
+        "scrlfile-patcholdlatex.sty",
+        "scrlfile.sty",
+        "scrlogo.sty",
+        "scrlttr2.cls",
+        "scrreport.cls",
+        "scrreprt.cls",
+        "scrtime.sty",
+        "tocbasic.sty",
+        "typearea.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "l3kernel",
+      "shortdesc": "LaTeX3 programming conventions",
+      "category": "Package",
+      "topics": [
+        "format",
+        "latex3"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/l3kernel",
+      "docUrl": "https://texdoc.org/pkg/l3kernel",
+      "styles": [
+        "expl3.sty",
+        "l3doc.cls"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "l3packages",
+      "shortdesc": "High-level LaTeX3 concepts",
+      "category": "Package",
+      "topics": [
+        "latex3",
+        "macro-supp"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/l3packages",
+      "docUrl": "https://texdoc.org/pkg/l3packages",
+      "styles": [
+        "l3keys2e.sty",
+        "xfp.sty",
+        "xparse-2018-04-12.sty",
+        "xparse-2020-10-01.sty",
+        "xparse.sty",
+        "xtemplate-2023-10-10.sty",
+        "xtemplate.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "latex",
+      "shortdesc": "A TeX macro package that defines LaTeX",
+      "category": "Package",
+      "topics": [
+        "format"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/latex",
+      "docUrl": "https://texdoc.org/pkg/latex",
+      "styles": [
+        "alltt.sty",
+        "article.cls",
+        "article.sty",
+        "atbegshi-ltx.sty",
+        "atveryend-ltx.sty",
+        "bezier.sty",
+        "book.cls",
+        "book.sty",
+        "doc-2016-02-15.sty",
+        "doc-2021-06-01.sty",
+        "doc.sty",
+        "exscale.sty",
+        "fix-cm.sty",
+        "fixltx2e.sty",
+        "flafter.sty",
+        "fleqn.sty",
+        "fltrace.sty",
+        "fontenc.sty",
+        "graphpap.sty",
+        "ifthen.sty",
+        "inputenc.sty",
+        "l3in2edoc.cls",
+        "latexrelease.sty",
+        "latexsym.sty",
+        "leqno.sty",
+        "letter.cls",
+        "letter.sty",
+        "ltnews.cls",
+        "ltxdoc.cls",
+        "ltxguide.cls",
+        "makeidx.sty",
+        "minimal.cls",
+        "newlfont.sty",
+        "oldlfont.sty",
+        "openbib.sty",
+        "proc.cls",
+        "proc.sty",
+        "report.cls",
+        "report.sty",
+        "shortvrb.sty",
+        "showidx.sty",
+        "slides.cls",
+        "slides.sty",
+        "source2edoc.cls",
+        "structuredlog.sty",
+        "syntonly.sty",
+        "t1enc.sty",
+        "textcomp-2018-08-11.sty",
+        "textcomp.sty",
+        "tracefnt.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "lipsum",
+      "shortdesc": "Easy access to the Lorem Ipsum and other dummy texts",
+      "category": "Package",
+      "topics": [
+        "dummy-gen",
+        "macro-supp",
+        "multilingual",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3",
+      "version": "2.7",
+      "ctanUrl": "https://ctan.org/pkg/lipsum",
+      "docUrl": "https://texdoc.org/pkg/lipsum",
+      "styles": [
+        "lipsum.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "listings",
+      "shortdesc": "Typeset source code listings using LaTeX",
+      "category": "Package",
+      "topics": [
+        "listing",
+        "macro-demo",
+        "synt-hlt",
+        "tagged-pdf-incompatible",
+        "verbatim"
+      ],
+      "license": "lppl1.3c",
+      "version": "1.11b",
+      "ctanUrl": "https://ctan.org/pkg/listings",
+      "docUrl": "https://texdoc.org/pkg/listings",
+      "styles": [
+        "listings.sty",
+        "lstdoc.sty",
+        "lstlang1.sty",
+        "lstlang2.sty",
+        "lstlang3.sty",
+        "lstmisc.sty",
+        "lstpatch.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "mathtools",
+      "shortdesc": "Mathematical tools to use with amsmath",
+      "category": "Package",
+      "topics": [
+        "maths",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3c",
+      "version": "1.31",
+      "ctanUrl": "https://ctan.org/pkg/mathtools",
+      "docUrl": "https://texdoc.org/pkg/mathtools",
+      "styles": [
+        "empheq.sty",
+        "mathtools.sty",
+        "mhsetup.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "mhchem",
+      "shortdesc": "Typeset chemical formulae/equations and H and P statements",
+      "category": "Package",
+      "topics": [
+        "chemistry",
+        "safety-notice"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/mhchem",
+      "docUrl": "https://texdoc.org/pkg/mhchem",
+      "styles": [
+        "hpstatement-bg.inc.sty",
+        "hpstatement-cs.inc.sty",
+        "hpstatement-da.inc.sty",
+        "hpstatement-de.inc.sty",
+        "hpstatement-el.inc.sty",
+        "hpstatement-en.inc.sty",
+        "hpstatement-es.inc.sty",
+        "hpstatement-et.inc.sty",
+        "hpstatement-fi.inc.sty",
+        "hpstatement-fr.inc.sty",
+        "hpstatement-ga.inc.sty",
+        "hpstatement-hr.inc.sty",
+        "hpstatement-hu.inc.sty",
+        "hpstatement-it.inc.sty",
+        "hpstatement-lt.inc.sty",
+        "hpstatement-lv.inc.sty",
+        "hpstatement-mt.inc.sty",
+        "hpstatement-nl.inc.sty",
+        "hpstatement-pl.inc.sty",
+        "hpstatement-pt.inc.sty",
+        "hpstatement-ro.inc.sty",
+        "hpstatement-sk.inc.sty",
+        "hpstatement-sl.inc.sty",
+        "hpstatement-sv.inc.sty",
+        "hpstatement.sty",
+        "mhchem.sty",
+        "rsphrase.sty"
+      ],
+      "collection": "collection-mathscience"
+    },
+    {
+      "name": "microtype",
+      "shortdesc": "Subliminal refinements towards typographical perfection",
+      "category": "Package",
+      "topics": [
+        "letterspace",
+        "micro-layout",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "3.2d",
+      "ctanUrl": "https://ctan.org/pkg/microtype",
+      "docUrl": "https://texdoc.org/pkg/microtype",
+      "styles": [
+        "letterspace.sty",
+        "microtype-show.sty",
+        "microtype.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "minted",
+      "shortdesc": "Highlighted source code for LaTeX",
+      "category": "Package",
+      "topics": [
+        "listing",
+        "synt-hlt",
+        "tagged-pdf-incompatible",
+        "verbatim"
+      ],
+      "license": "lppl1.3c lppl1.3 bsd3",
+      "version": "3.8.0",
+      "ctanUrl": "https://ctan.org/pkg/minted",
+      "docUrl": "https://texdoc.org/pkg/minted",
+      "styles": [
+        "minted.sty",
+        "minted1.sty",
+        "minted2.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "multirow",
+      "shortdesc": "Create tabular cells spanning multiple rows",
+      "category": "Package",
+      "topics": [
+        "table",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3",
+      "version": "2.9",
+      "ctanUrl": "https://ctan.org/pkg/multirow",
+      "docUrl": "https://texdoc.org/pkg/multirow",
+      "styles": [
+        "bigdelim.sty",
+        "bigstrut.sty",
+        "multirow.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "natbib",
+      "shortdesc": "Flexible bibliography support",
+      "category": "Package",
+      "topics": [
+        "bibtex-supp",
+        "tagged-pdf"
+      ],
+      "license": "lppl1",
+      "version": "8.31b",
+      "ctanUrl": "https://ctan.org/pkg/natbib",
+      "docUrl": "https://texdoc.org/pkg/natbib",
+      "styles": [
+        "bibentry.sty",
+        "natbib.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "paralist",
+      "shortdesc": "Enumerate and itemize within paragraphs",
+      "category": "Package",
+      "topics": [
+        "list",
+        "list-bull",
+        "list-enum",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1",
+      "version": "2.7",
+      "ctanUrl": "https://ctan.org/pkg/paralist",
+      "docUrl": "https://texdoc.org/pkg/paralist",
+      "styles": [
+        "paralist.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "parskip",
+      "shortdesc": "Layout with zero \\parindent, non-zero \\parskip",
+      "category": "Package",
+      "topics": [
+        "layout",
+        "parshape",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "2.0h",
+      "ctanUrl": "https://ctan.org/pkg/parskip",
+      "docUrl": "https://texdoc.org/pkg/parskip",
+      "styles": [
+        "parskip-2001-04-09.sty",
+        "parskip.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "pdfpages",
+      "shortdesc": "Include PDF documents in LaTeX",
+      "category": "Package",
+      "topics": [
+        "graphics-incl",
+        "pdf-feat",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3c",
+      "version": "0.6h",
+      "ctanUrl": "https://ctan.org/pkg/pdfpages",
+      "docUrl": "https://texdoc.org/pkg/pdfpages",
+      "styles": [
+        "pdfpages.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "pgf",
+      "shortdesc": "Create PostScript and PDF graphics in TeX",
+      "category": "Package",
+      "topics": [
+        "graphics",
+        "graphics-in-tex",
+        "pgf-tikz",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3c gpl2 fdl",
+      "version": "3.1.12",
+      "ctanUrl": "https://ctan.org/pkg/pgf",
+      "docUrl": "https://texdoc.org/pkg/pgf",
+      "styles": [
+        "pgf.sty",
+        "pgfarrows.sty",
+        "pgfautomata.sty",
+        "pgfbaseimage.sty",
+        "pgfbaselayers.sty",
+        "pgfbasematrix.sty",
+        "pgfbasepatterns.sty",
+        "pgfbaseplot.sty",
+        "pgfbaseshapes.sty",
+        "pgfbasesnakes.sty",
+        "pgfcalendar.sty",
+        "pgfcomp-version-0-65.sty",
+        "pgfcomp-version-1-18.sty",
+        "pgfcore.sty",
+        "pgffor.sty",
+        "pgfheaps.sty",
+        "pgfkeys.sty",
+        "pgflibraryarrows.sty",
+        "pgflibraryautomata.sty",
+        "pgflibraryplothandlers.sty",
+        "pgflibraryplotmarks.sty",
+        "pgflibraryshapes.sty",
+        "pgflibrarysnakes.sty",
+        "pgflibrarytikzbackgrounds.sty",
+        "pgflibrarytikztrees.sty",
+        "pgfmanual.sty",
+        "pgfmath.sty",
+        "pgfnodes.sty",
+        "pgfpages.sty",
+        "pgfparser.sty",
+        "pgfpict2e.sty",
+        "pgfrcs.sty",
+        "pgfshade.sty",
+        "pgfsys.sty",
+        "tikz.sty",
+        "tikzexternal.sty",
+        "xxcolor.sty"
+      ],
+      "collection": "collection-pictures"
+    },
+    {
+      "name": "physics",
+      "shortdesc": "Macros supporting the Mathematics of Physics",
+      "category": "Package",
+      "topics": [
+        "maths",
+        "physics"
+      ],
+      "license": "lppl",
+      "version": "1.3",
+      "ctanUrl": "https://ctan.org/pkg/physics",
+      "docUrl": "https://texdoc.org/pkg/physics",
+      "styles": [
+        "physics.sty"
+      ],
+      "collection": "collection-mathscience"
+    },
+    {
+      "name": "polyglossia",
+      "shortdesc": "An alternative to babel for XeLaTeX and LuaLaTeX",
+      "category": "Package",
+      "topics": [
+        "multilingual",
+        "use-luatex",
+        "use-xetex"
+      ],
+      "license": "mit lppl1.3 cc0",
+      "version": "2.13",
+      "ctanUrl": "https://ctan.org/pkg/polyglossia",
+      "docUrl": "https://texdoc.org/pkg/polyglossia",
+      "styles": [
+        "arabicnumbers.sty",
+        "bengalidigits.sty",
+        "chinesecal.sty",
+        "devanagaridigits.sty",
+        "farsical.sty",
+        "gurmukhidigits.sty",
+        "hebrewcal.sty",
+        "hijrical.sty",
+        "nkonumbers.sty",
+        "odiadigits.sty",
+        "polyglossia.sty",
+        "xpg-cyrillicnumbers.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "setspace",
+      "shortdesc": "Set space between lines",
+      "category": "Package",
+      "topics": [
+        "line-space",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3",
+      "version": "6.7b",
+      "ctanUrl": "https://ctan.org/pkg/setspace",
+      "docUrl": "https://texdoc.org/pkg/setspace",
+      "styles": [
+        "setspace.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "siunitx",
+      "shortdesc": "A comprehensive (SI) units package",
+      "category": "Package",
+      "topics": [
+        "scientific-docs",
+        "tagged-pdf-partially",
+        "units"
+      ],
+      "license": "lppl1.3c",
+      "version": "3.6.2",
+      "ctanUrl": "https://ctan.org/pkg/siunitx",
+      "docUrl": "https://texdoc.org/pkg/siunitx",
+      "styles": [
+        "siunitx-v2.sty",
+        "siunitx.sty"
+      ],
+      "collection": "collection-mathscience"
+    },
+    {
+      "name": "standalone",
+      "shortdesc": "Compile TeX pictures stand-alone or as part of a document",
+      "category": "Package",
+      "topics": [
+        "class",
+        "subdocs",
+        "tagged-pdf-partially"
+      ],
+      "license": "lppl1.3",
+      "version": "1.5a",
+      "ctanUrl": "https://ctan.org/pkg/standalone",
+      "docUrl": "https://texdoc.org/pkg/standalone",
+      "styles": [
+        "standalone.cls",
+        "standalone.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "subfig",
+      "shortdesc": "Figures broken into subfigures",
+      "category": "Package",
+      "topics": [
+        "caption",
+        "subfloat",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3",
+      "version": "1.3",
+      "ctanUrl": "https://ctan.org/pkg/subfig",
+      "docUrl": "https://texdoc.org/pkg/subfig",
+      "styles": [
+        "subfig.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "tcolorbox",
+      "shortdesc": "Coloured boxes, for LaTeX examples and theorems, etc.",
+      "category": "Package",
+      "topics": [
+        "box-breaking",
+        "boxing",
+        "colour",
+        "listing",
+        "macro-demo",
+        "tagged-pdf-partially",
+        "verbatim"
+      ],
+      "license": "lppl1.3",
+      "version": "6.10.0",
+      "ctanUrl": "https://ctan.org/pkg/tcolorbox",
+      "docUrl": "https://texdoc.org/pkg/tcolorbox",
+      "styles": [
+        "tcolorbox.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "titlesec",
+      "shortdesc": "Select alternative section titles",
+      "category": "Package",
+      "topics": [
+        "headings",
+        "page-hf",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "mit",
+      "version": "2.17",
+      "ctanUrl": "https://ctan.org/pkg/titlesec",
+      "docUrl": "https://texdoc.org/pkg/titlesec",
+      "styles": [
+        "titleps.sty",
+        "titlesec.sty",
+        "titletoc.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "todonotes",
+      "shortdesc": "Marking things to do in a LaTeX document",
+      "category": "Package",
+      "topics": [
+        "editorial",
+        "notes",
+        "pgf-tikz",
+        "tagged-pdf-incompatible"
+      ],
+      "license": "lppl1.3",
+      "version": "1.1.7",
+      "ctanUrl": "https://ctan.org/pkg/todonotes",
+      "docUrl": "https://texdoc.org/pkg/todonotes",
+      "styles": [
+        "todonotes.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "tools",
+      "shortdesc": "The LaTeX standard tools bundle",
+      "category": "Package",
+      "topics": [
+        "collection"
+      ],
+      "license": "lppl1.3c",
+      "version": null,
+      "ctanUrl": "https://ctan.org/pkg/latex-tools",
+      "docUrl": "https://texdoc.org/pkg/tools",
+      "styles": [
+        "afterpage.sty",
+        "array-2016-10-06.sty",
+        "array-2020-02-10.sty",
+        "array-2023-11-01.sty",
+        "array-2024-06-01.sty",
+        "array.sty",
+        "bm.sty",
+        "calc.sty",
+        "dcolumn.sty",
+        "delarray.sty",
+        "enumerate.sty",
+        "fontsmpl.sty",
+        "ftnright.sty",
+        "hhline.sty",
+        "indentfirst.sty",
+        "l3sys-query.sty",
+        "layout.sty",
+        "longtable-2020-01-07.sty",
+        "longtable.sty",
+        "multicol-2017-04-11.sty",
+        "multicol-2019-10-01.sty",
+        "multicol-2024-05-23.sty",
+        "multicol.sty",
+        "rawfonts.sty",
+        "shellesc.sty",
+        "showkeys-2014-10-28.sty",
+        "showkeys.sty",
+        "somedefs.sty",
+        "tabularx.sty",
+        "thb.sty",
+        "thc.sty",
+        "thcb.sty",
+        "theorem.sty",
+        "thm.sty",
+        "thmb.sty",
+        "thp.sty",
+        "trace.sty",
+        "varioref-2016-02-16.sty",
+        "varioref-2019-10-01.sty",
+        "varioref.sty",
+        "verbatim.sty",
+        "xr-2023-07-04.sty",
+        "xr.sty",
+        "xspace.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "unicode-math",
+      "shortdesc": "Unicode mathematics support for XeTeX and LuaTeX",
+      "category": "Package",
+      "topics": [
+        "font-use",
+        "luatex",
+        "maths",
+        "tagged-pdf",
+        "unicode",
+        "xetex"
+      ],
+      "license": "lppl1.3c",
+      "version": "0.8r",
+      "ctanUrl": "https://ctan.org/pkg/unicode-math",
+      "docUrl": "https://texdoc.org/pkg/unicode-math",
+      "styles": [
+        "unicode-math-luatex.sty",
+        "unicode-math-xetex.sty",
+        "unicode-math.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "units",
+      "shortdesc": "Typeset units",
+      "category": "Package",
+      "topics": [
+        "scientific-docs",
+        "tagged-pdf-incompatible",
+        "units"
+      ],
+      "license": "gpl",
+      "version": "0.9b",
+      "ctanUrl": "https://ctan.org/pkg/units",
+      "docUrl": "https://texdoc.org/pkg/units",
+      "styles": [
+        "nicefrac.sty",
+        "units.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "upquote",
+      "shortdesc": "Show \"realistic\" quotes in verbatim",
+      "category": "Package",
+      "topics": [
+        "tagged-pdf",
+        "verbatim"
+      ],
+      "license": "lppl1.2",
+      "version": "1.3",
+      "ctanUrl": "https://ctan.org/pkg/upquote",
+      "docUrl": "https://texdoc.org/pkg/upquote",
+      "styles": [
+        "upquote.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "url",
+      "shortdesc": "Verbatim with URL-sensitive line breaks",
+      "category": "Package",
+      "topics": [
+        "tagged-pdf",
+        "verbatim"
+      ],
+      "license": "lppl",
+      "version": "3.4",
+      "ctanUrl": "https://ctan.org/pkg/url",
+      "docUrl": "https://texdoc.org/pkg/url",
+      "styles": [
+        "url.sty"
+      ],
+      "collection": "collection-latex"
+    },
+    {
+      "name": "wrapfig",
+      "shortdesc": "Produces figures which text can flow around",
+      "category": "Package",
+      "topics": [
+        "tagged-pdf-incompatible",
+        "text-flow"
+      ],
+      "license": "lppl",
+      "version": "3.6",
+      "ctanUrl": "https://ctan.org/pkg/wrapfig",
+      "docUrl": "https://texdoc.org/pkg/wrapfig",
+      "styles": [
+        "wrapfig.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "xcolor",
+      "shortdesc": "Driver-independent color extensions for LaTeX and pdfLaTeX",
+      "category": "Package",
+      "topics": [
+        "colour",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "3.02",
+      "ctanUrl": "https://ctan.org/pkg/xcolor",
+      "docUrl": "https://texdoc.org/pkg/xcolor",
+      "styles": [
+        "xcolor-2022-06-12.sty",
+        "xcolor.sty"
+      ],
+      "collection": "collection-latexrecommended"
+    },
+    {
+      "name": "xstring",
+      "shortdesc": "String manipulation for (La)TeX",
+      "category": "Package",
+      "topics": [
+        "string",
+        "tagged-pdf"
+      ],
+      "license": "lppl1.3c",
+      "version": "1.86",
+      "ctanUrl": "https://ctan.org/pkg/xstring",
+      "docUrl": "https://texdoc.org/pkg/xstring",
+      "styles": [
+        "xstring.sty"
+      ],
+      "collection": "collection-latexextra"
+    },
+    {
+      "name": "xurl",
+      "shortdesc": "Allow URL breaks at any alphanumerical character",
+      "category": "Package",
+      "topics": [
+        "tagged-pdf",
+        "verbatim"
+      ],
+      "license": "lppl1.3",
+      "version": "0.10",
+      "ctanUrl": "https://ctan.org/pkg/xurl",
+      "docUrl": "https://texdoc.org/pkg/xurl",
+      "styles": [
+        "xurl.sty"
+      ],
+      "collection": "collection-latexextra"
+    }
+  ],
+  "byStyle": {
+    "UKenglish.sty": [
+      "babel"
+    ],
+    "USenglish.sty": [
+      "babel"
+    ],
+    "acro-examples.sty": [
+      "acro"
+    ],
+    "acro.sty": [
+      "acro"
+    ],
+    "acro2.sty": [
+      "acro"
+    ],
+    "afrikaans.sty": [
+      "babel"
+    ],
+    "afterpage.sty": [
+      "tools"
+    ],
+    "albanian.sty": [
+      "babel"
+    ],
+    "algc.sty": [
+      "algorithmicx"
+    ],
+    "algcompatible.sty": [
+      "algorithmicx"
+    ],
+    "algmatlab.sty": [
+      "algorithmicx"
+    ],
+    "algorithm.sty": [
+      "algorithms"
+    ],
+    "algorithmic.sty": [
+      "algorithms"
+    ],
+    "algorithmicx.sty": [
+      "algorithmicx"
+    ],
+    "algpascal.sty": [
+      "algorithmicx"
+    ],
+    "algpseudocode.sty": [
+      "algorithmicx"
+    ],
+    "alltt.sty": [
+      "latex"
+    ],
+    "american.sty": [
+      "babel"
+    ],
+    "amsart.cls": [
+      "amscls"
+    ],
+    "amsbook.cls": [
+      "amscls"
+    ],
+    "amsbooka.sty": [
+      "amscls"
+    ],
+    "amsbsy.sty": [
+      "amsmath"
+    ],
+    "amscd.sty": [
+      "amsmath"
+    ],
+    "amsdtx.cls": [
+      "amscls"
+    ],
+    "amsfonts.sty": [
+      "amsfonts"
+    ],
+    "amsgen.sty": [
+      "amsmath"
+    ],
+    "amsldoc.cls": [
+      "amscls"
+    ],
+    "amsmath-2018-12-01.sty": [
+      "amsmath"
+    ],
+    "amsmath.sty": [
+      "amsmath"
+    ],
+    "amsmidx.sty": [
+      "amscls"
+    ],
+    "amsopn.sty": [
+      "amsmath"
+    ],
+    "amsproc.cls": [
+      "amscls"
+    ],
+    "amssymb.sty": [
+      "amsfonts"
+    ],
+    "amstex.sty": [
+      "amsmath"
+    ],
+    "amstext.sty": [
+      "amsmath"
+    ],
+    "amsthm.sty": [
+      "amscls"
+    ],
+    "amsxtra.sty": [
+      "amsmath"
+    ],
+    "appendix.sty": [
+      "appendix"
+    ],
+    "arabicnumbers.sty": [
+      "polyglossia"
+    ],
+    "array-2016-10-06.sty": [
+      "tools"
+    ],
+    "array-2020-02-10.sty": [
+      "tools"
+    ],
+    "array-2023-11-01.sty": [
+      "tools"
+    ],
+    "array-2024-06-01.sty": [
+      "tools"
+    ],
+    "array.sty": [
+      "tools"
+    ],
+    "article.cls": [
+      "latex"
+    ],
+    "article.sty": [
+      "latex"
+    ],
+    "atbegshi-ltx.sty": [
+      "latex"
+    ],
+    "atveryend-ltx.sty": [
+      "latex"
+    ],
+    "austrian.sty": [
+      "babel"
+    ],
+    "babel.sty": [
+      "babel"
+    ],
+    "backref.sty": [
+      "hyperref"
+    ],
+    "bahasa.sty": [
+      "babel"
+    ],
+    "bahasam.sty": [
+      "babel"
+    ],
+    "basque.sty": [
+      "babel"
+    ],
+    "beamer.cls": [
+      "beamer"
+    ],
+    "beamerarticle.sty": [
+      "beamer"
+    ],
+    "beamerbasearticle.sty": [
+      "beamer"
+    ],
+    "beamerbaseauxtemplates.sty": [
+      "beamer"
+    ],
+    "beamerbaseboxes.sty": [
+      "beamer"
+    ],
+    "beamerbasecolor.sty": [
+      "beamer"
+    ],
+    "beamerbasecompatibility.sty": [
+      "beamer"
+    ],
+    "beamerbasedecode.sty": [
+      "beamer"
+    ],
+    "beamerbasefont.sty": [
+      "beamer"
+    ],
+    "beamerbaseframe.sty": [
+      "beamer"
+    ],
+    "beamerbaseframecomponents.sty": [
+      "beamer"
+    ],
+    "beamerbaseframesize.sty": [
+      "beamer"
+    ],
+    "beamerbaselocalstructure.sty": [
+      "beamer"
+    ],
+    "beamerbasemisc.sty": [
+      "beamer"
+    ],
+    "beamerbasemodes.sty": [
+      "beamer"
+    ],
+    "beamerbasenavigation.sty": [
+      "beamer"
+    ],
+    "beamerbasenotes.sty": [
+      "beamer"
+    ],
+    "beamerbaseoptions.sty": [
+      "beamer"
+    ],
+    "beamerbaseoverlay.sty": [
+      "beamer"
+    ],
+    "beamerbaserequires.sty": [
+      "beamer"
+    ],
+    "beamerbasesection.sty": [
+      "beamer"
+    ],
+    "beamerbasetemplates.sty": [
+      "beamer"
+    ],
+    "beamerbasethemes.sty": [
+      "beamer"
+    ],
+    "beamerbasetheorems.sty": [
+      "beamer"
+    ],
+    "beamerbasetitle.sty": [
+      "beamer"
+    ],
+    "beamerbasetoc.sty": [
+      "beamer"
+    ],
+    "beamerbasetranslator.sty": [
+      "beamer"
+    ],
+    "beamerbasetwoscreens.sty": [
+      "beamer"
+    ],
+    "beamerbaseverbatim.sty": [
+      "beamer"
+    ],
+    "beamercolorthemealbatross.sty": [
+      "beamer"
+    ],
+    "beamercolorthemebeaver.sty": [
+      "beamer"
+    ],
+    "beamercolorthemebeetle.sty": [
+      "beamer"
+    ],
+    "beamercolorthemecrane.sty": [
+      "beamer"
+    ],
+    "beamercolorthemedefault.sty": [
+      "beamer"
+    ],
+    "beamercolorthemedolphin.sty": [
+      "beamer"
+    ],
+    "beamercolorthemedove.sty": [
+      "beamer"
+    ],
+    "beamercolorthemefly.sty": [
+      "beamer"
+    ],
+    "beamercolorthemelily.sty": [
+      "beamer"
+    ],
+    "beamercolorthememonarca.sty": [
+      "beamer"
+    ],
+    "beamercolorthemeorchid.sty": [
+      "beamer"
+    ],
+    "beamercolorthemerose.sty": [
+      "beamer"
+    ],
+    "beamercolorthemeseagull.sty": [
+      "beamer"
+    ],
+    "beamercolorthemeseahorse.sty": [
+      "beamer"
+    ],
+    "beamercolorthemesidebartab.sty": [
+      "beamer"
+    ],
+    "beamercolorthemespruce.sty": [
+      "beamer"
+    ],
+    "beamercolorthemestructure.sty": [
+      "beamer"
+    ],
+    "beamercolorthemewhale.sty": [
+      "beamer"
+    ],
+    "beamercolorthemewolverine.sty": [
+      "beamer"
+    ],
+    "beamerfoils.sty": [
+      "beamer"
+    ],
+    "beamerfontthemedefault.sty": [
+      "beamer"
+    ],
+    "beamerfontthemeprofessionalfonts.sty": [
+      "beamer"
+    ],
+    "beamerfontthemeserif.sty": [
+      "beamer"
+    ],
+    "beamerfontthemestructurebold.sty": [
+      "beamer"
+    ],
+    "beamerfontthemestructureitalicserif.sty": [
+      "beamer"
+    ],
+    "beamerfontthemestructuresmallcapsserif.sty": [
+      "beamer"
+    ],
+    "beamerinnerthemecircles.sty": [
+      "beamer"
+    ],
+    "beamerinnerthemedefault.sty": [
+      "beamer"
+    ],
+    "beamerinnerthemeinmargin.sty": [
+      "beamer"
+    ],
+    "beamerinnerthemerectangles.sty": [
+      "beamer"
+    ],
+    "beamerinnerthemerounded.sty": [
+      "beamer"
+    ],
+    "beamerouterthemedefault.sty": [
+      "beamer"
+    ],
+    "beamerouterthemeinfolines.sty": [
+      "beamer"
+    ],
+    "beamerouterthememiniframes.sty": [
+      "beamer"
+    ],
+    "beamerouterthemeshadow.sty": [
+      "beamer"
+    ],
+    "beamerouterthemesidebar.sty": [
+      "beamer"
+    ],
+    "beamerouterthemesmoothbars.sty": [
+      "beamer"
+    ],
+    "beamerouterthemesmoothtree.sty": [
+      "beamer"
+    ],
+    "beamerouterthemesplit.sty": [
+      "beamer"
+    ],
+    "beamerouterthemetree.sty": [
+      "beamer"
+    ],
+    "beamerpatchparalist.sty": [
+      "beamer"
+    ],
+    "beamerprosper.sty": [
+      "beamer"
+    ],
+    "beamerseminar.sty": [
+      "beamer"
+    ],
+    "beamertexpower.sty": [
+      "beamer"
+    ],
+    "beamerthemeAnnArbor.sty": [
+      "beamer"
+    ],
+    "beamerthemeAntibes.sty": [
+      "beamer"
+    ],
+    "beamerthemeBergen.sty": [
+      "beamer"
+    ],
+    "beamerthemeBerkeley.sty": [
+      "beamer"
+    ],
+    "beamerthemeBerlin.sty": [
+      "beamer"
+    ],
+    "beamerthemeBoadilla.sty": [
+      "beamer"
+    ],
+    "beamerthemeCambridgeUS.sty": [
+      "beamer"
+    ],
+    "beamerthemeCopenhagen.sty": [
+      "beamer"
+    ],
+    "beamerthemeDarmstadt.sty": [
+      "beamer"
+    ],
+    "beamerthemeDresden.sty": [
+      "beamer"
+    ],
+    "beamerthemeEastLansing.sty": [
+      "beamer"
+    ],
+    "beamerthemeFrankfurt.sty": [
+      "beamer"
+    ],
+    "beamerthemeGoettingen.sty": [
+      "beamer"
+    ],
+    "beamerthemeHannover.sty": [
+      "beamer"
+    ],
+    "beamerthemeIlmenau.sty": [
+      "beamer"
+    ],
+    "beamerthemeJuanLesPins.sty": [
+      "beamer"
+    ],
+    "beamerthemeLuebeck.sty": [
+      "beamer"
+    ],
+    "beamerthemeMadrid.sty": [
+      "beamer"
+    ],
+    "beamerthemeMalmoe.sty": [
+      "beamer"
+    ],
+    "beamerthemeMarburg.sty": [
+      "beamer"
+    ],
+    "beamerthemeMontpellier.sty": [
+      "beamer"
+    ],
+    "beamerthemePaloAlto.sty": [
+      "beamer"
+    ],
+    "beamerthemePittsburgh.sty": [
+      "beamer"
+    ],
+    "beamerthemeRochester.sty": [
+      "beamer"
+    ],
+    "beamerthemeSingapore.sty": [
+      "beamer"
+    ],
+    "beamerthemeSzeged.sty": [
+      "beamer"
+    ],
+    "beamerthemeWarsaw.sty": [
+      "beamer"
+    ],
+    "beamerthemebars.sty": [
+      "beamer"
+    ],
+    "beamerthemeboxes.sty": [
+      "beamer"
+    ],
+    "beamerthemeclassic.sty": [
+      "beamer"
+    ],
+    "beamerthemecompatibility.sty": [
+      "beamer"
+    ],
+    "beamerthemedefault.sty": [
+      "beamer"
+    ],
+    "beamerthemelined.sty": [
+      "beamer"
+    ],
+    "beamerthemeplain.sty": [
+      "beamer"
+    ],
+    "beamerthemeshadow.sty": [
+      "beamer"
+    ],
+    "beamerthemesidebar.sty": [
+      "beamer"
+    ],
+    "beamerthemesplit.sty": [
+      "beamer"
+    ],
+    "beamerthemetree.sty": [
+      "beamer"
+    ],
+    "bengalidigits.sty": [
+      "polyglossia"
+    ],
+    "bezier.sty": [
+      "latex"
+    ],
+    "bibentry.sty": [
+      "natbib"
+    ],
+    "biblatex.sty": [
+      "biblatex"
+    ],
+    "bicaption.sty": [
+      "caption"
+    ],
+    "bigdelim.sty": [
+      "multirow"
+    ],
+    "bigfoot.sty": [
+      "bigfoot"
+    ],
+    "bigstrut.sty": [
+      "multirow"
+    ],
+    "blx-case-expl3.sty": [
+      "biblatex"
+    ],
+    "blx-case-latex2e.sty": [
+      "biblatex"
+    ],
+    "bm.sty": [
+      "tools"
+    ],
+    "book.cls": [
+      "latex"
+    ],
+    "book.sty": [
+      "latex"
+    ],
+    "bookmark.sty": [
+      "bookmark"
+    ],
+    "booktabs.sty": [
+      "booktabs"
+    ],
+    "breton.sty": [
+      "babel"
+    ],
+    "british.sty": [
+      "babel"
+    ],
+    "bulgarian.sty": [
+      "babel"
+    ],
+    "calc.sty": [
+      "tools"
+    ],
+    "cancel.sty": [
+      "cancel"
+    ],
+    "caption-light.sty": [
+      "caption"
+    ],
+    "caption.sty": [
+      "caption"
+    ],
+    "caption2.sty": [
+      "caption"
+    ],
+    "caption2_1995-10-09.sty": [
+      "caption"
+    ],
+    "caption2_2005-10-03.sty": [
+      "caption"
+    ],
+    "caption3.sty": [
+      "caption"
+    ],
+    "caption3_2007-04-11.sty": [
+      "caption"
+    ],
+    "caption3_2010-01-14.sty": [
+      "caption"
+    ],
+    "caption3_2011-11-01.sty": [
+      "caption"
+    ],
+    "caption3_2019-09-01.sty": [
+      "caption"
+    ],
+    "caption3_2020-07-29.sty": [
+      "caption"
+    ],
+    "caption3_2020-10-26.sty": [
+      "caption"
+    ],
+    "caption_1995-04-05.sty": [
+      "caption"
+    ],
+    "caption_2007-04-16.sty": [
+      "caption"
+    ],
+    "caption_2010-01-09.sty": [
+      "caption"
+    ],
+    "caption_2011-11-10.sty": [
+      "caption"
+    ],
+    "caption_2019-09-01.sty": [
+      "caption"
+    ],
+    "caption_2020-07-29.sty": [
+      "caption"
+    ],
+    "caption_2020-10-26.sty": [
+      "caption"
+    ],
+    "catalan.sty": [
+      "babel"
+    ],
+    "chapterbib.sty": [
+      "cite"
+    ],
+    "chemfig.sty": [
+      "chemfig"
+    ],
+    "chinesecal.sty": [
+      "polyglossia"
+    ],
+    "cite.sty": [
+      "cite"
+    ],
+    "cleveref.sty": [
+      "cleveref"
+    ],
+    "cmmib57.sty": [
+      "amsfonts"
+    ],
+    "color.sty": [
+      "graphics"
+    ],
+    "comment.sty": [
+      "comment"
+    ],
+    "croatian.sty": [
+      "babel"
+    ],
+    "csquotes.sty": [
+      "csquotes"
+    ],
+    "czech.sty": [
+      "babel"
+    ],
+    "danish.sty": [
+      "babel"
+    ],
+    "datetime2-calc.sty": [
+      "datetime2"
+    ],
+    "datetime2.sty": [
+      "datetime2"
+    ],
+    "dcolumn.sty": [
+      "tools"
+    ],
+    "delarray.sty": [
+      "tools"
+    ],
+    "devanagaridigits.sty": [
+      "polyglossia"
+    ],
+    "doc-2016-02-15.sty": [
+      "latex"
+    ],
+    "doc-2021-06-01.sty": [
+      "latex"
+    ],
+    "doc.sty": [
+      "latex"
+    ],
+    "drftcite.sty": [
+      "cite"
+    ],
+    "dutch.sty": [
+      "babel"
+    ],
+    "empheq.sty": [
+      "mathtools"
+    ],
+    "english.sty": [
+      "babel"
+    ],
+    "enumerate.sty": [
+      "tools"
+    ],
+    "enumitem.sty": [
+      "enumitem"
+    ],
+    "epsfig.sty": [
+      "graphics"
+    ],
+    "esint.sty": [
+      "esint"
+    ],
+    "esperanto.sty": [
+      "babel"
+    ],
+    "estonian.sty": [
+      "babel"
+    ],
+    "etoolbox.sty": [
+      "etoolbox"
+    ],
+    "eucal.sty": [
+      "amsfonts"
+    ],
+    "eufrak.sty": [
+      "amsfonts"
+    ],
+    "euscript.sty": [
+      "amsfonts"
+    ],
+    "expl3.sty": [
+      "l3kernel"
+    ],
+    "exscale.sty": [
+      "latex"
+    ],
+    "extramarks-v4.sty": [
+      "fancyhdr"
+    ],
+    "extramarks.sty": [
+      "fancyhdr"
+    ],
+    "fancyhdr.sty": [
+      "fancyhdr"
+    ],
+    "fancyheadings.sty": [
+      "fancyhdr"
+    ],
+    "fancyvrb-ex.sty": [
+      "fancyvrb"
+    ],
+    "fancyvrb.sty": [
+      "fancyvrb"
+    ],
+    "farsical.sty": [
+      "polyglossia"
+    ],
+    "finnish.sty": [
+      "babel"
+    ],
+    "fix-cm.sty": [
+      "latex"
+    ],
+    "fixltx2e.sty": [
+      "latex"
+    ],
+    "flafter.sty": [
+      "latex"
+    ],
+    "fleqn.sty": [
+      "latex"
+    ],
+    "float.sty": [
+      "float"
+    ],
+    "fltrace.sty": [
+      "latex"
+    ],
+    "fontenc.sty": [
+      "latex"
+    ],
+    "fontsmpl.sty": [
+      "tools"
+    ],
+    "fontspec-luatex.sty": [
+      "fontspec"
+    ],
+    "fontspec-xetex.sty": [
+      "fontspec"
+    ],
+    "fontspec.sty": [
+      "fontspec"
+    ],
+    "footmisc-2011-06-06.sty": [
+      "footmisc"
+    ],
+    "footmisc-2022-02-14.sty": [
+      "footmisc"
+    ],
+    "footmisc.sty": [
+      "footmisc"
+    ],
+    "francais.sty": [
+      "babel"
+    ],
+    "ftnright.sty": [
+      "tools"
+    ],
+    "galician.sty": [
+      "babel"
+    ],
+    "geometry.sty": [
+      "geometry"
+    ],
+    "germanb.sty": [
+      "babel"
+    ],
+    "glossaries-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossaries-2022-11-03.sty": [
+      "glossaries"
+    ],
+    "glossaries-2024-04-03.sty": [
+      "glossaries"
+    ],
+    "glossaries-2025-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-accsupp-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-accsupp-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossaries-accsupp.sty": [
+      "glossaries"
+    ],
+    "glossaries-babel-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-babel-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossaries-babel.sty": [
+      "glossaries"
+    ],
+    "glossaries-compatible-207-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-compatible-207-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossaries-compatible-207.sty": [
+      "glossaries"
+    ],
+    "glossaries-compatible-307-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-compatible-307-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossaries-compatible-307.sty": [
+      "glossaries"
+    ],
+    "glossaries-polyglossia-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-polyglossia-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossaries-polyglossia.sty": [
+      "glossaries"
+    ],
+    "glossaries-prefix-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossaries-prefix-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossaries-prefix.sty": [
+      "glossaries"
+    ],
+    "glossaries.sty": [
+      "glossaries"
+    ],
+    "glossary-hypernav-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-hypernav-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-hypernav-2022-11-03.sty": [
+      "glossaries"
+    ],
+    "glossary-hypernav.sty": [
+      "glossaries"
+    ],
+    "glossary-inline-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-inline-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-inline.sty": [
+      "glossaries"
+    ],
+    "glossary-list-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-list-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-list.sty": [
+      "glossaries"
+    ],
+    "glossary-long-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-long-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-long.sty": [
+      "glossaries"
+    ],
+    "glossary-longbooktabs-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-longbooktabs-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-longbooktabs.sty": [
+      "glossaries"
+    ],
+    "glossary-longragged-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-longragged-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-longragged.sty": [
+      "glossaries"
+    ],
+    "glossary-mcols-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-mcols-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-mcols-2025-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-mcols.sty": [
+      "glossaries"
+    ],
+    "glossary-super-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-super-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-super.sty": [
+      "glossaries"
+    ],
+    "glossary-superragged-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-superragged-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-superragged.sty": [
+      "glossaries"
+    ],
+    "glossary-tree-2020-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-tree-2021-11-01.sty": [
+      "glossaries"
+    ],
+    "glossary-tree-2025-03-19.sty": [
+      "glossaries"
+    ],
+    "glossary-tree.sty": [
+      "glossaries"
+    ],
+    "graphbox.sty": [
+      "graphbox"
+    ],
+    "graphics-2017-06-25.sty": [
+      "graphics"
+    ],
+    "graphics.sty": [
+      "graphics"
+    ],
+    "graphicx.sty": [
+      "graphics"
+    ],
+    "graphpap.sty": [
+      "latex"
+    ],
+    "greek.sty": [
+      "babel"
+    ],
+    "gurmukhidigits.sty": [
+      "polyglossia"
+    ],
+    "hbaw.sty": [
+      "fancyvrb"
+    ],
+    "hcolor.sty": [
+      "fancyvrb"
+    ],
+    "hebrew.sty": [
+      "babel"
+    ],
+    "hebrewcal.sty": [
+      "polyglossia"
+    ],
+    "hhline.sty": [
+      "tools"
+    ],
+    "hijrical.sty": [
+      "polyglossia"
+    ],
+    "hpstatement-bg.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-cs.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-da.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-de.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-el.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-en.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-es.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-et.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-fi.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-fr.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-ga.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-hr.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-hu.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-it.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-lt.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-lv.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-mt.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-nl.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-pl.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-pt.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-ro.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-sk.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-sl.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement-sv.inc.sty": [
+      "mhchem"
+    ],
+    "hpstatement.sty": [
+      "mhchem"
+    ],
+    "hxt-bc.sty": [
+      "hyper"
+    ],
+    "hyper.sty": [
+      "hyper"
+    ],
+    "hyperref-patches.sty": [
+      "hyperref"
+    ],
+    "hyperref.sty": [
+      "hyperref"
+    ],
+    "hyphenat.sty": [
+      "hyphenat"
+    ],
+    "icelandic.sty": [
+      "babel"
+    ],
+    "ifthen.sty": [
+      "latex"
+    ],
+    "indentfirst.sty": [
+      "tools"
+    ],
+    "inputenc.sty": [
+      "latex"
+    ],
+    "interlingua.sty": [
+      "babel"
+    ],
+    "irish.sty": [
+      "babel"
+    ],
+    "italian.sty": [
+      "babel"
+    ],
+    "keyval.sty": [
+      "graphics"
+    ],
+    "koma-script-source-doc.cls": [
+      "koma-script"
+    ],
+    "l3doc.cls": [
+      "l3kernel"
+    ],
+    "l3in2edoc.cls": [
+      "latex"
+    ],
+    "l3keys2e.sty": [
+      "l3packages"
+    ],
+    "l3sys-query.sty": [
+      "tools"
+    ],
+    "latexrelease.sty": [
+      "latex"
+    ],
+    "latexsym.sty": [
+      "latex"
+    ],
+    "latin.sty": [
+      "babel"
+    ],
+    "layout.sty": [
+      "tools"
+    ],
+    "leqno.sty": [
+      "latex"
+    ],
+    "letter.cls": [
+      "latex"
+    ],
+    "letter.sty": [
+      "latex"
+    ],
+    "letterspace.sty": [
+      "microtype"
+    ],
+    "lipsum.sty": [
+      "lipsum"
+    ],
+    "listings.sty": [
+      "listings"
+    ],
+    "longtable-2020-01-07.sty": [
+      "tools"
+    ],
+    "longtable.sty": [
+      "tools"
+    ],
+    "lscape.sty": [
+      "graphics"
+    ],
+    "lsorbian.sty": [
+      "babel"
+    ],
+    "lstdoc.sty": [
+      "listings"
+    ],
+    "lstlang1.sty": [
+      "listings"
+    ],
+    "lstlang2.sty": [
+      "listings"
+    ],
+    "lstlang3.sty": [
+      "listings"
+    ],
+    "lstmisc.sty": [
+      "listings"
+    ],
+    "lstpatch.sty": [
+      "listings"
+    ],
+    "ltcaption.sty": [
+      "caption"
+    ],
+    "ltnews.cls": [
+      "latex"
+    ],
+    "ltxdoc.cls": [
+      "latex"
+    ],
+    "ltxguide.cls": [
+      "latex"
+    ],
+    "magyar.sty": [
+      "babel"
+    ],
+    "makeidx.sty": [
+      "latex"
+    ],
+    "mathtools.sty": [
+      "mathtools"
+    ],
+    "mhchem.sty": [
+      "mhchem"
+    ],
+    "mhsetup.sty": [
+      "mathtools"
+    ],
+    "microtype-show.sty": [
+      "microtype"
+    ],
+    "microtype.sty": [
+      "microtype"
+    ],
+    "minimal.cls": [
+      "latex"
+    ],
+    "minitoc-hyper.sty": [
+      "hyperref"
+    ],
+    "minted.sty": [
+      "minted"
+    ],
+    "minted1.sty": [
+      "minted"
+    ],
+    "minted2.sty": [
+      "minted"
+    ],
+    "multicol-2017-04-11.sty": [
+      "tools"
+    ],
+    "multicol-2019-10-01.sty": [
+      "tools"
+    ],
+    "multicol-2024-05-23.sty": [
+      "tools"
+    ],
+    "multicol.sty": [
+      "tools"
+    ],
+    "multimedia.sty": [
+      "beamer"
+    ],
+    "multimediasymbols.sty": [
+      "beamer"
+    ],
+    "multirow.sty": [
+      "multirow"
+    ],
+    "nameref.sty": [
+      "hyperref"
+    ],
+    "natbib.sty": [
+      "natbib"
+    ],
+    "naustrian.sty": [
+      "babel"
+    ],
+    "newlfont.sty": [
+      "latex"
+    ],
+    "ngermanb.sty": [
+      "babel"
+    ],
+    "nicefrac.sty": [
+      "units"
+    ],
+    "nkonumbers.sty": [
+      "polyglossia"
+    ],
+    "nohyperref.sty": [
+      "hyperref"
+    ],
+    "norsk.sty": [
+      "babel"
+    ],
+    "ntheorem-hyper.sty": [
+      "hyperref"
+    ],
+    "odiadigits.sty": [
+      "polyglossia"
+    ],
+    "oldlfont.sty": [
+      "latex"
+    ],
+    "openbib.sty": [
+      "latex"
+    ],
+    "overcite.sty": [
+      "cite"
+    ],
+    "paralist.sty": [
+      "paralist"
+    ],
+    "parskip-2001-04-09.sty": [
+      "parskip"
+    ],
+    "parskip.sty": [
+      "parskip"
+    ],
+    "pdfpages.sty": [
+      "pdfpages"
+    ],
+    "perpage.sty": [
+      "bigfoot"
+    ],
+    "pgf.sty": [
+      "pgf"
+    ],
+    "pgfarrows.sty": [
+      "pgf"
+    ],
+    "pgfautomata.sty": [
+      "pgf"
+    ],
+    "pgfbaseimage.sty": [
+      "pgf"
+    ],
+    "pgfbaselayers.sty": [
+      "pgf"
+    ],
+    "pgfbasematrix.sty": [
+      "pgf"
+    ],
+    "pgfbasepatterns.sty": [
+      "pgf"
+    ],
+    "pgfbaseplot.sty": [
+      "pgf"
+    ],
+    "pgfbaseshapes.sty": [
+      "pgf"
+    ],
+    "pgfbasesnakes.sty": [
+      "pgf"
+    ],
+    "pgfcalendar.sty": [
+      "pgf"
+    ],
+    "pgfcomp-version-0-65.sty": [
+      "pgf"
+    ],
+    "pgfcomp-version-1-18.sty": [
+      "pgf"
+    ],
+    "pgfcore.sty": [
+      "pgf"
+    ],
+    "pgffor.sty": [
+      "pgf"
+    ],
+    "pgfheaps.sty": [
+      "pgf"
+    ],
+    "pgfkeys.sty": [
+      "pgf"
+    ],
+    "pgflibraryarrows.sty": [
+      "pgf"
+    ],
+    "pgflibraryautomata.sty": [
+      "pgf"
+    ],
+    "pgflibraryplothandlers.sty": [
+      "pgf"
+    ],
+    "pgflibraryplotmarks.sty": [
+      "pgf"
+    ],
+    "pgflibraryshapes.sty": [
+      "pgf"
+    ],
+    "pgflibrarysnakes.sty": [
+      "pgf"
+    ],
+    "pgflibrarytikzbackgrounds.sty": [
+      "pgf"
+    ],
+    "pgflibrarytikztrees.sty": [
+      "pgf"
+    ],
+    "pgfmanual.sty": [
+      "pgf"
+    ],
+    "pgfmath.sty": [
+      "pgf"
+    ],
+    "pgfnodes.sty": [
+      "pgf"
+    ],
+    "pgfpages.sty": [
+      "pgf"
+    ],
+    "pgfparser.sty": [
+      "pgf"
+    ],
+    "pgfpict2e.sty": [
+      "pgf"
+    ],
+    "pgfrcs.sty": [
+      "pgf"
+    ],
+    "pgfshade.sty": [
+      "pgf"
+    ],
+    "pgfsys.sty": [
+      "pgf"
+    ],
+    "physics.sty": [
+      "physics"
+    ],
+    "polish.sty": [
+      "babel"
+    ],
+    "polyglossia.sty": [
+      "polyglossia"
+    ],
+    "portuges.sty": [
+      "babel"
+    ],
+    "proc.cls": [
+      "latex"
+    ],
+    "proc.sty": [
+      "latex"
+    ],
+    "rawfonts.sty": [
+      "tools"
+    ],
+    "report.cls": [
+      "latex"
+    ],
+    "report.sty": [
+      "latex"
+    ],
+    "romanian.sty": [
+      "babel"
+    ],
+    "rotating.sty": [
+      "graphics"
+    ],
+    "rsphrase.sty": [
+      "mhchem"
+    ],
+    "russianb.sty": [
+      "babel"
+    ],
+    "samin.sty": [
+      "babel"
+    ],
+    "scottish.sty": [
+      "babel"
+    ],
+    "scraddr.sty": [
+      "koma-script"
+    ],
+    "scrartcl.cls": [
+      "koma-script"
+    ],
+    "scrarticle.cls": [
+      "koma-script"
+    ],
+    "scrbase.sty": [
+      "koma-script"
+    ],
+    "scrbook.cls": [
+      "koma-script"
+    ],
+    "scrdate.sty": [
+      "koma-script"
+    ],
+    "scrextend.sty": [
+      "koma-script"
+    ],
+    "scrfontsizes.sty": [
+      "koma-script"
+    ],
+    "scrjura.sty": [
+      "koma-script"
+    ],
+    "scrkbase.sty": [
+      "koma-script"
+    ],
+    "scrlayer-notecolumn.sty": [
+      "koma-script"
+    ],
+    "scrlayer-scrpage.sty": [
+      "koma-script"
+    ],
+    "scrlayer.sty": [
+      "koma-script"
+    ],
+    "scrletter.cls": [
+      "koma-script"
+    ],
+    "scrletter.sty": [
+      "koma-script"
+    ],
+    "scrlfile-hook-3.34.sty": [
+      "koma-script"
+    ],
+    "scrlfile-hook.sty": [
+      "koma-script"
+    ],
+    "scrlfile-patcholdlatex.sty": [
+      "koma-script"
+    ],
+    "scrlfile.sty": [
+      "koma-script"
+    ],
+    "scrlogo.sty": [
+      "koma-script"
+    ],
+    "scrlttr2.cls": [
+      "koma-script"
+    ],
+    "scrreport.cls": [
+      "koma-script"
+    ],
+    "scrreprt.cls": [
+      "koma-script"
+    ],
+    "scrtime.sty": [
+      "koma-script"
+    ],
+    "serbian.sty": [
+      "babel"
+    ],
+    "setspace.sty": [
+      "setspace"
+    ],
+    "shellesc.sty": [
+      "tools"
+    ],
+    "shortvrb.sty": [
+      "latex"
+    ],
+    "showidx.sty": [
+      "latex"
+    ],
+    "showkeys-2014-10-28.sty": [
+      "tools"
+    ],
+    "showkeys.sty": [
+      "tools"
+    ],
+    "siunitx-v2.sty": [
+      "siunitx"
+    ],
+    "siunitx.sty": [
+      "siunitx"
+    ],
+    "slides.cls": [
+      "latex"
+    ],
+    "slides.sty": [
+      "latex"
+    ],
+    "slovak.sty": [
+      "babel"
+    ],
+    "slovene.sty": [
+      "babel"
+    ],
+    "somedefs.sty": [
+      "tools"
+    ],
+    "source2edoc.cls": [
+      "latex"
+    ],
+    "spanish.sty": [
+      "babel"
+    ],
+    "standalone.cls": [
+      "standalone"
+    ],
+    "standalone.sty": [
+      "standalone"
+    ],
+    "structuredlog.sty": [
+      "latex"
+    ],
+    "subcaption.sty": [
+      "caption"
+    ],
+    "subfig.sty": [
+      "subfig"
+    ],
+    "suffix.sty": [
+      "bigfoot"
+    ],
+    "swedish.sty": [
+      "babel"
+    ],
+    "syntonly.sty": [
+      "latex"
+    ],
+    "t1enc.sty": [
+      "latex"
+    ],
+    "tabularx.sty": [
+      "tools"
+    ],
+    "tcolorbox.sty": [
+      "tcolorbox"
+    ],
+    "textcomp-2018-08-11.sty": [
+      "latex"
+    ],
+    "textcomp.sty": [
+      "latex"
+    ],
+    "thb.sty": [
+      "tools"
+    ],
+    "thc.sty": [
+      "tools"
+    ],
+    "thcb.sty": [
+      "tools"
+    ],
+    "theorem.sty": [
+      "tools"
+    ],
+    "thm.sty": [
+      "tools"
+    ],
+    "thmb.sty": [
+      "tools"
+    ],
+    "thp.sty": [
+      "tools"
+    ],
+    "tikz.sty": [
+      "pgf"
+    ],
+    "tikzexternal.sty": [
+      "pgf"
+    ],
+    "titleps.sty": [
+      "titlesec"
+    ],
+    "titlesec.sty": [
+      "titlesec"
+    ],
+    "titletoc.sty": [
+      "titlesec"
+    ],
+    "tocbasic.sty": [
+      "koma-script"
+    ],
+    "todonotes.sty": [
+      "todonotes"
+    ],
+    "trace.sty": [
+      "tools"
+    ],
+    "tracefnt.sty": [
+      "latex"
+    ],
+    "trig.sty": [
+      "graphics"
+    ],
+    "turkish.sty": [
+      "babel"
+    ],
+    "typearea.sty": [
+      "koma-script"
+    ],
+    "ukraineb.sty": [
+      "babel"
+    ],
+    "unicode-math-luatex.sty": [
+      "unicode-math"
+    ],
+    "unicode-math-xetex.sty": [
+      "unicode-math"
+    ],
+    "unicode-math.sty": [
+      "unicode-math"
+    ],
+    "units.sty": [
+      "units"
+    ],
+    "upquote.sty": [
+      "upquote"
+    ],
+    "upref.sty": [
+      "amscls"
+    ],
+    "url.sty": [
+      "url"
+    ],
+    "usorbian.sty": [
+      "babel"
+    ],
+    "varioref-2016-02-16.sty": [
+      "tools"
+    ],
+    "varioref-2019-10-01.sty": [
+      "tools"
+    ],
+    "varioref.sty": [
+      "tools"
+    ],
+    "verbatim.sty": [
+      "tools"
+    ],
+    "welsh.sty": [
+      "babel"
+    ],
+    "wrapfig.sty": [
+      "wrapfig"
+    ],
+    "xcolor-2022-06-12.sty": [
+      "xcolor"
+    ],
+    "xcolor.sty": [
+      "xcolor"
+    ],
+    "xfp.sty": [
+      "l3packages"
+    ],
+    "xmpmulti.sty": [
+      "beamer"
+    ],
+    "xparse-2018-04-12.sty": [
+      "l3packages"
+    ],
+    "xparse-2020-10-01.sty": [
+      "l3packages"
+    ],
+    "xparse.sty": [
+      "l3packages"
+    ],
+    "xpg-cyrillicnumbers.sty": [
+      "polyglossia"
+    ],
+    "xr-2023-07-04.sty": [
+      "tools"
+    ],
+    "xr-hyper.sty": [
+      "hyperref"
+    ],
+    "xr.sty": [
+      "tools"
+    ],
+    "xspace.sty": [
+      "tools"
+    ],
+    "xstring.sty": [
+      "xstring"
+    ],
+    "xtemplate-2023-10-10.sty": [
+      "l3packages"
+    ],
+    "xtemplate.sty": [
+      "l3packages"
+    ],
+    "xurl.sty": [
+      "xurl"
+    ],
+    "xxcolor.sty": [
+      "pgf"
+    ]
+  }
+}

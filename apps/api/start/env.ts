@@ -89,6 +89,15 @@ export default await Env.create(new URL('../', import.meta.url), {
   S3_BUCKET_PROJECT_FILES: Env.schema.string(),
   S3_BUCKET_COMPILE_OUTPUTS: Env.schema.string(),
 
+  /**
+   * Index des packages TeX Live (kaxolax-texlive-images, `texlive/<année>/packages.json`) : bucket
+   * du stockage objet configuré (S3_*) où la CI le publie, lu avec les mêmes clés. Absent en
+   * développement et en test : petite fixture (resources/fixtures/texlive-packages.json).
+   */
+  TEXLIVE_INDEX_BUCKET: Env.schema.string.optional(),
+  /** Clé de l'index dans ce bucket (défaut : texlive/2026/packages.json). */
+  TEXLIVE_INDEX_KEY: Env.schema.string.optional(),
+
   /** Signe les jetons de connexion au service temps réel (même valeur dans apps/realtime). */
   REALTIME_TOKEN_SECRET: sharedSecret,
   /** En-tête X-Internal-Token des appels entre services (même valeur partout). */
@@ -111,4 +120,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   HISTORY_RETRY_SECONDS: Env.schema.number.optional(),
   /** Historique : purge des versions expirées, en secondes (0 : désactivée ; défaut 3600). */
   HISTORY_PURGE_SECONDS: Env.schema.number.optional(),
+
+  /**
+   * Catalogue public de la galerie (`templates.json` publié par kaxolax-templates sur R2). Absent
+   * hors production : catalogue de démonstration local (resources/templates.fixture.json).
+   */
+  TEMPLATES_CATALOG_URL: optional(urlWith('http', 'https')),
+  /** Base des fichiers du catalogue (PDF, miniatures, zip) ; défaut : dossier du catalogue. */
+  TEMPLATES_PUBLIC_URL: optional(urlWith('http', 'https')),
 })

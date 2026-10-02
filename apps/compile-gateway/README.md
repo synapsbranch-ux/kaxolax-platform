@@ -14,6 +14,9 @@ les routes exigent l'en-tête `X-Internal-Token`.
   (compilations actives / capacité) et compile à froid. Une connexion coupée pendant la
   compilation donne droit à une seconde tentative sur un autre agent.
 - SyncTeX et l'arrêt suivent l'affinité ; le vidage du cache s'adresse à tous les agents.
+- Le comptage de mots (sans état : les documents sont dans la demande) va à l'agent de
+  l'affinité, sinon au moins chargé, sans prendre le verrou du projet ; seconde tentative
+  ailleurs si l'agent tombe.
 
 ## Routes
 
@@ -24,6 +27,7 @@ les routes exigent l'en-tête `X-Internal-Token`.
 | `POST /projects/:id/clear-cache` | Supprime le répertoire du projet sur tous les agents                                 |
 | `GET /projects/:id/synctex/code` | Du code vers le PDF                                                                  |
 | `GET /projects/:id/synctex/pdf`  | Du PDF vers le code                                                                  |
+| `POST /projects/:id/word-count`  | Compte les mots (corps `WordCountRequest`) ; 422 et 503 de l'agent relayés           |
 | `GET /health`                    | Disponibilité et charge de chaque agent                                              |
 
 Sans agent disponible, `/compile` répond 503 : l'API enregistre alors une compilation en erreur.

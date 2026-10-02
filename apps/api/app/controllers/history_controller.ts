@@ -19,7 +19,7 @@ import User from '#models/user'
 import ObjectStorage, { contentDisposition } from '#services/object_storage'
 import { projectFor } from '#services/project_access'
 import RealtimeClient from '#services/realtime_client'
-import { historyRetentionDays } from '#services/history_retention'
+import { historyRetention } from '#services/entitlements'
 import {
   findVersion,
   restoreVersion,
@@ -58,7 +58,8 @@ export default class HistoryController {
   }
 
   async index({ params, request, auth }: HttpContext): Promise<VersionListResponse> {
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'read')
+    const user = auth.getUserOrFail()
+    const { project } = await projectFor(user, String(params.id), 'read')
     const query = validateWithZod(versionListQuerySchema, request.qs())
     const builder = ProjectVersion.query()
       .where('projectId', project.id)
@@ -74,7 +75,8 @@ export default class HistoryController {
       versions: page.map(serializeVersion),
       authors: await versionAuthors(page.flatMap((version) => version.authorIds)),
       nextCursor: rows.length > query.limit ? (page.at(-1)?.id ?? null) : null,
-      retentionDays: await historyRetentionDays(project.ownerId),
+      // Conservation du plan du propriétaire (tâche 12) ; les versions avec label restent.
+      retentionDays: (await historyRetention({ id: project.ownerId }, user)).days,
     }
   }
 

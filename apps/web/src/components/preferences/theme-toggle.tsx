@@ -6,8 +6,8 @@ import { usePreferences } from './preferences-provider'
 
 /**
  * Bascule entre thème sombre et clair (sidebar et éditeur ; la zone PDF reste claire). Préférence
- * de l'utilisateur, appliquée sur tous ses appareils ; les paramètres complets de l'éditeur
- * (tâche 10) reprendront ce réglage.
+ * de l'utilisateur, appliquée sur tous ses appareils ; aussi réglable dans les paramètres de
+ * l'éditeur (`settings-dialog.tsx`).
  */
 export function ThemeToggle({ className }: { className?: string }) {
   const { preferences, update } = usePreferences()

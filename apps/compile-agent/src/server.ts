@@ -8,11 +8,18 @@ import {
   stopCompileResponseSchema,
   synctexCodeQuerySchema,
   synctexPdfQuerySchema,
+  wordCountRequestSchema,
+  wordCountResultSchema,
 } from '@kaxolax/contracts'
 import Fastify from 'fastify'
 import { type Logger } from 'pino'
 import { z, ZodError } from 'zod'
-import { type Compiler, InvalidRequestError } from './compiler.js'
+import {
+  type Compiler,
+  InvalidRequestError,
+  WordCountBusyError,
+  WordCountError,
+} from './compiler.js'
 
 const projectParamsSchema = z.object({ projectId: z.uuid() })
 
@@ -47,6 +54,14 @@ export function buildServer(options: ServerOptions) {
       await reply.code(400).send({ error: 'invalid_request', issues: error.issues })
       return
     }
+    if (error instanceof WordCountError) {
+      await reply.code(422).send({ error: 'word_count_failed', message: error.message })
+      return
+    }
+    if (error instanceof WordCountBusyError) {
+      await reply.code(503).send({ error: 'word_count_busy', message: error.message })
+      return
+    }
     if (error instanceof InvalidRequestError) {
       await reply.code(400).send({ error: 'invalid_request', message: error.message })
       return
@@ -67,6 +82,15 @@ export function buildServer(options: ServerOptions) {
       throw new InvalidRequestError('projectId in the path and in the body differ')
     }
     return agentCompileResponseSchema.parse(await options.compiler.compile(body))
+  })
+
+  app.post('/projects/:projectId/word-count', async (request) => {
+    const { projectId } = projectParamsSchema.parse(request.params)
+    const body = wordCountRequestSchema.parse(request.body)
+    if (body.projectId !== projectId) {
+      throw new InvalidRequestError('projectId in the path and in the body differ')
+    }
+    return wordCountResultSchema.parse(await options.compiler.wordCount(body))
   })
 
   app.post('/projects/:projectId/stop', async (request) => {

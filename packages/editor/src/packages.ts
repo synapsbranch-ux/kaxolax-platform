@@ -128,7 +128,7 @@ function analyse(doc: Text | string): Analysis {
   return { text, code, preamble: { classFrom, classTo: to, end: begin ?? text.length } }
 }
 
-function packagesOf({ text, code, preamble }: Analysis): LoadedPackage[] {
+function packagesOf({ code, preamble }: Analysis): LoadedPackage[] {
   if (!preamble) return []
   const packages: LoadedPackage[] = []
   const pattern = /\\(usepackage|RequirePackage)(?![a-zA-Z@])/g
@@ -139,13 +139,14 @@ function packagesOf({ text, code, preamble }: Analysis): LoadedPackage[] {
     const args = commandArguments(preambleCode, match.index, command)
     pattern.lastIndex = Math.max(args.to, match.index + match[0].length)
     if (!args.required) continue
-    const names = splitList(text.slice(args.required[0] + 1, args.required[1] - 1))
+    // Code sans commentaires : `\usepackage{% \n a, % note \n b}` charge a et b.
+    const names = splitList(code.slice(args.required[0] + 1, args.required[1] - 1))
     if (names.length === 0) continue
     packages.push({
       command,
       names,
       options: args.optional
-        ? splitList(text.slice(args.optional[0] + 1, args.optional[1] - 1))
+        ? splitList(code.slice(args.optional[0] + 1, args.optional[1] - 1))
         : [],
       from: match.index,
       to: args.to,

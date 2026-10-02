@@ -10,11 +10,15 @@ import {
   workerEnqueueResponseSchema,
   type WorkerSynctexCodeQuery,
   type WorkerSynctexPdfQuery,
+  type WordCountRequest,
+  type WordCountResult,
+  wordCountResultSchema,
 } from '@kaxolax/contracts'
 import compileConfig from '#config/compile'
 import {
   CompileServiceUnavailableException,
   NoCompileOutputException,
+  wordCountFailure,
 } from '#services/compile_gateway'
 
 /**
@@ -22,27 +26,35 @@ import {
  * jeton HMAC de 60 secondes lié au projet. Remplacé par un faux dans les tests.
  */
 export default class CompileWorkerClient {
-  private async call(
+  /** Requête au Worker avec un jeton du projet ; erreur réseau ou délai dépassé : 503. */
+  private async send(
     projectId: string,
     path: string,
-    init: { method: 'GET' | 'POST'; body?: unknown },
-  ): Promise<unknown> {
+    init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs?: number },
+  ): Promise<Response> {
     const secret = compileConfig.workerSecret
     if (secret === undefined) throw new CompileServiceUnavailableException()
-    let response: Response
     try {
-      response = await fetch(`${compileConfig.workerUrl}/projects/${projectId}${path}`, {
+      return await fetch(`${compileConfig.workerUrl}/projects/${projectId}${path}`, {
         method: init.method,
         headers: {
           authorization: `Bearer ${await signCompileWorkerToken(projectId, secret.release())}`,
           ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
         },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
-        signal: AbortSignal.timeout(compileConfig.workerCallTimeoutMs),
+        signal: AbortSignal.timeout(init.timeoutMs ?? compileConfig.workerCallTimeoutMs),
       })
     } catch (error) {
       throw new CompileServiceUnavailableException(undefined, { cause: error })
     }
+  }
+
+  private async call(
+    projectId: string,
+    path: string,
+    init: { method: 'GET' | 'POST'; body?: unknown },
+  ): Promise<unknown> {
+    const response = await this.send(projectId, path, init)
     if (response.status === 404) throw new NoCompileOutputException()
     if (!response.ok) {
       throw new CompileServiceUnavailableException(
@@ -57,6 +69,25 @@ export default class CompileWorkerClient {
     return workerEnqueueResponseSchema.parse(
       await this.call(job.projectId, '/compile', { method: 'POST', body: job }),
     )
+  }
+
+  /**
+   * Comptage de mots dans le conteneur du projet, synchrone : le Worker le réveille s'il dort
+   * (jusqu'à `wordCountTimeoutMs`, sous la coupure à 100 s de Cloudflare).
+   */
+  async wordCount(request: WordCountRequest): Promise<WordCountResult> {
+    const response = await this.send(request.projectId, '/word-count', {
+      method: 'POST',
+      body: request,
+      timeoutMs: compileConfig.workerWordCountTimeoutMs,
+    })
+    if (response.status === 422) throw await wordCountFailure(response)
+    if (!response.ok) {
+      throw new CompileServiceUnavailableException(
+        `compile worker answered ${String(response.status)}`,
+      )
+    }
+    return wordCountResultSchema.parse(await response.json())
   }
 
   async cancel(projectId: string, buildId: string): Promise<void> {

@@ -25,6 +25,7 @@ import {
   restoredDocumentState,
   VersionNotFoundException,
 } from '#services/history_service'
+import { assertStorageAvailable, projectStorageUsage } from '#services/plan_enforcement'
 import { isUuid, projectFor } from '#services/project_access'
 import {
   assertNameAvailable,
@@ -395,17 +396,31 @@ export async function restoreVersion(
   if (!backup) throw new VersionNotFoundException()
 
   // Texte des documents encore présents : par le service temps réel (clients connectés).
-  const existing = new Set(
-    (
-      await Document.query()
-        .where('projectId', project.id)
-        .whereIn(
-          'id',
-          documents.map((document) => document.id),
-        )
-        .select('id')
-    ).map((document) => document.id),
+  const stored = (await db
+    .from('documents')
+    .where('project_id', project.id)
+    .whereIn(
+      'id',
+      documents.map((document) => document.id),
+    )
+    .select('id', db.raw('octet_length(yjs_state) AS state_bytes'))) as {
+    id: string
+    state_bytes: string | number
+  }[]
+  const existing = new Set(stored.map((document) => document.id))
+  // Stockage du propriétaire (tâche 12) : un texte restauré plus long que l'état enregistré du
+  // document ajoute du contenu (estimation basse, l'état Yjs contient au moins le texte). Refus
+  // 403 `E_PLAN_LIMIT` avant toute modification ; l'arborescence est vérifiée dans la transaction.
+  const textGrowth = stored.reduce(
+    (sum, document) =>
+      sum +
+      Math.max(
+        0,
+        Buffer.byteLength(texts.get(document.id) ?? '', 'utf8') - Number(document.state_bytes),
+      ),
+    0,
   )
+  if (textGrowth > 0) await assertStorageAvailable(project.ownerId, textGrowth, { requester: user })
   const replaced: string[] = []
   const fail = async (error: unknown): Promise<never> => {
     if (await revertTexts(deps, project.id, backup.version, replaced, user.id)) throw error
@@ -430,6 +445,8 @@ export async function restoreVersion(
       const { project: locked } = await projectFor(user, project.id, 'edit', { trx, lock: true })
       // Version purgée depuis sa lecture : ses binaires ont pu quitter le stockage (404).
       await findVersion(project.id, versionId, trx)
+      // Stockage du propriétaire (tâche 12) : mesuré avant et après la remise de l'arborescence.
+      const usedBefore = await projectStorageUsage(project.id, trx)
       let result: TreeOutcome = { deletedDocumentIds: [], deletedFiles: [] }
       if (input.scope === 'project') {
         result = await restoreWholeTree(trx, locked, manifest, texts, user.id)
@@ -446,6 +463,12 @@ export async function restoreVersion(
         } else if (file) {
           result = await restoreOneEntry(trx, locked, { file }, user.id)
         }
+      }
+      // Documents ou fichiers recréés : 403 `E_PLAN_LIMIT` (tout est annulé, textes compris) si
+      // le stockage du plan ne les accueille pas ; une restauration qui libère passe toujours.
+      const added = (await projectStorageUsage(project.id, trx)) - usedBefore
+      if (added > 0) {
+        await assertStorageAvailable(locked.ownerId, added, { requester: user, trx, applied: true })
       }
       await touchProject(trx, project.id)
       return result

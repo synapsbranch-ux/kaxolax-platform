@@ -18,6 +18,13 @@ Chaque requête porte `Authorization: Bearer v1.<charge>.<HMAC>` : jeton de 60 s
 | `POST /projects/:id/warm`               | Réveil anticipé du conteneur (ouverture de l'éditeur)     |
 | `POST /projects/:id/clear-cache`        | Vide le cache de compilation du projet dans le conteneur  |
 | `GET /projects/:id/synctex/code`, `pdf` | SyncTeX sur la dernière sortie                            |
+| `POST /projects/:id/word-count`         | Compte les mots (texcount), synchrone ; 422 si échec      |
+
+Le comptage de mots est synchrone : la demande (documents texte seulement, aucun binaire à
+pousser) passe du Worker au Durable Object puis à l'agent du conteneur, réveillé si besoin.
+L'agent l'exécute après une compilation en cours (une exécution à la fois dans la VM). L'API
+attend au plus 95 s (Cloudflare coupe une requête à 100 s) : un conteneur au réveil lent donne
+503, à réessayer ; l'éditeur réveille le conteneur dès l'ouverture (`warm`).
 
 ## Déroulement d'une compilation
 

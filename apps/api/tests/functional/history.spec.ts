@@ -600,6 +600,65 @@ test.group('history', (group) => {
     assert.equal(await textOf(introId), 'Introduction')
   })
 
+  test('applies the storage limit of the owner plan to what a restore recreates', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await createUser()
+    const { projectId, mainId, introId, fileId } = await setupProject(client, owner)
+    const version = await createVersion(deps(), projectId, { kind: 'compile' })
+    const versionId = version?.version.id ?? ''
+    ;(
+      await client
+        .delete(`/api/v1/projects/${projectId}/entities/document/${introId}`)
+        .loginAs(owner)
+    ).assertStatus(204)
+    ;(
+      await client.delete(`/api/v1/projects/${projectId}/entities/file/${fileId}`).loginAs(owner)
+    ).assertStatus(204)
+    await edit(projectId, mainId, owner.id, 'Récent')
+    // Stockage Free (500 Mio) rempli par un autre projet du même propriétaire.
+    const other = await client.post('/api/v1/projects').json({ name: 'Autre' }).loginAs(owner)
+    const big = await File.create({
+      projectId: other.body().project.id as string,
+      folderId: null,
+      name: 'big.pdf',
+      s3Key: `projects/${randomUUID()}/files/${randomUUID()}`,
+      sha256: 'a'.repeat(64),
+      sizeBytes: 500 * 1024 * 1024,
+      mimeType: 'application/pdf',
+    })
+
+    // Document et image à recréer : refus du plan, rien n'est modifié (textes compris).
+    const refused = await client
+      .post(`/api/v1/projects/${projectId}/versions/${versionId}/restore`)
+      .json({ scope: 'project' })
+      .loginAs(owner)
+    refused.assertStatus(403)
+    assert.equal(refused.body().code, 'E_PLAN_LIMIT')
+    assert.equal(refused.body().limit.name, 'storage')
+    assert.isNull(await Document.find(introId))
+    assert.isNull(await File.find(fileId))
+    assert.equal(await textOf(mainId), 'Récent')
+    assert.isFalse(
+      realtime.events.some((event) => event.type === 'tree.changed' && event.reason === 'restore'),
+    )
+
+    // Place libérée : la restauration passe et l'arborescence est annoncée après la validation.
+    await big.delete()
+    ;(
+      await client
+        .post(`/api/v1/projects/${projectId}/versions/${versionId}/restore`)
+        .json({ scope: 'project' })
+        .loginAs(owner)
+    ).assertStatus(200)
+    assert.equal(await textOf(introId), 'Introduction')
+    assert.isNotNull(await File.find(fileId))
+    assert.isTrue(
+      realtime.events.some((event) => event.type === 'tree.changed' && event.reason === 'restore'),
+    )
+  })
+
   test('lets every member read, but only editors and the owner label and restore', async ({
     client,
     assert,

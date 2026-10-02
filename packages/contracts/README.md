@@ -16,6 +16,7 @@ realtime). Chaque service valide avec ces schémas les messages qu'il reçoit.
 | `workspaces.ts` | Types et rôles de workspace, workspace renvoyé par `GET /workspaces`                         |
 | `comments.ts`   | Commentaires ancrés : fils, messages, routes du panneau Review, `comment.thread-updated`     |
 | `history.ts`    | Historique : versions, diff attribué, label, restauration, manifeste, routes internes        |
+| `templates.ts`  | Catalogue `templates.json` v1, fiches et routes de la galerie, recherche `filterTemplates`   |
 
 Le paquet est compilé vers `dist/` (ESM + déclarations). Commandes :
 

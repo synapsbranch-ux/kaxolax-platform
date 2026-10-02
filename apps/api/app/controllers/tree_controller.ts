@@ -4,6 +4,7 @@ import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
 import { releaseFileObjects } from '#services/history_service'
+import { assertStorageAvailable } from '#services/plan_enforcement'
 import { projectFor } from '#services/project_access'
 import ObjectStorage from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
@@ -86,9 +87,11 @@ export default class TreeController {
       throw new DocumentTooLargeException()
     const user = auth.getUserOrFail()
     const document = await db.transaction(async (trx) => {
-      const { project } = await projectFor(user, String(params.id), 'edit', {
+      const { project } = await projectFor(user, String(params.id), 'edit', { trx, lock: true })
+      // Stockage du propriétaire du projet (403 `E_PLAN_LIMIT` au-delà de son plan).
+      await assertStorageAvailable(project.ownerId, Buffer.byteLength(content, 'utf8'), {
+        requester: user,
         trx,
-        lock: true,
       })
       const created = await createDocument(trx, project.id, {
         name: input.name,

@@ -73,17 +73,8 @@ export const collaboratorUsageSchema = z.object({
 })
 export type CollaboratorUsage = z.infer<typeof collaboratorUsageSchema>
 
-/** Corps d'un refus 403 `E_PLAN_LIMIT` : l'interface affiche la limite et le lien des tarifs. */
-export const planLimitErrorSchema = z.object({
-  code: z.literal('E_PLAN_LIMIT'),
-  message: z.string(),
-  limit: z.object({
-    name: z.literal('collaborators'),
-    plan: z.string(),
-    max: count,
-  }),
-})
-export type PlanLimitError = z.infer<typeof planLimitErrorSchema>
+// Corps d'un refus 403 `E_PLAN_LIMIT` : `planLimitErrorSchema` (billing.ts), commun à toutes les
+// limites du plan.
 
 /** Corps d'un refus 429 `E_TOO_MANY_INVITATIONS`. */
 export const tooManyInvitationsErrorSchema = z.object({

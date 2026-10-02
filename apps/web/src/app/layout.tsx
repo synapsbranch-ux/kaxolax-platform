@@ -8,6 +8,13 @@ import { ClerkApiBridge } from '@/components/auth/clerk-api-bridge'
 import { clerkAppearance } from '@/components/auth/clerk-appearance'
 import { serverEnv } from '@/env'
 import { parseThemeCookie, THEME_COOKIE } from '@/lib/theme'
+// Polices proposées dans les paramètres de l'éditeur (EDITOR_FONTS), servies par l'application :
+// seules les déclarations @font-face sont chargées ici, le navigateur ne télécharge un fichier
+// de police que lorsqu'elle est réellement utilisée (et seulement les sous-ensembles nécessaires).
+import '@fontsource/fira-code/400.css'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/jetbrains-mono/400.css'
+import '@fontsource/source-code-pro/400.css'
 import './globals.css'
 
 export const metadata: Metadata = {

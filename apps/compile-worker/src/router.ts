@@ -5,10 +5,13 @@ import {
   workerCompileJobSchema,
   type WorkerCompileJob,
   type WorkerEnqueueResponse,
+  type WordCountRequest,
+  wordCountRequestSchema,
   workerSynctexCodeQuerySchema,
   workerSynctexPdfQuerySchema,
 } from '@kaxolax/contracts'
 import { ZodError } from 'zod'
+import type { WordCountOutcome } from './runner.js'
 
 /** Opérations du Durable Object d'un projet, vues par le Worker. */
 export interface ProjectCompiler {
@@ -18,6 +21,8 @@ export interface ProjectCompiler {
   clearCache(): Promise<boolean>
   /** Null : pas de sortie SyncTeX pour ce build. */
   synctex(kind: 'code' | 'pdf', query: Record<string, string>, buildId: string): Promise<unknown>
+  /** Comptage de mots (texcount dans le conteneur), synchrone. */
+  wordCount(request: WordCountRequest): Promise<WordCountOutcome>
 }
 
 export interface RouterOptions {
@@ -27,7 +32,7 @@ export interface RouterOptions {
 }
 
 const ROUTE =
-  /^\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(compile|cancel|warm|clear-cache|synctex\/code|synctex\/pdf)$/
+  /^\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(compile|cancel|warm|clear-cache|synctex\/code|synctex\/pdf|word-count)$/
 
 const METHODS: Record<string, string> = {
   compile: 'POST',
@@ -36,6 +41,7 @@ const METHODS: Record<string, string> = {
   'clear-cache': 'POST',
   'synctex/code': 'GET',
   'synctex/pdf': 'GET',
+  'word-count': 'POST',
 }
 
 function reply(status: number, body: unknown): Response {
@@ -86,6 +92,14 @@ export async function handleRequest(request: Request, options: RouterOptions): P
         return reply(202, { status: 'warming' })
       case 'clear-cache':
         return reply(200, { cleared: await compiler.clearCache() })
+      case 'word-count': {
+        const body = wordCountRequestSchema.parse(await request.json())
+        if (body.projectId !== projectId) return reply(400, { error: 'invalid_request' })
+        const outcome = await compiler.wordCount(body)
+        return outcome.ok
+          ? reply(200, outcome.result)
+          : reply(422, { error: 'word_count_failed', message: outcome.message })
+      }
       default: {
         const params = Object.fromEntries(url.searchParams)
         const kind = action === 'synctex/code' ? 'code' : 'pdf'

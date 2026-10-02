@@ -1,8 +1,4 @@
-import type {
-  InvitationEmailMismatchError,
-  PlanLimitError,
-  TooManyInvitationsError,
-} from '@kaxolax/contracts'
+import type { InvitationEmailMismatchError, TooManyInvitationsError } from '@kaxolax/contracts'
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -12,24 +8,8 @@ import type { HttpContext } from '@adonisjs/core/http'
  * elles-mêmes leur corps, identique en développement et en production.
  */
 
-export class PlanLimitException extends Exception {
-  static override status = 403
-  static override code = 'E_PLAN_LIMIT'
-  static override message = 'The collaborator limit of the project owner plan is reached'
-
-  constructor(readonly limit: { plan: string; max: number }) {
-    super()
-  }
-
-  handle(_error: unknown, { response }: HttpContext) {
-    const body: PlanLimitError = {
-      code: 'E_PLAN_LIMIT',
-      message: this.message,
-      limit: { name: 'collaborators', plan: this.limit.plan, max: this.limit.max },
-    }
-    response.status(403).send(body)
-  }
-}
+// Limite de collaborateurs du plan : `PlanLimitException` (#exceptions/plan_limit), commune à
+// toutes les limites.
 
 export class TooManyInvitationsException extends Exception {
   static override status = 429

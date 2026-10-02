@@ -152,6 +152,36 @@ test.group('admin: projects', (group) => {
     assert.equal((await Project.findOrFail(projectId)).ownerId, next.id)
   })
 
+  test('applies the plan limits of the new owner to a transfer', async ({ client, assert }) => {
+    const { token } = await createAdmin(adminFakes.clerk)
+    const owner = await createUser()
+    const next = await createUser()
+    const projectId = await newProject(client, owner)
+    await ProjectMember.create({ projectId, userId: (await createUser()).id, role: 'viewer' })
+    const transfer = () =>
+      client
+        .post(`/api/v1/admin/projects/${projectId}/transfer`)
+        .json({ newOwnerId: next.id })
+        .bearerToken(token)
+
+    // Free : l'ancien propriétaire (éditeur) et le lecteur dépassent 1 collaborateur.
+    const refused = await transfer()
+    refused.assertStatus(403)
+    assert.equal(refused.body().code, 'E_PLAN_LIMIT')
+    assert.equal(refused.body().limit.name, 'collaborators')
+    assert.equal((await Project.findOrFail(projectId)).ownerId, owner.id)
+
+    await Subscription.create({
+      userId: next.id,
+      clerkSubscriptionItemId: `csi_${randomUUID()}`,
+      planSlug: 'pro',
+      status: 'active',
+      periodEnd: DateTime.utc().plus({ days: 20 }),
+    })
+    ;(await transfer()).assertStatus(200)
+    assert.equal((await Project.findOrFail(projectId)).ownerId, next.id)
+  })
+
   test('archives, trashes, restores and deletes with a journal entry each', async ({
     client,
     assert,

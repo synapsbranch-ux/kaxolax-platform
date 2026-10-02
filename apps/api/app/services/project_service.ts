@@ -9,6 +9,7 @@ import type User from '#models/user'
 import { starterDocument } from '#services/latex'
 import type ObjectStorage from '#services/object_storage'
 import { projectPrefix } from '#services/object_storage'
+import { assertStorageAvailable } from '#services/plan_enforcement'
 import type RealtimeClient from '#services/realtime_client'
 import { createDocument } from '#services/tree_service'
 import { workspaceFor, workspaceForNewProject } from '#services/workspace_service'
@@ -47,7 +48,13 @@ export async function createProject(
   name: string,
   workspaceId?: string,
 ): Promise<Project> {
+  const starter = starterDocument(name, user.fullName)
   return db.transaction(async (trx) => {
+    // Stockage plein : pas de nouveau projet (403 `E_PLAN_LIMIT`).
+    await assertStorageAvailable(user.id, Buffer.byteLength(starter, 'utf8'), {
+      requester: user,
+      trx,
+    })
     const workspace = await workspaceForNewProject(user, workspaceId, trx)
     const project = await Project.create(
       {
@@ -66,7 +73,7 @@ export async function createProject(
     const main = await createDocument(trx, project.id, {
       name: 'main.tex',
       folderId: null,
-      content: starterDocument(name, user.fullName),
+      content: starter,
       authorId: user.id,
     })
     project.mainDocumentId = main.id

@@ -1,19 +1,27 @@
 'use client'
 
+import type { EditorView } from '@codemirror/view'
 import {
   canComment as canCommentRole,
   type Compiler,
   type CompileResult,
+  type LogEntry,
   type PdfPosition,
   presenceUserFor,
   type ProjectSearchMatch,
+  type SpellcheckLanguage,
 } from '@kaxolax/contracts'
-import type { ActionHost } from '@kaxolax/editor'
+import { type ActionHost, editorSettings } from '@kaxolax/editor'
 import { Alert, Button, Skeleton } from '@kaxolax/ui'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRequiredUser } from '@/components/auth/session'
 import { usePreferences } from '@/components/preferences/preferences-provider'
+import {
+  type ProjectSettings,
+  useProjectSettings,
+  useSettings,
+} from '@/components/preferences/settings-provider'
 import { api, ApiError, errorMessage, type Project, type ProjectTree } from '@/lib/api'
 import {
   closeTab,
@@ -24,12 +32,15 @@ import {
   type TabsState,
   tabsEntry,
 } from '@/lib/preferences'
+import { dictionaryAddRefusal, isSpellcheckedPath } from '@/lib/editor-settings'
 import {
   type FollowTarget,
   nextFollowStep,
   type OnlinePerson,
   peopleByDocument,
 } from '@/lib/presence'
+import { type MissingPackage, planRenamePackage } from '@/lib/package-tools'
+import { PackageNameCache } from '@/lib/package-names'
 import {
   bannerFeed,
   chatFeed,
@@ -40,20 +51,27 @@ import {
 } from '@/lib/project-events'
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/sharing'
 import { documentByPath } from '@/lib/tree'
+import { WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle, SyncState } from './editor/code-editor'
 import { EditorColumn } from './editor/editor-column'
 import type { OpenTab } from './editor/editor-tabs'
+import { texlivePackageNames } from './editor/package-name-completion'
+import { EditorStatusBar } from './editor/status-bar'
 import { FileActionsProvider } from './file-actions'
 import type { CompileSettings } from './pdf/compile-status'
 import { PdfColumn } from './pdf/pdf-column'
 import { OutlineTree } from './sidebar/outline-tree'
 import { Sidebar, type SidebarTab } from './sidebar/sidebar'
 import { useProjectChat } from './use-project-chat'
+import { SpellcheckMenu } from './spellcheck/spellcheck-menu'
+import { useSpellcheck } from './spellcheck/use-spellcheck'
 import { useCompile } from './use-compile'
 import { useDocumentOutline } from './use-outline'
+import { useProjectIndex } from './use-project-index'
 import { useProjectMeta } from './use-project-meta'
 import { useRealtimeSocket } from './use-realtime'
-import { WorkspaceActionsProvider } from './workspace-actions'
+import { useEditorActions, WorkspaceActionsProvider } from './workspace-actions'
+import type { WorkspaceTools } from './workspace-tools'
 import { type NarrowView, WorkspaceLayout } from './workspace-layout'
 
 /** Durée d'affichage d'un message court (actions de la barre Tools). */
@@ -67,6 +85,8 @@ const REMOVED_REDIRECT_MS = 6_000
  * brève, redéploiement) efface puis rétablit la présence en quelques centaines de ms.
  */
 const FOLLOW_GRACE_MS = 3_000
+/** Attente maximale de l'ouverture d'un document à modifier (correction depuis les logs). */
+const EDIT_DOCUMENT_TIMEOUT_MS = 15_000
 
 /**
  * Page projet : charge le projet, l'arborescence et la dernière compilation, tient les onglets
@@ -115,7 +135,14 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   const [editorHandle, setEditorHandle] = useState<EditorHandle | null>(null)
   // Position à atteindre une fois le document visé ouvert (log, SyncTeX, plan, recherche) : elle ne
   // s'applique qu'à l'éditeur de ce document.
-  const pendingTarget = useRef<{ documentId: string; target: Target } | null>(null)
+  // `then` : action à faire dans ce document une fois ouvert (correction d'un package) ;
+  // `cancel` : prévient cette action quand elle est abandonnée (autre navigation entre-temps).
+  const pendingTarget = useRef<{
+    documentId: string
+    target: Target | null
+    then?: (handle: EditorHandle) => void
+    cancel?: () => void
+  } | null>(null)
   const { socket, error: socketError } = useRealtimeSocket(projectId)
   const router = useRouter()
   // Accès retiré pendant la session (membre retiré, départ depuis un autre onglet).
@@ -143,9 +170,10 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
       await editor.current?.flush()
     },
     options: preferences.compile,
+    warm: canEdit,
     onError: setError,
   })
-  const { compile } = compileState
+  const { compile, onBuildEvent } = compileState
   const result = compileState.result ?? lastCompile.result
   const resultReceivedAt =
     compileState.result !== null ? compileState.receivedAt : lastCompile.receivedAt
@@ -305,6 +333,11 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         })
         return
       }
+      // Compilation asynchrone : l'état de la compilation suivie avance (pastille, résultat).
+      if (message.event.type === 'compile.updated') {
+        onBuildEvent(message.event)
+        return
+      }
       const effect = eventEffect(message.event, user?.id ?? null)
       switch (effect.kind) {
         case 'refresh-tree':
@@ -329,11 +362,14 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         case 'history':
           historyFeed.publish(effect.event)
           break
+        case 'project':
+          setProject((current) => (current ? { ...current, ...effect.changes } : current))
+          break
         case 'none':
           break
       }
     },
-    [user, scheduleTreeRefresh, checkAccess],
+    [user, scheduleTreeRefresh, checkAccess, onBuildEvent],
   )
 
   // Suivi en cours et dernière présence connue, lus quand le délai de grâce expire.
@@ -458,22 +494,39 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     }
   }, [notice])
 
-  /** Ouvre un document du projet (chemin) et place le curseur, ou sélectionne une occurrence. */
+  /**
+   * Ouvre un document du projet (chemin) et place le curseur, ou sélectionne une occurrence ;
+   * `then` est appelé avec son éditeur une fois le document chargé, `cancel` si une autre
+   * navigation l'abandonne avant. Faux si le chemin n'est pas un document du projet.
+   */
   const openTarget = useCallback(
-    (file: string, target: Target) => {
-      if (!tree) return
+    (
+      file: string,
+      target: Target | null,
+      then?: (handle: EditorHandle) => void,
+      cancel?: () => void,
+    ): boolean => {
+      if (!tree) return false
       const document = documentByPath(tree, file)
       if (!document) {
         setError(`${file} n'est pas un document du projet.`)
-        return
+        return false
       }
       showEditor()
-      if (activeId === document.id && editor.current) {
-        goTo(editor.current, target)
+      const previous = pendingTarget.current
+      if (activeId === document.id && editor.current?.documentId === document.id) {
+        if (previous !== null) {
+          pendingTarget.current = null
+          previous.cancel?.()
+        }
+        if (target !== null) goTo(editor.current, target)
+        then?.(editor.current)
       } else {
-        pendingTarget.current = { documentId: document.id, target }
+        pendingTarget.current = { documentId: document.id, target, then, cancel }
+        previous?.cancel?.()
         changeTabs((current) => openTab(current, document.id))
       }
+      return true
     },
     [tree, activeId, changeTabs, showEditor],
   )
@@ -496,8 +549,13 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     const pending = pendingTarget.current
     if (handle === null || pending === null) return
     // Un autre document activé entre-temps abandonne la position visée.
-    if (handle.documentId === pending.documentId) goTo(handle, pending.target)
     pendingTarget.current = null
+    if (handle.documentId === pending.documentId) {
+      if (pending.target !== null) goTo(handle, pending.target)
+      pending.then?.(handle)
+    } else {
+      pending.cancel?.()
+    }
   }, [])
 
   const outline = useDocumentOutline({
@@ -508,6 +566,166 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     document: activeDocument,
     editor: editorHandle,
   })
+
+  // Autocomplétion : index de tout le projet, et noms de packages de TeX Live appris à la frappe.
+  const projectIndex = useProjectIndex({
+    projectId,
+    socket,
+    tree,
+    mainDocumentId: project?.mainDocumentId ?? null,
+    document: activeDocument,
+    editor: editorHandle,
+  })
+  const [packageNames] = useState(() => new PackageNameCache())
+  const editorExtensions = useMemo(
+    () => texlivePackageNames(projectIndex, packageNames),
+    [projectIndex, packageNames],
+  )
+  const activePath = useRef<string | null>(null)
+  useEffect(() => {
+    activePath.current = activeDocument?.path ?? null
+  })
+  const completion = useMemo(
+    () => ({ sources: () => projectIndex, currentFile: () => activePath.current }),
+    [projectIndex],
+  )
+
+  // Correcteur (worker chargé à la première activation) et paramètres de l'éditeur.
+  const spellcheckLanguage: SpellcheckLanguage = project?.spellcheckLanguage ?? 'en'
+  const spellcheck = useSpellcheck({
+    // Seulement pour la prose (.tex, .ltx, .txt) : pas de soulignements dans un .bib ou un .sty.
+    enabled:
+      preferences.editor.spellcheck &&
+      activeDocument !== null &&
+      isSpellcheckedPath(activeDocument.path),
+    language: spellcheckLanguage,
+    dictionary: preferences.spellcheckDictionary,
+    onDictionaryChange: (words) => {
+      updatePreferences({ spellcheckDictionary: words })
+    },
+  })
+  const editorPreferences = preferences.editor
+  const editorConfig = useMemo(
+    () => editorSettings(editorPreferences, preferences.theme, spellcheck.config),
+    [editorPreferences, preferences.theme, spellcheck.config],
+  )
+  const { openSettings } = useSettings()
+  const projectSettings = useMemo<ProjectSettings | null>(
+    () =>
+      project === null
+        ? null
+        : {
+            projectName: project.name,
+            spellcheckLanguage: project.spellcheckLanguage,
+            canEdit,
+            onSpellcheckLanguageChange: async (language) => {
+              setProject(
+                (await api.updateProject(projectId, { spellcheckLanguage: language })).project,
+              )
+            },
+          },
+    [project, canEdit, projectId],
+  )
+  useProjectSettings(projectSettings)
+
+  /**
+   * Ouvre `path` puis appelle `edit` avec son éditeur, une fois le document chargé. Résolu à vrai
+   * si `edit` a modifié le document ; à faux si le chemin n'est pas un document du projet, si une
+   * autre navigation abandonne l'ouverture, ou au bout de `EDIT_DOCUMENT_TIMEOUT_MS` : `edit`
+   * n'est alors plus jamais appelé (rien ne change dans le document après un échec annoncé).
+   */
+  const editDocument = useCallback(
+    (path: string, edit: (view: EditorView) => boolean) =>
+      new Promise<boolean>((resolve) => {
+        let settled = false
+        const settle = (applied: boolean) => {
+          settled = true
+          clearTimeout(timer)
+          resolve(applied)
+        }
+        const then = (handle: EditorHandle) => {
+          if (!settled) settle(edit(handle.view))
+        }
+        const timer = setTimeout(() => {
+          if (settled) return
+          if (pendingTarget.current?.then === then) pendingTarget.current = null
+          settle(false)
+        }, EDIT_DOCUMENT_TIMEOUT_MS)
+        const opened = openTarget(path, null, then, () => {
+          if (!settled) settle(false)
+        })
+        // Chemin inconnu : ni `then` ni `cancel` n'ont été appelés.
+        if (!opened) settle(false)
+      }),
+    [openTarget],
+  )
+
+  /**
+   * Corrige un package introuvable : dans le fichier du log (sinon le document principal), le
+   * nom fautif du `\usepackage` (ou de la classe) est remplacé par la suggestion choisie.
+   */
+  const fixPackage = useCallback(
+    async (entry: LogEntry, missing: MissingPackage, replacement: string) => {
+      const main = tree?.documents.find((document) => document.id === project?.mainDocumentId)
+      const path = [entry.file, main?.path].find(
+        (candidate): candidate is string =>
+          candidate !== null &&
+          candidate !== undefined &&
+          tree !== null &&
+          documentByPath(tree, candidate) !== undefined,
+      )
+      if (path === undefined) return false
+      return editDocument(path, (view) => {
+        const plan = planRenamePackage(
+          view.state.doc.toString(),
+          missing.kind,
+          missing.name,
+          replacement,
+          path === entry.file ? entry.line : null,
+        )
+        if (plan === null || view.state.readOnly) return false
+        view.dispatch({
+          changes: { from: plan.from, to: plan.to, insert: plan.insert },
+          selection: { anchor: plan.from, head: plan.from + plan.insert.length },
+          scrollIntoView: true,
+          userEvent: 'input.replace',
+        })
+        view.focus()
+        return true
+      })
+    },
+    [tree, project, editDocument],
+  )
+
+  const flushEditor = useCallback(async () => {
+    await editor.current?.flush()
+  }, [])
+  const mainDocument =
+    tree?.documents.find((document) => document.id === project?.mainDocumentId) ?? null
+  const tools = useMemo<WorkspaceTools>(
+    () => ({
+      projectId,
+      projectName: project?.name ?? '',
+      mainDocument,
+      activeDocument,
+      canEdit,
+      openDocument: open,
+      editDocument,
+      projectIndex,
+      flush: flushEditor,
+    }),
+    [
+      projectId,
+      project?.name,
+      mainDocument,
+      activeDocument,
+      canEdit,
+      open,
+      editDocument,
+      projectIndex,
+      flushEditor,
+    ],
+  )
 
   const codeToPdf = useCallback(async () => {
     if (!activeDocument || !editor.current) return
@@ -654,6 +872,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         searchProject={searchProject}
         notify={notify}
         editor={editor}
+        tools={tools}
       >
         <WorkspaceLayout
           layout={preferences.layout}
@@ -714,7 +933,40 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               canComment={project !== null && canCommentRole(project.role)}
               selfId={user?.id ?? null}
               membersVersion={membersVersion}
-              theme={preferences.theme}
+              settings={editorConfig}
+              completion={completion}
+              extensions={editorExtensions}
+              statusBar={
+                <EditorStatusBarSlot
+                  editor={editorHandle}
+                  documentOpen={activeDocument !== null}
+                  keymap={editorConfig.keymap}
+                  spellcheck={{
+                    enabled: preferences.editor.spellcheck,
+                    applies: activeDocument === null || isSpellcheckedPath(activeDocument.path),
+                    language: spellcheckLanguage,
+                    error: spellcheck.error,
+                  }}
+                  onSettings={openSettings}
+                />
+              }
+              overlay={
+                spellcheck.menu ? (
+                  <SpellcheckMenu
+                    key={`${String(spellcheck.menu.from)}:${spellcheck.menu.word}`}
+                    menu={spellcheck.menu}
+                    readOnly={!canEdit}
+                    addRefusal={dictionaryAddRefusal(
+                      preferences.spellcheckDictionary,
+                      spellcheck.menu.word,
+                    )}
+                    onClose={spellcheck.closeMenu}
+                    focusEditor={() => {
+                      editor.current?.view.focus()
+                    }}
+                  />
+                ) : null
+              }
               autoCompile={preferences.autoCompile}
               toolsVisible={preferences.toolsVisible}
               syncState={syncState}
@@ -767,6 +1019,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               result={result}
               resultReceivedAt={resultReceivedAt}
               compiling={compileState.compiling}
+              phase={compileState.phase}
               settings={settings}
               canEdit={canEdit}
               fileName={`${project?.name ?? 'output'}.pdf`}
@@ -786,6 +1039,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
                   })
               }}
               onOpenLocation={openLocation}
+              onFixPackage={canEdit ? fixPackage : undefined}
               onPdfDoubleClick={(page, h, v) => void pdfToCode(page, h, v)}
               onGoToPdf={() => void codeToPdf()}
               onUndo={() => editor.current?.undo()}
@@ -798,6 +1052,19 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         />
       </WorkspaceActionsProvider>
     </FileActionsProvider>
+  )
+}
+
+/** Barre d'état : le compteur de mots passe par le registre d'actions (même boîte que le menu). */
+function EditorStatusBarSlot(props: Omit<Parameters<typeof EditorStatusBar>[0], 'onWordCount'>) {
+  const { run } = useEditorActions()
+  return (
+    <EditorStatusBar
+      {...props}
+      onWordCount={() => {
+        run(WORD_COUNT_DIALOG)
+      }}
+    />
   )
 }
 

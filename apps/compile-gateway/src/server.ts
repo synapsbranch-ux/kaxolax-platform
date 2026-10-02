@@ -6,6 +6,7 @@ import {
   stopCompileResponseSchema,
   synctexCodeQuerySchema,
   synctexPdfQuerySchema,
+  wordCountRequestSchema,
 } from '@kaxolax/contracts'
 import Fastify from 'fastify'
 import type { Logger } from 'pino'
@@ -55,6 +56,11 @@ export function buildServer(options: ServerOptions) {
       await reply.code(404).send({ error: 'no_compile_output', message: error.message })
       return
     }
+    // Agent saturé (file des comptages pleine) : 503 transmis, l'API le traduit en indisponible.
+    if (error instanceof AgentResponseError && error.status === 503) {
+      await reply.code(503).send(error.body)
+      return
+    }
     if (error instanceof AgentResponseError && error.status < 500) {
       await reply.code(error.status).send(error.body)
       return
@@ -74,6 +80,15 @@ export function buildServer(options: ServerOptions) {
   }))
 
   app.post('/compile', async (request) => router.compile(compileRequestSchema.parse(request.body)))
+
+  app.post('/projects/:projectId/word-count', async (request, reply) => {
+    const { projectId } = projectParamsSchema.parse(request.params)
+    const body = wordCountRequestSchema.parse(request.body)
+    if (body.projectId !== projectId) {
+      return reply.code(400).send({ error: 'invalid_request' })
+    }
+    return router.wordCount(body)
+  })
 
   app.post('/projects/:projectId/stop', async (request) => {
     const { projectId } = projectParamsSchema.parse(request.params)

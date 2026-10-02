@@ -16,7 +16,7 @@ import {
 } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { type CompileResource, isSafeRelativePath } from '@kaxolax/contracts'
+import { type CompileResource, isSafeRelativePath, type WordCountRequest } from '@kaxolax/contracts'
 
 /** Emplacements d'un projet sur l'agent : `files/` est monté dans le conteneur, pas `state.json`. */
 export interface ProjectPaths {
@@ -237,6 +237,31 @@ export async function syncWorkspace(
   state.rootResourcePath = rootResourcePath
   await writeState(paths.state, state)
   return stats
+}
+
+/**
+ * Écrit des documents texte dans un répertoire neuf (comptage de mots), lisible par l'UID du
+ * sandbox. Tous les chemins sont vérifiés avant la première écriture ; le répertoire ne doit pas
+ * exister (`mkdir` sans `recursive` échoue sinon).
+ */
+export async function writeTextTree(
+  directory: string,
+  resources: WordCountRequest['resources'],
+): Promise<void> {
+  for (const resource of resources) {
+    if (!isSafeRelativePath(resource.path)) {
+      throw new UnsafePathError(`Unsafe resource path: ${resource.path}`)
+    }
+  }
+  await mkdir(directory, { mode: 0o755 })
+  await makeWritableForSandbox(directory, true)
+  for (const resource of resources) {
+    await assertSafeTarget(directory, resource.path)
+    await ensureDirectory(directory, dirname(resource.path))
+    const target = join(directory, resource.path)
+    await writeNoFollow(target, resource.content)
+    await makeWritableForSandbox(target, false)
+  }
 }
 
 /** Taille totale d'un répertoire, sans suivre les liens symboliques. */

@@ -15,9 +15,17 @@ export class TooManyCompilersException extends Exception {
  * d'un conteneur. Sans lui, un seul compte garderait éveillés tous les conteneurs du compte
  * Cloudflare (`max_instances`). Réutiliser un projet déjà compté ne coûte rien. Un verrou
  * consultatif par utilisateur rend la vérification et l'enregistrement atomiques.
+ *
+ * `warm` (réveil anticipé, simple consultation) ne prend jamais le dernier emplacement libre :
+ * il le laisse à une vraie compilation et renvoie faux au lieu de refuser. Une compilation
+ * (`warm` absent) lève 429 `E_TOO_MANY_COMPILERS` au-delà du plafond.
  */
-export async function reserveCompiler(userId: string, projectId: string): Promise<void> {
-  await db.transaction(async (trx) => {
+export async function reserveCompiler(
+  userId: string,
+  projectId: string,
+  { warm = false }: { warm?: boolean } = {},
+): Promise<boolean> {
+  return db.transaction(async (trx) => {
     await trx.rawQuery('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
       `compiler-quota:${userId}`,
     ])
@@ -30,7 +38,15 @@ export async function reserveCompiler(userId: string, projectId: string): Promis
       'SELECT count(*) AS count FROM compiler_activations WHERE user_id = ? AND project_id <> ?',
       [userId, projectId],
     )
-    if (Number(others.rows[0]?.count ?? 0) >= compileConfig.maxCompilersPerUser) {
+    const counted = await trx.rawQuery<{ rows: unknown[] }>(
+      'SELECT 1 FROM compiler_activations WHERE user_id = ? AND project_id = ?',
+      [userId, projectId],
+    )
+    const used = Number(others.rows[0]?.count ?? 0)
+    // Projet déjà compté : il ne prend pas d'emplacement supplémentaire.
+    const limit = compileConfig.maxCompilersPerUser - (warm && counted.rows.length === 0 ? 1 : 0)
+    if (used >= limit) {
+      if (warm) return false
       throw new TooManyCompilersException()
     }
     await trx.rawQuery(
@@ -39,5 +55,6 @@ export async function reserveCompiler(userId: string, projectId: string): Promis
        ON CONFLICT (user_id, project_id) DO UPDATE SET last_activity_at = now()`,
       [userId, projectId],
     )
+    return true
   })
 }

@@ -5,7 +5,7 @@ import { DateTime } from 'luxon'
 import historyConfig from '#config/history'
 import ObjectStorage from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
-import { historyRetentionDays } from '#services/history_retention'
+import { historyRetention } from '#services/entitlements'
 import {
   createVersion,
   dueProjectIds,
@@ -67,7 +67,8 @@ export async function purgeExpiredHistory(
   let purged = 0
   for (const project of candidates) {
     try {
-      const days = await historyRetentionDays(project.owner_id)
+      // Plan du propriétaire (tâche 12) ; `purgeProjectHistory` garde les versions avec label.
+      const { days } = await historyRetention({ id: project.owner_id })
       purged += await purgeProjectHistory(storage, project.id, days, now)
     } catch (error) {
       logger.error({ err: error, projectId: project.id }, 'history purge failed')
