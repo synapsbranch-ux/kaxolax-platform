@@ -15,6 +15,7 @@ import logger from '@adonisjs/core/services/logger'
 import mail from '@adonisjs/mail/services/main'
 import { InvitationEmailFailedException, ShareLinkNotFoundException } from '#exceptions/sharing'
 import ProjectInvitationMail from '#mails/project_invitation_mail'
+import { ownershipTransferEvents, publishProjectEvents } from '#services/project_events'
 import RealtimeClient from '#services/realtime_client'
 import {
   cancelInvitation,
@@ -83,13 +84,17 @@ export default class SharingController {
   async updateMember({ params, request, auth }: HttpContext): Promise<MemberResponse> {
     const { role } = await request.validateUsing(updateMemberRoleValidator)
     const projectId = String(params.id)
-    const { member, changed } = await changeMemberRole(
-      auth.getUserOrFail(),
-      projectId,
-      String(params.userId),
-      role,
-    )
-    if (changed) await this.realtime.membersChanged(projectId, [member.user.id])
+    const user = auth.getUserOrFail()
+    const { member, changed } = await changeMemberRole(user, projectId, String(params.userId), role)
+    if (changed) {
+      await this.realtime.membersChanged(projectId, [member.user.id])
+      await this.realtime.publishProjectEvent(projectId, {
+        type: 'member.role-updated',
+        userId: member.user.id,
+        role: member.role,
+        actorId: user.id,
+      })
+    }
     return { member }
   }
 
@@ -97,9 +102,15 @@ export default class SharingController {
   async removeMember({ params, auth, response }: HttpContext) {
     const projectId = String(params.id)
     const memberId = String(params.userId)
-    await removeMember(auth.getUserOrFail(), projectId, memberId)
-    // Déconnecté de tous les documents du projet en moins de 2 s.
+    const user = auth.getUserOrFail()
+    await removeMember(user, projectId, memberId)
+    // Déconnecté de tous les documents du projet en moins de 2 s, puis annoncé aux autres.
     await this.realtime.membersChanged(projectId, [memberId])
+    await this.realtime.publishProjectEvent(projectId, {
+      type: 'member.removed',
+      userId: memberId,
+      actorId: user.id,
+    })
     response.noContent()
   }
 
@@ -109,6 +120,7 @@ export default class SharingController {
     const projectId = String(params.id)
     const transfer = await transferProjectOwnership(user, projectId, userId)
     await this.realtime.membersChanged(projectId, [transfer.fromUserId, transfer.toUserId])
+    await publishProjectEvents(this.realtime, projectId, ownershipTransferEvents(transfer, user.id))
     return projectMembers(user, projectId)
   }
 

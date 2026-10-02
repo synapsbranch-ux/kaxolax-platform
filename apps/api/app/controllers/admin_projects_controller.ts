@@ -10,6 +10,7 @@ import {
   transferProject,
 } from '#services/admin_projects'
 import ObjectStorage from '#services/object_storage'
+import { ownershipTransferEvents, publishProjectEvents } from '#services/project_events'
 import RealtimeClient from '#services/realtime_client'
 import { adminProjectsQueryValidator, transferProjectValidator } from '#validators/admin'
 
@@ -39,9 +40,15 @@ export default class AdminProjectsController {
 
   async transfer({ params, request, auth }: HttpContext) {
     const { newOwnerId } = await request.validateUsing(transferProjectValidator)
-    const transfer = await transferProject(auth.getUserOrFail(), String(params.id), newOwnerId)
+    const admin = auth.getUserOrFail()
+    const transfer = await transferProject(admin, String(params.id), newOwnerId)
     // Les deux rôles ont changé : le service temps réel les applique aux connexions ouvertes.
     await this.realtime.membersChanged(String(params.id), [transfer.fromUserId, transfer.toUserId])
+    await publishProjectEvents(
+      this.realtime,
+      String(params.id),
+      ownershipTransferEvents(transfer, admin.id),
+    )
     return { project: await projectDetail(String(params.id)) }
   }
 

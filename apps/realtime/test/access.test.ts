@@ -30,8 +30,11 @@ function fakeStore() {
 function fakeConnection(role: ProjectRole) {
   const context: ConnectionContext = {
     userId: 'user',
+    userName: 'User',
+    avatarUrl: null,
     projectId: 'project',
     documentId: 'document',
+    meta: false,
     role,
     issuedAt: 1,
     roleCheckedAt: 0,

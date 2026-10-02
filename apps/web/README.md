@@ -17,7 +17,16 @@ l'API).
   toutes les pages connectées, en bandeau fixe en haut de l'écran (aucune hauteur ajoutée à
   l'éditeur plein écran ; la nouvelle interface de la tâche 3 pourra leur réserver une place),
   couleur selon le niveau, fermables pour la session jusqu'à leur prochaine modification ;
-  `GET /api/v1/banners/active` relu toutes les 60 s et au retour sur l'onglet.
+  reçues en direct sur la page projet (événement `banner.changed` du document meta, relayé par
+  `bannerFeed` de `lib/project-events.ts`), et `GET /api/v1/banners/active` relu toutes les 60 s
+  et au retour sur l'onglet en filet (tableau de bord, connexion temps réel coupée).
+- **Invitation et lien de partage** (pages publiques `/invitations/[token]` et `/share/[token]`,
+  `components/sharing/join-page.tsx`) : aperçu sans compte (projet, rôle, invitant, échéance),
+  puis « Accepter » ou « Rejoindre » une fois connecté et redirection vers le projet. Sans
+  session : « Se connecter » ou « Créer un compte » (Clerk, `redirect_url` qui ramène sur la
+  page). Une invitation déjà acceptée automatiquement à l'inscription est réglée sans clic
+  (acceptation idempotente). Erreurs traduites (`lib/sharing.ts`) : invitation annulée ou
+  expirée, autre adresse (indice `a***@…` et « Changer de compte »), limite du plan.
 - **Tableau de bord** : projets actifs, archivés et corbeille ; filtre par workspace (sélecteur
   du pied de sidebar, « Tous les workspaces » par défaut, préselection par `?workspace=`) ;
   recherche ; tri par date ou par nom ; créer, renommer, archiver, mettre à la corbeille,
@@ -27,7 +36,7 @@ l'API).
   toujours claire ; trois colonnes redimensionnables, sidebar repliable (tailles et repli
   mémorisés dans les préférences) ; sous 1024 px, sidebar en tiroir et éditeur/PDF en onglets.
   - Sidebar : logo, sélecteur de projet (récents, recherche, nouveau projet, tableau de bord),
-    emplacements présence et partage, onglets Fichiers (arborescence : créer, renommer, déplacer
+    présence et partage (voir plus bas), onglets Fichiers (arborescence : créer, renommer, déplacer
     par glisser-déposer, supprimer, uploader, document principal) et Chats (à venir), menu +,
     recherche dans tout le projet (loupe ou Ctrl+Maj+F : casse, mot entier, expression
     régulière, résultats par fichier), section Plan (document courant et fichiers inclus,
@@ -43,6 +52,38 @@ l'API).
     nouvel onglet, impression), tiroir des logs (erreurs cliquables, log brut), barre flottante (annuler,
     pages, « Aller au PDF » par SyncTeX) ; un double-clic dans le PDF place le curseur sur la
     ligne source. Le PDF de la dernière compilation s'affiche dès l'ouverture du projet.
+  - Temps réel du projet (`workspace/use-project-meta.ts`) : à l'ouverture, connexion au
+    document meta `project:{id}:meta` sur le WebSocket partagé. La page y publie sa présence
+    (identité, fichier de l'onglet actif) et reçoit les événements sans état :
+    `tree.changed` (arborescence relue sans recharger, une fois par rafale de 150 ms),
+    `member.*` (modale de partage ouverte relue ; son propre retrait ou changement de rôle :
+    projet relu), `banner.changed` (bannière), et le message `member.role-changed` de sa
+    connexion (bascule lecture seule ou écriture, avec un message). Retrait du projet
+    (connexion fermée « Forbidden », événement ou projet en 404) : page « Vous n'avez plus accès
+    à ce projet », puis retour au tableau de bord après 6 s.
+  - Présence (`lib/presence.ts`, états validés par `parsePresenceState`) : pile d'avatars des
+    autres personnes en ligne dans la sidebar (`PresenceStack`, `AvatarStack` de
+    `@kaxolax/ui`, photo de profil sinon initiales, couleur dérivée de l'id ; plusieurs onglets d'une personne regroupés ; au
+    survol, le ou les fichiers ouverts), pastilles de couleur à côté des fichiers de
+    l'arborescence ouverts par d'autres, curseurs et sélections des collaborateurs dans
+    l'éditeur avec leur nom toujours visible (y-codemirror.next, `collaboratorCursorTheme` de
+    `@kaxolax/editor`). Clic sur un avatar : suivre la personne (son fichier s'ouvre, l'éditeur
+    défile jusqu'à son curseur et la suit d'un fichier à l'autre) jusqu'à la prochaine frappe
+    dans l'éditeur ; bandeau « Vous suivez X » avec « Arrêter de suivre » ; suivi arrêté si la
+    personne reste absente 3 s (une reconnexion du WebSocket ne l'arrête pas). Arborescence
+    relue : seule la réponse de la dernière demande s'applique. Connexion meta refusée (jeton non
+    obtenu, erreur du serveur) : accès revérifié, puis connexion rouverte s'il est confirmé
+    (délai de 2 s doublé à chaque échec, 30 s au plus).
+  - Lecture seule : passer en lecture seule reconfigure l'éditeur sans le recréer ; le retour en
+    écriture rouvre le document (les frappes refusées pendant la lecture seule bloqueraient les
+    suivantes).
+  - Partage (bouton personne +, `components/sharing/`) : propriétaire : inviter par email avec
+    un rôle (éditeur, relecteur, lecteur ; usage de la limite du plan affiché), membres (changer
+    le rôle, retirer, transférer la propriété, avec confirmation), invitations en attente
+    (échéance, relancer une fois par minute, annuler), liens de partage lecture seule et édition
+    (activer, désactiver, copier, régénérer avec confirmation). `E_PLAN_LIMIT` : la limite et un
+    lien vers les tarifs (`PRICING_URL`, page de la tâche 12). Autres rôles : vue limitée (membres
+    et rôles, « Quitter » le projet). Réponses validées par les schémas zod des contrats.
   - États : squelettes pendant le chargement, page d'erreur (nouvel essai) si le projet ne se
     charge pas, « Projet introuvable » (404), message si le service temps réel refuse la
     connexion ; côté PDF : « Chargement de l'aperçu PDF… », projet jamais compilé, échec ou

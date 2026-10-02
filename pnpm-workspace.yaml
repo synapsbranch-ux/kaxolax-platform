@@ -39,6 +39,7 @@ catalog:
   '@commitlint/config-conventional': 21.2.3
   '@eslint/js': 10.0.1
   '@hocuspocus/extension-database': 4.7.0
+  '@hocuspocus/extension-redis': 4.7.0
   '@hocuspocus/provider': 4.7.0
   '@hocuspocus/server': 4.7.0
   '@japa/api-client': 3.2.1

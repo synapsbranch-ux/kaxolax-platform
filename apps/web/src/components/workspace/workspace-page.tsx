@@ -1,8 +1,15 @@
 'use client'
 
-import type { Compiler, CompileResult, PdfPosition, ProjectSearchMatch } from '@kaxolax/contracts'
+import {
+  type Compiler,
+  type CompileResult,
+  type PdfPosition,
+  presenceUserFor,
+  type ProjectSearchMatch,
+} from '@kaxolax/contracts'
 import type { ActionHost } from '@kaxolax/editor'
 import { Alert, Button, Skeleton } from '@kaxolax/ui'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRequiredUser } from '@/components/auth/session'
 import { usePreferences } from '@/components/preferences/preferences-provider'
@@ -16,6 +23,14 @@ import {
   type TabsState,
   tabsEntry,
 } from '@/lib/preferences'
+import {
+  type FollowTarget,
+  nextFollowStep,
+  type OnlinePerson,
+  peopleByDocument,
+} from '@/lib/presence'
+import { bannerFeed, eventEffect, type RealtimeMessage } from '@/lib/project-events'
+import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/sharing'
 import { documentByPath } from '@/lib/tree'
 import type { EditorHandle, SyncState } from './editor/code-editor'
 import { EditorColumn } from './editor/editor-column'
@@ -27,12 +42,22 @@ import { OutlineTree } from './sidebar/outline-tree'
 import { Sidebar } from './sidebar/sidebar'
 import { useCompile } from './use-compile'
 import { useDocumentOutline } from './use-outline'
+import { useProjectMeta } from './use-project-meta'
 import { useRealtimeSocket } from './use-realtime'
 import { WorkspaceActionsProvider } from './workspace-actions'
 import { type NarrowView, WorkspaceLayout } from './workspace-layout'
 
 /** Durée d'affichage d'un message court (actions de la barre Tools). */
 const NOTICE_MS = 5_000
+/** Regroupement des relectures de l'arborescence (rafale d'événements : upload, import). */
+const TREE_REFRESH_DELAY_MS = 150
+/** Délai avant le retour au tableau de bord d'un membre retiré. */
+const REMOVED_REDIRECT_MS = 6_000
+/**
+ * Absence tolérée d'un collaborateur suivi avant d'arrêter le suivi : une reconnexion (coupure
+ * brève, redéploiement) efface puis rétablit la présence en quelques centaines de ms.
+ */
+const FOLLOW_GRACE_MS = 3_000
 
 /**
  * Page projet : charge le projet, l'arborescence et la dernière compilation, tient les onglets
@@ -74,6 +99,18 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   // s'applique qu'à l'éditeur de ce document.
   const pendingTarget = useRef<{ documentId: string; target: Target } | null>(null)
   const { socket, error: socketError } = useRealtimeSocket(projectId)
+  const router = useRouter()
+  // Accès retiré pendant la session (membre retiré, départ depuis un autre onglet).
+  const [removed, setRemoved] = useState(false)
+  // Collaborateur suivi (clic sur son avatar), jusqu'à la prochaine frappe.
+  const [following, setFollowing] = useState<(FollowTarget & { color: string }) | null>(null)
+  // Incrémenté à chaque événement de membre : la modale de partage ouverte se relit.
+  const [membersVersion, setMembersVersion] = useState(0)
+  const self = useMemo(
+    // Jamais l'email : la présence est visible de tous les membres du projet.
+    () => (user ? presenceUserFor(user.id, user.fullName, user.avatarUrl) : null),
+    [user],
+  )
 
   const canEdit = project?.role === 'owner' || project?.role === 'editor'
 
@@ -90,13 +127,70 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   const resultReceivedAt =
     compileState.result !== null ? compileState.receivedAt : lastCompile.receivedAt
 
+  // Relectures concurrentes (événement `tree.changed`, action locale) : seule la réponse de la
+  // dernière demande s'applique, une réponse plus ancienne arrivée après est ignorée.
+  const treeRequest = useRef(0)
   const refreshTree = useCallback(async () => {
+    const request = ++treeRequest.current
     const next = await api.tree(projectId)
+    if (request !== treeRequest.current) return
     setTree(next)
     setProject((current) =>
       current ? { ...current, mainDocumentId: next.mainDocumentId } : current,
     )
   }, [projectId])
+
+  // Arborescence modifiée ailleurs (événement `tree.changed`) : relue une fois par rafale.
+  const treeRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleTreeRefresh = useCallback(() => {
+    if (treeRefreshTimer.current !== null) clearTimeout(treeRefreshTimer.current)
+    treeRefreshTimer.current = setTimeout(() => {
+      treeRefreshTimer.current = null
+      refreshTree().catch(() => undefined)
+    }, TREE_REFRESH_DELAY_MS)
+  }, [refreshTree])
+  useEffect(
+    () => () => {
+      if (treeRefreshTimer.current !== null) clearTimeout(treeRefreshTimer.current)
+    },
+    [],
+  )
+
+  /**
+   * Relit le projet après un changement d'accès (rôle, retrait) : 404, l'utilisateur n'est plus
+   * membre ; sinon le rôle relu bascule l'éditeur en lecture seule ou en écriture. Résolu à faux
+   * seulement si l'accès est perdu (une erreur réseau laisse supposer qu'il reste membre).
+   */
+  const checkingAccess = useRef<Promise<boolean> | null>(null)
+  const checkAccess = useCallback((): Promise<boolean> => {
+    checkingAccess.current ??= api.project(projectId).then(
+      ({ project: loaded }) => {
+        checkingAccess.current = null
+        setProject(loaded)
+        return true
+      },
+      (caught: unknown) => {
+        checkingAccess.current = null
+        if (caught instanceof ApiError && caught.status === 404) {
+          setRemoved(true)
+          return false
+        }
+        return true
+      },
+    )
+    return checkingAccess.current
+  }, [projectId])
+
+  // Membre retiré : message, puis retour au tableau de bord.
+  useEffect(() => {
+    if (!removed) return
+    const timer = setTimeout(() => {
+      router.push('/dashboard')
+    }, REMOVED_REDIRECT_MS)
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [removed, router])
 
   // Chargement : projet, arbre et dernière compilation (le PDF s'affiche dès l'ouverture).
   useEffect(() => {
@@ -176,6 +270,115 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     [currentTabs, tree],
   )
   const activeTab = openTabs.find((tab) => tab.id === activeId) ?? null
+
+  /** Message sans état du temps réel : événement du projet ou changement de son rôle. */
+  const onRealtimeMessage = useCallback(
+    (message: RealtimeMessage) => {
+      if (message.kind === 'role') {
+        setProject((current) => (current ? { ...current, role: message.message.role } : current))
+        setNotice({
+          message: `Votre rôle est maintenant ${ROLE_LABELS[message.message.role].toLowerCase()} (${ROLE_DESCRIPTIONS[message.message.role]})${message.message.readOnly ? ' : éditeur en lecture seule.' : '.'}`,
+          level: 'info',
+        })
+        return
+      }
+      const effect = eventEffect(message.event, user?.id ?? null)
+      switch (effect.kind) {
+        case 'refresh-tree':
+          scheduleTreeRefresh()
+          break
+        case 'refresh-members':
+          setMembersVersion((version) => version + 1)
+          break
+        case 'refresh-access':
+          setMembersVersion((version) => version + 1)
+          void checkAccess()
+          break
+        case 'banners':
+          bannerFeed.publish(effect.banners)
+          break
+        case 'none':
+          break
+      }
+    },
+    [user, scheduleTreeRefresh, checkAccess],
+  )
+
+  // Suivi en cours et dernière présence connue, lus quand le délai de grâce expire.
+  const followingRef = useRef(following)
+  const latestPeople = useRef<readonly OnlinePerson[]>([])
+  const followLostTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    followingRef.current = following
+  })
+  const cancelFollowLost = useCallback(() => {
+    if (followLostTimer.current !== null) clearTimeout(followLostTimer.current)
+    followLostTimer.current = null
+  }, [])
+  useEffect(() => cancelFollowLost, [cancelFollowLost])
+
+  /**
+   * Applique le suivi d'après la présence : ouvre le fichier du collaborateur suivi. Une absence
+   * n'arrête le suivi qu'après `FOLLOW_GRACE_MS` sans retour de la personne.
+   */
+  const applyFollow = useCallback(
+    (target: FollowTarget, people: readonly OnlinePerson[]) => {
+      latestPeople.current = people
+      const step = nextFollowStep(target, people, activeId, exists)
+      if (step.kind !== 'stop') cancelFollowLost()
+      if (step.kind === 'stop') {
+        if (followLostTimer.current !== null) return
+        followLostTimer.current = setTimeout(() => {
+          followLostTimer.current = null
+          if (followingRef.current?.userId !== target.userId) return
+          if (latestPeople.current.some((person) => person.user.id === target.userId)) return
+          setFollowing(null)
+          setNotice({
+            message: `${target.name} n'est plus en ligne : suivi arrêté.`,
+            level: 'info',
+          })
+        }, FOLLOW_GRACE_MS)
+      } else if (step.kind === 'open') {
+        changeTabs((current) => openTab(current, step.documentId))
+        showEditor()
+      }
+    },
+    [activeId, exists, changeTabs, showEditor, cancelFollowLost],
+  )
+
+  const { people } = useProjectMeta({
+    projectId,
+    socket,
+    self,
+    activeId,
+    onMessage: onRealtimeMessage,
+    onAccessLost: checkAccess,
+    onPeopleChange: (next) => {
+      latestPeople.current = next
+      if (following) applyFollow(following, next)
+    },
+  })
+  const presenceByDocument = useMemo(() => peopleByDocument(people), [people])
+  const nameOf = useCallback(
+    (id: string) =>
+      tree?.documents.find((document) => document.id === id)?.name ??
+      tree?.files.find((file) => file.id === id)?.name ??
+      null,
+    [tree],
+  )
+  const follow = useCallback(
+    (person: OnlinePerson) => {
+      const target = { userId: person.user.id, name: person.user.name, color: person.user.color }
+      cancelFollowLost()
+      setFollowing(target)
+      applyFollow(target, people)
+    },
+    [applyFollow, people, cancelFollowLost],
+  )
+  const stopFollowing = useCallback(() => {
+    cancelFollowLost()
+    setFollowing(null)
+  }, [cancelFollowLost])
 
   // Nouveau PDF : le surlignage SyncTeX précédent n'a plus de sens.
   const runCompile = useCallback(() => {
@@ -333,6 +536,23 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     haltOnFirstError: preferences.compile.haltOnFirstError,
   }
 
+  if (removed) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-3 px-4 text-center">
+        <p className="text-lg font-semibold" role="alert">
+          Vous n'avez plus accès à ce projet
+        </p>
+        <p className="max-w-md text-sm text-muted-foreground">
+          Le propriétaire vous a retiré du projet, ou vous l'avez quitté depuis un autre onglet.
+          Retour au tableau de bord dans quelques secondes.
+        </p>
+        <Button asChild>
+          <a href="/dashboard">Retour aux projets</a>
+        </Button>
+      </main>
+    )
+  }
+
   if (notFound) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3">
@@ -420,6 +640,12 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
                 setSearch(null)
               }}
               onOpenMatch={openMatch}
+              people={people}
+              presenceByDocument={presenceByDocument}
+              nameOf={nameOf}
+              onFollow={follow}
+              membersVersion={membersVersion}
+              onAccessChanged={() => void checkAccess()}
               outline={
                 <OutlineTree
                   nodes={outline.nodes}
@@ -446,6 +672,9 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               toolsVisible={preferences.toolsVisible}
               syncState={syncState}
               leading={leading}
+              self={self}
+              following={following}
+              onStopFollowing={stopFollowing}
               notice={
                 <>
                   {error ? (

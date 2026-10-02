@@ -1,12 +1,15 @@
 import { signRealtimeToken } from '@kaxolax/collab/token'
 import {
   type ActiveBanner,
+  type BroadcastEvent,
   closeDocumentResponseSchema,
   disconnectUserResponseSchema,
   INTERNAL_TOKEN_HEADER,
   memberChangedResponseSchema,
+  type ProjectEvent,
   type ProjectSnapshot,
   projectSnapshotSchema,
+  publishEventResponseSchema,
   type ProjectRole,
   REALTIME_TOKEN_TTL_SECONDS,
   type RealtimeTokenResponse,
@@ -108,13 +111,50 @@ export default class RealtimeClient {
 
   /**
    * Une bannière système a été créée, modifiée ou supprimée ; `active` : les bannières actives
-   * maintenant. Pour l'instant les navigateurs relisent `GET /banners/active` (toutes les 60 s et
-   * au retour sur l'onglet) ; la diffusion en direct passera par le document meta de chaque projet
-   * (tâche 5) et sera branchée ici.
+   * maintenant. Diffusée en direct à tous les clients connectés à un document meta ; les
+   * navigateurs relisent aussi `GET /banners/active` (toutes les 60 s et au retour sur l'onglet).
    */
-  notifyBannerChanged(active: readonly ActiveBanner[]): Promise<void> {
-    logger.debug({ active: active.length }, 'system banners changed')
-    return Promise.resolve()
+  async notifyBannerChanged(active: readonly ActiveBanner[]): Promise<void> {
+    await this.broadcastEvent({ type: 'banner.changed', banners: [...active] })
+  }
+
+  /**
+   * Publie un événement sur le document meta d'un projet (`@kaxolax/contracts`, events) : tous les
+   * clients connectés au projet le reçoivent, quelle que soit l'instance du service temps réel. À
+   * appeler une fois la transaction validée. Au mieux : un échec est journalisé, jamais propagé.
+   */
+  async publishProjectEvent(projectId: string, event: ProjectEvent): Promise<void> {
+    await this.publish(`/internal/projects/${projectId}/events`, event, { projectId })
+  }
+
+  /** Publie un événement à tous les clients connectés, tous projets confondus (au mieux). */
+  async broadcastEvent(event: BroadcastEvent): Promise<void> {
+    await this.publish('/internal/events', event, {})
+  }
+
+  private async publish(
+    path: string,
+    event: ProjectEvent,
+    logContext: Record<string, string>,
+  ): Promise<void> {
+    try {
+      const response = await fetch(`${realtimeConfig.internalUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release(),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ event }),
+        signal: AbortSignal.timeout(realtimeConfig.internalTimeoutMs),
+      })
+      if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+      publishEventResponseSchema.parse(await response.json())
+    } catch (error) {
+      logger.warn(
+        { err: error, ...logContext, type: event.type },
+        'could not publish realtime event',
+      )
+    }
   }
 
   /**

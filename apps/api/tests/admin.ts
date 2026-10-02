@@ -1,4 +1,4 @@
-import { ADMIN_ROLE } from '@kaxolax/contracts'
+import { ADMIN_ROLE, type ProjectEvent } from '@kaxolax/contracts'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import type { Group } from '@japa/runner/core'
@@ -74,8 +74,8 @@ export class FakeClerkBackend extends ClerkBackend {
 }
 
 /**
- * Service temps réel simulé : déconnexions, fermetures, changements de membres et de bannière
- * enregistrés.
+ * Service temps réel simulé : déconnexions, fermetures, changements de membres, événements du
+ * projet et de bannière enregistrés.
  */
 export class FakeRealtimeClient extends RealtimeClient {
   readonly disconnected: string[] = []
@@ -83,6 +83,8 @@ export class FakeRealtimeClient extends RealtimeClient {
   readonly bannerNotifications: number[] = []
   /** Changements de membres notifiés (`projet:utilisateur`). */
   readonly memberChanges: string[] = []
+  /** Événements publiés sur le document meta des projets. */
+  readonly events: { projectId: string; event: ProjectEvent }[] = []
   /** Service injoignable : `disconnectUser` renvoie null, comme le vrai client en cas d'échec. */
   unreachable = false
 
@@ -98,6 +100,11 @@ export class FakeRealtimeClient extends RealtimeClient {
 
   override membersChanged(projectId: string, userIds: readonly string[]): Promise<void> {
     for (const userId of userIds) this.memberChanges.push(`${projectId}:${userId}`)
+    return Promise.resolve()
+  }
+
+  override publishProjectEvent(projectId: string, event: ProjectEvent): Promise<void> {
+    this.events.push({ projectId, event })
     return Promise.resolve()
   }
 

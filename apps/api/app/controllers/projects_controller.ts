@@ -87,6 +87,15 @@ export default class ProjectsController {
       project.spellcheckLanguage = changes.spellcheckLanguage
     }
     await project.save()
+    if (changes.mainDocumentId !== undefined) {
+      await this.realtime.publishProjectEvent(project.id, {
+        type: 'tree.changed',
+        reason: 'main-document',
+        actorId: user.id,
+        changes: [],
+        mainDocumentId: project.mainDocumentId,
+      })
+    }
     return { project: serializeProject(project, role) }
   }
 

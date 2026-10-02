@@ -22,6 +22,19 @@ export const configSchema = z.object({
   ROLE_RECHECK_MS: z.coerce.number().int().nonnegative().default(5_000),
   /** Relecture périodique du rôle de toutes les connexions (0 : désactivée). */
   ROLE_SWEEP_MS: z.coerce.number().int().nonnegative().default(30_000),
+  /**
+   * Redis partagé par les instances (`redis://` ou `rediss://`) : absent, une seule instance.
+   * Active l'extension Redis de Hocuspocus et le bus entre instances.
+   */
+  REDIS_URL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z
+      .string()
+      .regex(/^rediss?:\/\//, { message: 'Expected a redis:// or rediss:// URL' })
+      .optional(),
+  ),
+  /** Préfixe des clés et canaux Redis (plusieurs environnements sur le même Redis). */
+  REDIS_PREFIX: z.string().min(1).default('kaxolax-realtime'),
 })
 
 export type RealtimeConfig = z.infer<typeof configSchema>

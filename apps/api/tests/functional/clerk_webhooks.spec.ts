@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { PERSONAL_WORKSPACE_NAME } from '@kaxolax/contracts'
+import { PERSONAL_WORKSPACE_NAME, type ProjectEvent } from '@kaxolax/contracts'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
@@ -16,6 +16,18 @@ import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
 
 class FakeRealtimeClient extends RealtimeClient {
   closed: string[] = []
+  disconnected: string[] = []
+  events: { projectId: string; event: ProjectEvent }[] = []
+
+  override publishProjectEvent(projectId: string, event: ProjectEvent): Promise<void> {
+    this.events.push({ projectId, event })
+    return Promise.resolve()
+  }
+
+  override disconnectUser(userId: string): Promise<number | null> {
+    this.disconnected.push(userId)
+    return Promise.resolve(0)
+  }
 
   override async closeDocuments(documentIds: readonly string[]) {
     this.closed.push(...documentIds)
@@ -50,10 +62,13 @@ async function send(
     .json(JSON.parse(body) as object)
 }
 
+let realtime: FakeRealtimeClient
+
 test.group('clerk: webhooks', (group) => {
   group.each.setup(() => testUtils.db().wrapInGlobalTransaction())
   group.each.setup(() => {
-    app.container.swap(RealtimeClient, () => new FakeRealtimeClient())
+    realtime = new FakeRealtimeClient()
+    app.container.swap(RealtimeClient, () => realtime)
     return () => {
       app.container.restore(RealtimeClient)
     }
@@ -170,6 +185,18 @@ test.group('clerk: webhooks', (group) => {
     assert.isNull(await Project.find(ownId))
     assert.isNotNull(await Project.find(sharedId))
     assert.equal((await ProjectMember.query().where('userId', user.id)).length, 0)
+    // Connexions fermées, départ annoncé au seul projet partagé (le sien n'existe plus).
+    assert.deepEqual(realtime.disconnected, [user.id])
+    assert.deepEqual(realtime.events, [
+      {
+        projectId: sharedId,
+        event: { type: 'member.removed', userId: user.id, actorId: null },
+      },
+    ])
+
+    // Un événement rejoué n'annonce rien de plus.
+    ;(await send(client, 'user.deleted', { id: clerkUserId, deleted: true })).assertStatus(204)
+    assert.lengthOf(realtime.events, 1)
 
     // Un événement en retard ne ressuscite pas le compte.
     ;(await send(client, 'user.updated', clerkUser(clerkUserId, uniqueEmail()))).assertStatus(204)

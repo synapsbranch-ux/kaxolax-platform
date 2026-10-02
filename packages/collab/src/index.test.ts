@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   createDocumentState,
   documentName,
+  metaDocumentName,
   parseDocumentName,
+  parseMetaDocumentName,
+  parseRealtimeDocumentName,
   readDocumentText,
   replaceDocumentText,
   TEXT_FIELD,
@@ -25,6 +28,42 @@ describe('document names', () => {
     `${documentName(projectId, documentId)}:extra`,
   ])('rejects %s', (name) => {
     expect(parseDocumentName(name)).toBeNull()
+  })
+})
+
+describe('meta document names', () => {
+  it('round-trips', () => {
+    const name = metaDocumentName(projectId)
+    expect(name).toBe(`project:${projectId}:meta`)
+    expect(parseMetaDocumentName(name)).toEqual({ projectId })
+  })
+
+  it('is never mistaken for a text document, and the other way round', () => {
+    expect(parseDocumentName(metaDocumentName(projectId))).toBeNull()
+    expect(parseMetaDocumentName(documentName(projectId, documentId))).toBeNull()
+  })
+
+  it('tells text and meta documents apart', () => {
+    expect(parseRealtimeDocumentName(metaDocumentName(projectId))).toEqual({
+      kind: 'meta',
+      projectId,
+    })
+    expect(parseRealtimeDocumentName(documentName(projectId, documentId))).toEqual({
+      kind: 'text',
+      projectId,
+      documentId,
+    })
+  })
+
+  it.each([
+    'project:x:meta',
+    `project:${projectId}:meta:extra`,
+    `project:${projectId}:Meta`,
+    `prefix:project:${projectId}:meta`,
+    '',
+  ])('rejects %s', (name) => {
+    expect(parseMetaDocumentName(name)).toBeNull()
+    expect(parseRealtimeDocumentName(name)).toBeNull()
   })
 })
 

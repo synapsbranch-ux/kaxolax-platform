@@ -1,5 +1,6 @@
 'use client'
 
+import type { PresenceUser } from '@kaxolax/contracts'
 import {
   Button,
   DropdownMenu,
@@ -33,6 +34,33 @@ interface Props {
   /** Document ou fichier de l'onglet actif, surligné. */
   activeId: string | null
   onOpen: (id: string) => void
+  /** Collaborateurs qui ont chaque fichier ouvert (pastilles de couleur). */
+  presence?: ReadonlyMap<string, readonly PresenceUser[]>
+}
+
+/** Pastilles affichées au plus par fichier (les autres sont comptées dans le libellé). */
+const MAX_PRESENCE_DOTS = 3
+
+/** Pastilles de couleur des collaborateurs qui ont ce fichier ouvert. */
+function PresenceDots({ users }: { users: readonly PresenceUser[] }) {
+  const names = users.map((user) => user.name).join(', ')
+  return (
+    <span
+      role="img"
+      aria-label={`Ouvert par ${names}`}
+      title={`Ouvert par ${names}`}
+      className="ml-auto flex shrink-0 items-center -space-x-0.5 pl-1"
+      data-testid="tree-presence"
+    >
+      {users.slice(0, MAX_PRESENCE_DOTS).map((user) => (
+        <span
+          key={user.id}
+          className="size-2 rounded-full ring-1 ring-sidebar"
+          style={{ backgroundColor: user.color }}
+        />
+      ))}
+    </span>
+  )
 }
 
 /**
@@ -41,7 +69,7 @@ interface Props {
  * « tree view ») : une seule ligne dans l'ordre de tabulation, flèches, Début, Fin, Entrée ;
  * Maj+F10 ou la touche Menu ouvre le menu de la ligne, F2 renomme, Suppr supprime.
  */
-export function FileTree({ tree, mainDocumentId, activeId, onOpen }: Props) {
+export function FileTree({ tree, mainDocumentId, activeId, onOpen, presence }: Props) {
   const files = useFileActions()
   const { canEdit } = files
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -137,6 +165,7 @@ export function FileTree({ tree, mainDocumentId, activeId, onOpen }: Props) {
     const open = isFolder && !collapsed.has(id)
     const selected = activeId === id
     const isMain = node.type === 'document' && id === mainDocumentId
+    const openedBy = isFolder ? undefined : presence?.get(id)
     const Icon = isFolder
       ? open
         ? FolderOpenIcon
@@ -221,6 +250,7 @@ export function FileTree({ tree, mainDocumentId, activeId, onOpen }: Props) {
               aria-label="Document principal"
             />
           ) : null}
+          {openedBy && openedBy.length > 0 ? <PresenceDots users={openedBy} /> : null}
           {canEdit ? (
             <DropdownMenu
               open={menuFor === id}
@@ -237,7 +267,11 @@ export function FileTree({ tree, mainDocumentId, activeId, onOpen }: Props) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="ml-auto opacity-0 hover:bg-sidebar-accent group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                  className={cn(
+                    'opacity-0 hover:bg-sidebar-accent group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100',
+                    // Les pastilles de présence, quand il y en a, poussent déjà le bouton à droite.
+                    !openedBy?.length && 'ml-auto',
+                  )}
                   // Hors de l'ordre de tabulation : Maj+F10 sur la ligne ouvre le même menu.
                   tabIndex={-1}
                   aria-label={`Actions pour ${node.entity.name}`}

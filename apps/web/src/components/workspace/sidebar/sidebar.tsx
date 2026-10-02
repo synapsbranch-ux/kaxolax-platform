@@ -24,9 +24,10 @@ import {
   UploadIcon,
 } from 'lucide-react'
 import Link from 'next/link'
-import type { ProjectSearchMatch } from '@kaxolax/contracts'
+import type { PresenceUser, ProjectSearchMatch } from '@kaxolax/contracts'
 import { type ReactNode, useState } from 'react'
 import type { Project, ProjectTree, User } from '@/lib/api'
+import type { OnlinePerson } from '@/lib/presence'
 import { useFileActions } from '../file-actions'
 import { ChatsPanel } from './chats-panel'
 import { FileTree } from './file-tree'
@@ -43,7 +44,8 @@ const iconButton =
 /**
  * Colonne de gauche : logo et repli, sélecteur de projet, présence et invitation, onglets Fichiers et
  * Chats (recherche dans le projet, menu +), plan du document et pied (utilisateur, workspace,
- * compte). Les emplacements des tâches suivantes y sont posés (présence, partage, chat).
+ * compte). Présence : avatars des personnes en ligne (clic : suivre) et pastilles des fichiers
+ * ouverts par d'autres ; le bouton d'invitation ouvre la modale de partage.
  */
 export function Sidebar({
   project,
@@ -58,6 +60,12 @@ export function Sidebar({
   onCloseSearch,
   onOpenMatch,
   outline,
+  people,
+  presenceByDocument,
+  nameOf,
+  onFollow,
+  membersVersion,
+  onAccessChanged,
 }: {
   project: Project | null
   tree: ProjectTree | null
@@ -76,6 +84,18 @@ export function Sidebar({
   onOpenMatch: (match: ProjectSearchMatch) => void
   /** Plan du document (section Outline). */
   outline?: ReactNode
+  /** Autres personnes en ligne (document meta du projet). */
+  people: readonly OnlinePerson[]
+  /** Personnes qui ont chaque fichier ouvert. */
+  presenceByDocument: ReadonlyMap<string, readonly PresenceUser[]>
+  /** Nom d'un fichier du projet par son id. */
+  nameOf: (id: string) => string | null
+  /** Clic sur un avatar : suivre ce collaborateur. */
+  onFollow: (person: OnlinePerson) => void
+  /** Incrémenté à chaque événement de membre (modale de partage ouverte relue). */
+  membersVersion: number
+  /** Son propre rôle a changé depuis la modale de partage. */
+  onAccessChanged: () => void
 }) {
   const files = useFileActions()
   const [tab, setTab] = useState<'files' | 'chats'>('files')
@@ -110,8 +130,13 @@ export function Sidebar({
 
       <div className="flex shrink-0 items-center gap-1 px-2 pb-2">
         <ProjectSwitcher project={project} />
-        <PresenceStack />
-        <ShareButton project={project} />
+        <PresenceStack people={people} nameOf={nameOf} onFollow={onFollow} />
+        <ShareButton
+          project={project}
+          user={user}
+          membersVersion={membersVersion}
+          onAccessChanged={onAccessChanged}
+        />
       </div>
 
       <Tabs
@@ -211,6 +236,7 @@ export function Sidebar({
               mainDocumentId={project.mainDocumentId}
               activeId={activeId}
               onOpen={onOpen}
+              presence={presenceByDocument}
             />
           ) : (
             <div

@@ -849,16 +849,23 @@ export async function acceptInvitation(
   })
 }
 
+/** Projet rejoint à l'inscription, avec le rôle obtenu. */
+export interface JoinedProject {
+  projectId: string
+  role: ProjectRole
+}
+
 /**
  * Inscription d'un compte (création du miroir Clerk, email vérifié) : ses invitations en attente,
  * non expirées, sont acceptées. Chacune l'est dans un point de sauvegarde : un échec (limite du
  * plan atteinte, interblocage, délai de verrou) laisse l'invitation en attente sans faire échouer
- * la création du compte. Renvoie les projets rejoints.
+ * la création du compte. Renvoie les projets rejoints, avec le rôle obtenu (l'appelant les annonce
+ * une fois la transaction validée).
  */
 export async function acceptPendingInvitationsFor(
   user: User,
   trx: TransactionClientContract,
-): Promise<string[]> {
+): Promise<JoinedProject[]> {
   const email = user.email.toLowerCase()
   const candidates = await ProjectInvitation.query({ client: trx })
     .where('email', email)
@@ -866,10 +873,10 @@ export async function acceptPendingInvitationsFor(
     .whereNull('cancelledAt')
     .where('expiresAt', '>', DateTime.utc().toJSDate())
     .orderBy('createdAt')
-  const joined: string[] = []
+  const joined: JoinedProject[] = []
   for (const candidate of candidates) {
     try {
-      const projectId = await trx.transaction(async (savepoint) => {
+      const accepted = await trx.transaction(async (savepoint): Promise<JoinedProject | null> => {
         // Projet d'abord, puis l'invitation relue et revérifiée.
         const project = await Project.query({ client: savepoint })
           .where('id', candidate.projectId)
@@ -897,9 +904,9 @@ export async function acceptPendingInvitationsFor(
           },
           savepoint,
         )
-        return project.id
+        return result.joined ? { projectId: project.id, role: result.role } : null
       })
-      if (projectId) joined.push(projectId)
+      if (accepted) joined.push(accepted)
     } catch (error) {
       const context = { userId: user.id, projectId: candidate.projectId }
       if (error instanceof PlanLimitException) {

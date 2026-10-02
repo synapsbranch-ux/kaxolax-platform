@@ -413,3 +413,42 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Filets si la notification se perd : rôle d'un rédacteur relu à sa mise à jour si la dernière lecture date de plus de 5 s, et relecture de toutes les connexions toutes les 30 s.
 - Mise à jour forcée par un lecteur : rejetée et journalisée ; connexion fermée au 5e rejet. Logique isolée dans `apps/realtime/src/access.ts`, avec une interface `MemberChangeFanout` pour l'extension Redis (tâche 5).
 - Transfert de propriété : logique commune avec l'admin (`project_ownership.ts`), qui notifie désormais aussi le service temps réel.
+
+## 2026-10-02 · Document meta du projet
+
+- `project:{projectId}:meta` (`@kaxolax/collab`) : un document Hocuspocus par projet, sans contenu, jamais enregistré en base ; même autorisation que les documents du projet (tout membre, rôle relu en base).
+- Connexion toujours en lecture seule, quel que soit le rôle : les clients n'y publient que l'awareness, toute mise à jour Yjs est rejetée (fermeture au 5e rejet, comme un lecteur).
+- Présence : format `presenceStateSchema` (`@kaxolax/contracts`) ; le serveur impose l'identité (`user` : id de la connexion, nom complet et photo https lus en base, couleur dérivée de l'id par le même FNV-1a que packages/ui) et ignore un état qui reprend le clientId d'une autre connexion ou d'un autre utilisateur relayé par Redis ; chaque client valide les états reçus.
+- Jamais l'email dans la présence (visible de tous les membres, lien public compris, comme les emails masqués du partage) : sans nom complet, « Collaborateur » (`PRESENCE_FALLBACK_NAME`).
+
+## 2026-10-02 · Événements du projet en messages sans état
+
+- Schémas zod versionnés (`packages/contracts/src/events.ts`, `v: 1`) : `tree.changed` (avec ce qui a changé), `member.added|removed|role-updated`, `chat.message-created`, `comment.created`, `banner.changed`, et `compile.updated` réservé à la tâche 14 (objet ouvert, seul `buildId` fixé).
+- Publiés par l'API après validation de la transaction, au mieux (2 s, échec journalisé), par les routes internes `POST /internal/projects/:id/events` et `POST /internal/events` (bannière seulement) ; une requête refusée ne publie rien.
+- Envoyés connexion par connexion aux documents meta, pas par `broadcastStateless`, que l'extension Redis relaierait en double.
+
+## 2026-10-02 · Plusieurs instances du temps réel avec Redis
+
+- `REDIS_URL` active `@hocuspocus/extension-redis` 4.7.0 (même version que le serveur) : documents, awareness et messages sans état synchronisés, écriture en base verrouillée entre instances.
+- Bus pub/sub à part (`apps/realtime/src/cluster.ts`, ioredis du catalog) pour ce qui ne dépend pas d'un document chargé : changements de membres (`MemberChangeFanout`), fermeture des connexions d'un compte ou d'un document, événements. L'instance appelée applique puis publie ; les autres appliquent à la réception.
+- Départ d'une connexion relayé par le bus (`awareness-departed`) : l'extension ne transmet pas le retrait d'un état d'awareness (aucune publication sans connexion restante, état nul perdu à la réception).
+- Sans `REDIS_URL`, une seule instance (rien à relayer). Test d'intégration à deux instances sur le Redis local, préfixe aléatoire par lancement.
+
+## 2026-10-02 · Web : présence et suivi d'un collaborateur
+
+- Document meta ouvert par la page projet sur le WebSocket partagé ; présence publiée : identité et onglet actif (`documentId`, document ou fichier). États reçus validés (`parsePresenceState`), regroupés par personne (plusieurs onglets), soi-même exclu.
+- Curseurs distants dessinés par y-codemirror.next depuis l'identité imposée par le serveur ; nom toujours visible (`collaboratorCursorTheme` de `@kaxolax/editor`), texte en `--presence-foreground`.
+- Suivre : ouvre le fichier de la personne et la suit de fichier en fichier (changements de présence, pas d'effet React), défilement jusqu'à son curseur sans toucher à la sélection ; fin à la première frappe dans l'éditeur (modificateurs seuls exclus), au bouton d'arrêt ou après 3 s d'absence (une reconnexion efface brièvement la présence des autres).
+
+## 2026-10-02 · Web : événements du projet et changements d'accès
+
+- `tree.changed` : arborescence relue (une requête par rafale de 150 ms) plutôt qu'appliquée : l'événement ne porte ni chemins ni tailles, et la relecture reste juste après un événement perdu.
+- Changement de rôle (message `member.role-changed`) : rôle local mis à jour, lecture seule par reconfiguration ; retour en écriture en rouvrant le document. Retrait : fermeture « Forbidden », `member.removed` sur soi ou 404 sur le projet → page d'accès retiré, puis tableau de bord après 6 s.
+- `banner.changed` relayé par un petit bus en mémoire (`bannerFeed`) vers la bannière du layout ; le sondage de 60 s reste en filet (tableau de bord, connexion coupée).
+
+## 2026-10-02 · Web : modale de partage et pages d'adhésion
+
+- Réponses du partage validées côté navigateur par les schémas zod de `@kaxolax/contracts` ; `ApiError` garde le corps de la réponse (limite du plan, délai de relance, indice d'email).
+- Vue selon la matrice des permissions : complète pour le propriétaire, limitée sinon (membres, quitter). Régénérer un lien, transférer, retirer et quitter demandent une confirmation.
+- `E_PLAN_LIMIT` : limite et lien vers `PRICING_URL` (`/pricing`, page des tarifs de la tâche 12, absente pour l'instant).
+- `/invitations/[token]` et `/share/[token]` publiques, hors du groupe `(app)` ; sans session, connexion ou inscription Clerk avec `redirect_url` vers la page ; une invitation déjà acceptée à l'inscription mène au projet sans clic.

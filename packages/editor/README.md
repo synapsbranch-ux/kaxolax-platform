@@ -20,6 +20,7 @@ latexExtensions({
 - `reconfigureEditor(view, { theme, appearance, readOnly, lineWrapping })` change ces réglages sans recréer l'éditeur.
 - `setAutoCompile(view, { enabled, delayMs })` et `autoCompileState(view)` pilotent l'auto-compilation.
 - `goToLine(view, line)`, `kaxolaxKeymap`, `findFoldRange` : API de l'étape 1, inchangée.
+- Présence (`presence.ts`) : `collaboratorCursorTheme` (noms des curseurs distants de y-codemirror.next toujours visibles, couleurs de `@kaxolax/ui`), `keystrokeListener(callback)` (frappe dans l'éditeur, modificateurs seuls exclus : fin du suivi d'un collaborateur), `revealPosition(view, position)` (défilement sans changer la sélection).
 
 Les couleurs viennent des variables de `@kaxolax/ui/tokens.css` (`EDITOR_VARIABLES`), avec une palette de repli (`EDITOR_PALETTES`). `.cm-editor` porte `data-theme`.
 

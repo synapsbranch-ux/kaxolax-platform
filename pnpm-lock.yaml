@@ -78,6 +78,9 @@ catalogs:
     '@hocuspocus/extension-database':
       specifier: 4.7.0
       version: 4.7.0
+    '@hocuspocus/extension-redis':
+      specifier: 4.7.0
+      version: 4.7.0
     '@hocuspocus/provider':
       specifier: 4.7.0
       version: 4.7.0
@@ -240,6 +243,9 @@ catalogs:
     y-codemirror.next:
       specifier: 0.3.6
       version: 0.3.6
+    y-protocols:
+      specifier: 1.0.7
+      version: 1.0.7
     yauzl:
       specifier: 3.4.0
       version: 3.4.0
@@ -516,6 +522,9 @@ importers:
       '@hocuspocus/extension-database':
         specifier: 'catalog:'
         version: 4.7.0(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
+      '@hocuspocus/extension-redis':
+        specifier: 'catalog:'
+        version: 4.7.0(supports-color@10.2.2)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
       '@hocuspocus/server':
         specifier: 'catalog:'
         version: 4.7.0(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
@@ -525,6 +534,9 @@ importers:
       '@kaxolax/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      ioredis:
+        specifier: 'catalog:'
+        version: 5.11.1(supports-color@10.2.2)
       pg:
         specifier: 'catalog:'
         version: 8.23.0
@@ -534,6 +546,9 @@ importers:
       ws:
         specifier: 'catalog:'
         version: 8.22.0
+      y-protocols:
+        specifier: 'catalog:'
+        version: 1.0.7(yjs@13.6.33)
       yjs:
         specifier: 'catalog:'
         version: 13.6.33
@@ -1817,6 +1832,12 @@ packages:
   '@hocuspocus/extension-database@4.7.0':
     resolution: {integrity: sha512-ykFVejsb60i00jknlpQwudGOfC6sr1Gkm/GHFkrGkNspeYsQ65KRInBZkNXcH3gyim89vM5j2RXk4L9Sug6Xog==}
     peerDependencies:
+      yjs: ^13.6.8
+
+  '@hocuspocus/extension-redis@4.7.0':
+    resolution: {integrity: sha512-bEWwVxBZXVC0C8f5Tkb7SHoLOofv2+EgsWa/yUf/jb6WoxxbQDdFEREfi8XKurJEhlOqjtJTWAjec9TsFLw2uw==}
+    peerDependencies:
+      y-protocols: ^1.0.6
       yjs: ^13.6.8
 
   '@hocuspocus/provider@4.7.0':
@@ -3133,6 +3154,12 @@ packages:
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
+
+  '@sesamecare-oss/redlock@1.4.0':
+    resolution: {integrity: sha512-2z589R+yxKLN4CgKxP1oN4dsg6Y548SE4bVYam/R0kHk7Q9VrQ9l66q+k1ehhSLLY4or9hcchuF9/MhuuZdjJg==}
+    engines: {node: '>=16'}
+    peerDependencies:
+      ioredis: '>=5'
 
   '@simple-libs/child-process-utils@2.0.0':
     resolution: {integrity: sha512-dvNoRKLijXnD0XoJAz94pbNuB5GQgDr55UhpSPhffDkTT0Cmcqh9jSCOtwfT2d4H6MI9E7c4SgtMuJXZ6F3c6A==}
@@ -4476,6 +4503,10 @@ packages:
     resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
     engines: {node: '>=12.22.0'}
 
+  ioredis@5.6.1:
+    resolution: {integrity: sha512-UxC0Yv1Y4WRJiGQxQkP0hfdL0/5/6YvdfOOClRgJ0qppSarkhneSa6UvkMkms0AkdGimSH3Ikqm+6mkMmX7vGA==}
+    engines: {node: '>=12.22.0'}
+
   ipaddr.js@1.9.1:
     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
     engines: {node: '>= 0.10'}
@@ -4820,6 +4851,12 @@ packages:
   locate-path@6.0.0:
     resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
     engines: {node: '>=10'}
+
+  lodash.defaults@4.2.0:
+    resolution: {integrity: sha512-qjxPLHd3r5DnsdGacqOMU6pb/avJzdh9tFX2ymgoZE27BmjXrNy/y4LoaiTeAb+O3gL8AfpJGtqfX/ae2leYYQ==}
+
+  lodash.isarguments@3.1.0:
+    resolution: {integrity: sha512-chi4NHZlZqZD18a0imDHnZPrDeBbTtVN7GXMwuGdRH9qotxAjYs3aVLKc7zNOG9eddR5Ksd8rvFEBc9SsggPpg==}
 
   lodash@4.18.1:
     resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
@@ -6984,6 +7021,19 @@ snapshots:
       - srvx
       - y-protocols
 
+  '@hocuspocus/extension-redis@4.7.0(supports-color@10.2.2)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)':
+    dependencies:
+      '@hocuspocus/common': 4.7.0
+      '@hocuspocus/server': 4.7.0(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
+      '@sesamecare-oss/redlock': 1.4.0(ioredis@5.6.1(supports-color@10.2.2))
+      ioredis: 5.6.1(supports-color@10.2.2)
+      kleur: 4.1.5
+      y-protocols: 1.0.7(yjs@13.6.33)
+      yjs: 13.6.33
+    transitivePeerDependencies:
+      - srvx
+      - supports-color
+
   '@hocuspocus/provider@4.7.0(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)':
     dependencies:
       '@hocuspocus/common': 4.7.0
@@ -8220,6 +8270,10 @@ snapshots:
   '@rolldown/pluginutils@1.0.1': {}
 
   '@sec-ant/readable-stream@0.4.1': {}
+
+  '@sesamecare-oss/redlock@1.4.0(ioredis@5.6.1(supports-color@10.2.2))':
+    dependencies:
+      ioredis: 5.6.1(supports-color@10.2.2)
 
   '@simple-libs/child-process-utils@2.0.0':
     dependencies:
@@ -9492,6 +9546,20 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  ioredis@5.6.1(supports-color@10.2.2):
+    dependencies:
+      '@ioredis/commands': 1.10.0
+      cluster-key-slot: 1.1.1
+      debug: 4.4.3(supports-color@10.2.2)
+      denque: 2.1.0
+      lodash.defaults: 4.2.0
+      lodash.isarguments: 3.1.0
+      redis-errors: 1.2.0
+      redis-parser: 3.0.0
+      standard-as-callback: 2.1.0
+    transitivePeerDependencies:
+      - supports-color
+
   ipaddr.js@1.9.1: {}
 
   ipaddr.js@2.5.0: {}
@@ -9742,6 +9810,10 @@ snapshots:
   locate-path@6.0.0:
     dependencies:
       p-locate: 5.0.0
+
+  lodash.defaults@4.2.0: {}
+
+  lodash.isarguments@3.1.0: {}
 
   lodash@4.18.1: {}
 
