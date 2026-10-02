@@ -3,6 +3,7 @@ import { join, posix } from 'node:path'
 import {
   type AgentCompileResponse,
   type AgentHealth,
+  type CompileOptions,
   type CompileRequest,
   type CompileStatus,
   type Compiler as CompilerName,
@@ -43,15 +44,32 @@ const UPLOADED_OUTPUTS: { name: string; contentType: string }[] = [
   { name: 'output.pdf', contentType: 'application/pdf' },
   { name: 'output.log', contentType: 'text/plain; charset=utf-8' },
   { name: 'output.blg', contentType: 'text/plain; charset=utf-8' },
+  // Proposés au téléchargement dans l'interface (fichiers de sortie).
+  { name: 'output.bbl', contentType: 'text/plain; charset=utf-8' },
+  { name: 'output.synctex.gz', contentType: 'application/gzip' },
 ]
 
 const SYNCTEX_TIMEOUT_MS = 20_000
 
 /**
- * Commande de compilation. `-norc` n'est pas dans la spécification : sans lui, latexmk exécuterait
- * le `latexmkrc` (du Perl) d'un projet (voir docs/decisions.md).
+ * Code TeX lu avant le document principal en mode brouillon : graphicx et hyperref reçoivent
+ * l'option draft sans que les fichiers du projet soient modifiés. Texte constant, jamais issu de
+ * la demande.
  */
-export function latexmkCommand(compiler: CompilerName, mainFile: string): string[] {
+export const DRAFT_PRETEX =
+  '\\PassOptionsToPackage{draft}{graphicx}\\PassOptionsToPackage{draft}{hyperref}'
+
+/**
+ * Commande de compilation. `-norc` n'est pas dans la spécification : sans lui, latexmk exécuterait
+ * le `latexmkrc` (du Perl) d'un projet (voir docs/decisions.md). Les options ne font qu'ajouter
+ * des arguments constants (`-halt-on-error`, `-usepretex=` avec `DRAFT_PRETEX`) : aucune valeur de
+ * la demande n'entre dans la commande, et `-shell-escape` n'est jamais passé.
+ */
+export function latexmkCommand(
+  compiler: CompilerName,
+  mainFile: string,
+  options: CompileOptions = {},
+): string[] {
   return [
     'latexmk',
     '-norc',
@@ -61,6 +79,8 @@ export function latexmkCommand(compiler: CompilerName, mainFile: string): string
     '-synctex=1',
     '-interaction=batchmode',
     '-file-line-error',
+    ...(options.haltOnFirstError === true ? ['-halt-on-error'] : []),
+    ...(options.draft === true ? [`-usepretex=${DRAFT_PRETEX}`] : []),
     ENGINE_FLAGS[compiler],
     mainFile,
   ]
@@ -243,7 +263,7 @@ export class Compiler {
     let result: SandboxResult
     try {
       result = await this.options.sandbox.run({
-        command: latexmkCommand(request.compiler, mainFile),
+        command: latexmkCommand(request.compiler, mainFile, request.options),
         hostWorkdir: paths.files,
         workingDir: rootDir === '' ? SANDBOX_WORKDIR : `${SANDBOX_WORKDIR}/${rootDir}`,
         timeoutMs: request.timeoutMs,

@@ -259,6 +259,76 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `next typegen` (typecheck) et `next build` écrivent tous deux dans `apps/web/.next` ; lancés en parallèle sans cache, le build effaçait `.next/types/routes.d.ts` pendant `tsc` (échec intermittent de `pnpm check`).
 - `apps/web/turbo.json` : `build` dépend du `typecheck` du même paquet. Même règle pour `apps/admin` à sa création.
 
+## 2026-10-01 · Jetons de design dans packages/ui
+
+- `@kaxolax/ui/tokens.css` (source CSS servie telle quelle) porte couleurs oklch, rayons, tailles de barres et le bloc `@theme inline` de Tailwind 4 ; les applications l'importent au lieu de redéfinir leurs variables.
+- Thème choisi par `data-theme` sur `<html>` (sombre par défaut), posé avant le rendu par `ThemeScript` ; la variante `dark:` suit cet attribut et non `prefers-color-scheme`. Un sous-arbre `data-theme="light"` reste clair ; les jetons `pdf-*` sont clairs dans les deux thèmes.
+- Huit couleurs de présence (même teinte, luminosité par thème) ; couleur d'un collaborateur = hachage FNV-1a de son id, identique sur tous les clients sans coordination.
+- `Command` écrit sans `cmdk` : liste filtrée et navigation clavier suffisent, une dépendance de moins.
+
+## 2026-10-01 · Éditeur : registre d'actions et barre Tools
+
+- `@kaxolax/editor` tient un registre typé (`createActionRegistry`) : une action = id, libellé français, menu, groupe, icône lucide (nom), raccourci CodeMirror, prédicat `when`, `run(ctx)` avec l'`EditorView` et les callbacks de l'application (`ActionHost`). Les outils des tâches 9 et 10 s'y enregistrent ; la barre Tools ne fait que lister `byMenu`.
+- Raccourcis liés en `Prec.high` et suivis à chaque (dés)inscription par un Compartment ; une action désactivée laisse passer la touche. Rechercher/remplacer : `Mod-Alt-f` (Cmd+H masque l'application sur macOS).
+- Une action = une transaction annotée `isolateHistory` et `userEvent: input.action` : une étape d'annulation, packages requis (amsmath, graphicx) ajoutés au préambule dans la même transaction, sans doublon.
+
+## 2026-10-01 · Éditeur : thème et réglages reconfigurables
+
+- Thème sombre par défaut ; couleurs lues dans les variables de `tokens.css` (`--editor`, `--editor-syntax-*`…) avec palette de repli. `.cm-editor` porte `data-theme` : l'éditeur garde son mode quel que soit le thème de la page.
+- Thème, lecture seule et retour à la ligne dans des Compartments (`reconfigureEditor`) : changer un paramètre ne recrée ni l'éditeur ni la connexion Yjs.
+- Auto-compilation en extension (`autoCompile`) : seules les modifications locales (avec `userEvent`) relancent l'attente, pas celles des collaborateurs.
+
+## 2026-10-01 · Préférences utilisateur : schéma partiel et fusion profonde
+
+- `userPreferencesSchema` (@kaxolax/contracts) : toutes les clés facultatives, objets stricts ; seules les valeurs changées sont stockées, `resolvePreferences` applique `DEFAULT_PREFERENCES` à la lecture (les défauts peuvent évoluer sans migration).
+- `PATCH /me/preferences` : fusion profonde, tableaux remplacés ; `INSERT … ON CONFLICT DO NOTHING` puis `SELECT … FOR UPDATE` pour sérialiser les modifications simultanées.
+- Onglets ouverts bornés (20 projets, 30 onglets) : chaque entrée reçoit de l'API un numéro croissant `usedSeq` (jsonb ne garde pas l'ordre des clés), les plus anciens numéros sortent ; JSON limité à 32 Kio. Une clé stockée devenue invalide est écartée seule (`sanitizePreferences`), les autres restent.
+- Client : PATCH enchaînés et seule la réponse du dernier envoi appliquée ; à la fermeture de la page, envoi `fetch` `keepalive` avec le dernier jeton Clerk obtenu (gardé en mémoire 45 s).
+
+## 2026-10-01 · Recherche dans tout le projet : expression régulière sous délai
+
+- `GET /projects/:id/search` relit le texte courant via `projectContent` (instantané temps réel), comme la compilation ; pas d'index : un projet tient en mémoire.
+- Texte et expression passent par le même `RegExp` (flag `u`, `i` sauf casse respectée, mot entier par lookarounds Unicode). Expression limitée à 200 caractères.
+- Contre le ReDoS : boucle exécutée dans `vm.runInNewContext` avec `timeout` de 500 ms (V8 interrompt aussi une regex en retour arrière), dans une réserve de `worker_threads` (4 par processus, 429 au-delà) : la boucle d'événements de l'API n'est jamais bloquée. Une recherche par utilisateur : la suivante annule la précédente (409, worker arrêté). Écarté : heuristique sur les motifs (incomplète).
+
+## 2026-10-01 · Options de compilation : brouillon et arrêt à la première erreur
+
+- `options: { draft?, haltOnFirstError? }` dans le corps de `POST /projects/:id/compile` et dans `CompileRequest` (objet strict : une option inconnue est refusée par l'API, le gateway et l'agent).
+- Arrêt à la première erreur : `-halt-on-error` de latexmk. Brouillon : `-usepretex=\PassOptionsToPackage{draft}{graphicx}\PassOptionsToPackage{draft}{hyperref}`, code constant lu avant le document ; aucun fichier du projet modifié.
+- La commande reste un tableau d'arguments constants (pas de shell côté Docker), `-norc` conservé, jamais `-shell-escape`.
+
+## 2026-10-01 · Web : page projet en trois colonnes
+
+- `editor-page.tsx` découpé dans `components/workspace/` : `workspace-page` (données, onglets, compilation, SyncTeX), `workspace-layout`, `sidebar/`, `editor/`, `pdf/`, `file-actions` (contexte partagé par l'arbre, le menu + et le menu Fichier de Tools).
+- Colonnes react-resizable-panels ; seules les tailles issues d'un geste de l'utilisateur (`isUserInteraction`) vont dans `layout`, la sidebar repliée garde sa dernière largeur. Sous 1024 px : sidebar en tiroir, éditeur et PDF en onglets, tous deux montés (connexion Yjs et rendu PDF conservés).
+- Onglets ouverts par projet dans `openTabs` (documents et fichiers prévisualisés) ; dérivés des préférences tant que l'utilisateur n'y touche pas, sans effet de synchronisation.
+- Emplacements des tâches suivantes posés sans fonction : `PresenceStack`, `ShareButton` (modale), `ChatsPanel`, `ReviewPanel`, `HistoryDrawer`, `AskSlot`.
+
+## 2026-10-01 · Web : barre Tools, plan et recherche dans le projet
+
+- Barre Tools en `Menubar` Radix (un menu par entrée de `ACTION_MENUS`) plutôt que des `DropdownMenu` isolés : navigation au clavier d'un menu à l'autre ; disponibilité des actions évaluée à l'ouverture.
+- Point d'extension des tâches 9 et 10 : `useEditorActions()` (registre partagé, `host`, `run`) et `ACTION_DIALOGS` (boîte de dialogue par id, ouverte par `host.openDialog`). Lecture seule (viewer, reviewer) : `host.readOnly` et callbacks de fichiers absents.
+- Plan : document courant relu 250 ms après la frappe ; fichiers inclus du projet lus en direct par des fournisseurs Yjs sans présence sur la connexion partagée (30 au plus, inclusions imbriquées comprises).
+- Recherche projet : panneau dans la sidebar (Ctrl+Maj+F), requête 300 ms après la frappe, clic = onglet ouvert et occurrence sélectionnée.
+
+## 2026-10-01 · Web : préférences et thème sans flash
+
+- `PreferencesProvider` dans le layout `(app)` : `GET /me/preferences` une fois, modifications optimistes regroupées 800 ms avant `PATCH`, envoi immédiat quand la page est masquée ; en cas de refus, retour à l'état enregistré.
+- Thème recopié dans le cookie `kaxolax-theme` : le layout racine (déjà dynamique) rend `data-theme` dans le HTML ; `ThemeScript` (localStorage) couvre les pages sans cookie.
+- Composants Clerk habillés par `appearance.variables` pointant vers les variables CSS des jetons : ils suivent le thème sans `@clerk/themes` (paquet de Core 2, non aligné sur `@clerk/nextjs` 7).
+- Logs dans un tiroir au-dessus du PDF (non modal : un clic dans l'éditeur ne le ferme pas) ; compilateur, auto-compilation, brouillon et arrêt à la première erreur dans le menu de la pastille de statut.
+
+## 2026-10-01 · Web : clavier, états et bascule de thème de la page projet
+
+- Arborescence en motif ARIA « tree view » (une ligne dans l'ordre de tabulation, flèches, F2, Suppr, Maj+F10 pour le menu) ; onglets des fichiers et vue Éditeur/PDF en « tabs » (flèches). Logique de navigation pure dans `lib/tree.ts`, testée.
+- Sidebar repliée rendue `inert` : sa largeur nulle ne suffit pas à la sortir de l'ordre de tabulation ; le focus passe au bouton inverse après repli ou dépli.
+- États explicites : squelettes, page d'erreur du chargement initial, échec du jeton temps réel affiché dans l'éditeur (plus de promesse rejetée sans traitement).
+- Bascule sombre/clair dans le pied de sidebar (préférence `theme`) en attendant les paramètres de la tâche 10 : le thème clair reste atteignable dès la tâche 3.
+
+## 2026-10-01 · Éditeur : `happy-dom` pour les tests qui créent une vue CodeMirror
+
+- `happy-dom` 20.14.5 (devDependency de `packages/editor`, version exacte dans le catalog) fournit le DOM aux tests qui instancient une `EditorView` (`configuration.test.ts` : thème, compartiments, auto-compilation). Plus léger que jsdom, activé fichier par fichier (`@vitest-environment happy-dom`) ; les autres tests restent en environnement Node.
+
 ## 2026-10-01 · Admin : accès par rôle Clerk et MFA vérifiée deux fois
 
 - Rôle `admin` lu dans le claim `metadata.role` et second facteur vérifié dans la session (`fva[1] !== -1`) : un non-admin est refusé sans appel réseau.

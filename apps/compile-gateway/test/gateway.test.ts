@@ -24,6 +24,8 @@ class FakeAgent {
   activeCompiles = 0
   compileDelayMs = 50
   compiles: string[] = []
+  /** Options de compilation reçues, dans l'ordre des demandes. */
+  options: CompileRequest['options'][] = []
   stops: string[] = []
   clears: string[] = []
   /** Compilations en cours par projet, et le maximum observé (tous agents confondus). */
@@ -52,6 +54,7 @@ class FakeAgent {
         this.aborts.get(projectId)?.()
         await this.finished.get(projectId)
         this.compiles.push(buildId)
+        this.options.push(request.body.options)
         const running = (FakeAgent.running.get(projectId) ?? 0) + 1
         FakeAgent.running.set(projectId, running)
         FakeAgent.maxConcurrent.set(
@@ -210,6 +213,22 @@ describe('routing', () => {
     )
     expect(again.agentId).toBe('agent-2')
     expect(second.compiles).toHaveLength(2)
+  })
+
+  it('forwards the compile options to the agent', async () => {
+    const [agent] = await setup(1)
+    if (!agent) throw new Error('agents')
+    const projectId = newProject()
+    const options = { draft: true, haltOnFirstError: true }
+    const response = await post('/compile', { ...compileRequest(projectId), options })
+    expect(response.statusCode).toBe(200)
+    expect(agent.options).toEqual([options])
+
+    const invalid = await post('/compile', {
+      ...compileRequest(projectId),
+      options: { shellEscape: true },
+    })
+    expect(invalid.statusCode).toBe(400)
   })
 
   it('moves to another agent when the assigned one is down', async () => {

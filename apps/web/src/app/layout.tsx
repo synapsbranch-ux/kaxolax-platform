@@ -1,9 +1,13 @@
 import { frFR } from '@clerk/localizations'
 import { ClerkProvider } from '@clerk/nextjs'
+import { ThemeScript, TooltipProvider } from '@kaxolax/ui'
 import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import type { ReactNode } from 'react'
 import { ClerkApiBridge } from '@/components/auth/clerk-api-bridge'
+import { clerkAppearance } from '@/components/auth/clerk-appearance'
 import { serverEnv } from '@/env'
+import { parseThemeCookie, THEME_COOKIE } from '@/lib/theme'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -14,7 +18,10 @@ export const metadata: Metadata = {
 // Clé Clerk lue à chaque requête (même image pour tous les environnements) : rien n'est pré-rendu.
 export const dynamic = 'force-dynamic'
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // Thème mémorisé par le cookie (copie de la préférence) : rendu dès le HTML, sans flash. Sans
+  // cookie, ThemeScript lit localStorage, sinon prend le sombre.
+  const theme = parseThemeCookie((await cookies()).get(THEME_COOKIE)?.value)
   return (
     <ClerkProvider
       publishableKey={serverEnv.CLERK_PUBLISHABLE_KEY}
@@ -23,18 +30,21 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       signUpUrl="/sign-up"
       afterSignOutUrl="/sign-in"
       telemetry={false}
-      appearance={{
-        variables: {
-          colorPrimary: 'oklch(0.42 0.12 160)',
-          borderRadius: '0.625rem',
-          fontFamily: 'inherit',
-        },
-      }}
+      appearance={clerkAppearance}
     >
-      <html lang="fr">
+      <html
+        lang="fr"
+        suppressHydrationWarning
+        data-theme={theme ?? undefined}
+        data-theme-preference={theme ?? undefined}
+        style={theme === null ? undefined : { colorScheme: theme }}
+      >
+        <head>
+          <ThemeScript />
+        </head>
         <body className="min-h-screen">
           <ClerkApiBridge />
-          {children}
+          <TooltipProvider>{children}</TooltipProvider>
         </body>
       </html>
     </ClerkProvider>

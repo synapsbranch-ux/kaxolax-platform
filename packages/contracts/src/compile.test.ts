@@ -102,6 +102,17 @@ describe('compileRequestSchema', () => {
     request.resources[0] = { path: 'main.tex', kind: 'text', content: '', sha256: 'ABC' }
     expect(compileRequestSchema.safeParse(request).success).toBe(false)
   })
+
+  it('accepts compile options and refuses unknown ones', () => {
+    const request = { ...validRequest(), options: { draft: true, haltOnFirstError: false } }
+    expect(compileRequestSchema.parse(request).options).toEqual({
+      draft: true,
+      haltOnFirstError: false,
+    })
+    expect(
+      compileRequestSchema.safeParse({ ...validRequest(), options: { shellEscape: true } }).success,
+    ).toBe(false)
+  })
 })
 
 describe('responses', () => {
