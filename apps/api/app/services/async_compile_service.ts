@@ -3,6 +3,7 @@ import {
   type BuildState,
   type BuildStatus,
   type CompileAccepted,
+  type CompileOptions,
   compileRequestKey,
   type CompileResult,
   compileStatusSchema,
@@ -146,9 +147,10 @@ export async function enqueueCompile(
   deps: AsyncCompileDependencies,
   user: User,
   project: Project,
+  options: CompileOptions = {},
 ): Promise<CompileAccepted> {
   await reserveCompiler(user.id, project.id)
-  const request = await buildCompileRequest(deps.realtime, project, deps.outputs.bucket)
+  const request = await buildCompileRequest(deps.realtime, project, deps.outputs.bucket, options)
   await expireStaleBuilds(deps, project.id)
   // INSERT … ON CONFLICT sur l'index unique partiel : deux demandes simultanées, une seule passe.
   const inserted = await db.rawQuery<{ rows: unknown[] }>(

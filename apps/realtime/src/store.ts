@@ -15,10 +15,22 @@ export class DocumentStore {
     )
   }
 
-  async memberRole(projectId: string, userId: string): Promise<ProjectRole | null> {
+  /**
+   * Rôle d'un membre du projet ; null s'il n'en est pas membre, si son compte est banni ou
+   * supprimé, ou si ses sessions ont été révoquées après l'émission du jeton (`issuedAt`, en
+   * secondes ; arrondi à la seconde : un jeton émis dans la seconde de la révocation est refusé).
+   */
+  async memberRole(
+    projectId: string,
+    userId: string,
+    issuedAt: number,
+  ): Promise<ProjectRole | null> {
     const result = await this.pool.query<{ role: string }>(
-      'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
-      [projectId, userId],
+      `SELECT m.role FROM project_members m JOIN users u ON u.id = m.user_id
+       WHERE m.project_id = $1 AND m.user_id = $2
+         AND u.banned_at IS NULL AND u.deleted_at IS NULL
+         AND (u.sessions_revoked_at IS NULL OR u.sessions_revoked_at <= to_timestamp($3))`,
+      [projectId, userId, issuedAt],
     )
     const role = result.rows[0]?.role
     return role === undefined ? null : projectRoleSchema.parse(role)

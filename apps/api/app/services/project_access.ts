@@ -1,3 +1,9 @@
+import {
+  hasPermission,
+  isRoleAtLeast,
+  PROJECT_PERMISSIONS,
+  type ProjectPermission,
+} from '@kaxolax/contracts'
 import { Exception } from '@adonisjs/core/exceptions'
 import db from '@adonisjs/lucid/services/db'
 import { type TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -5,7 +11,6 @@ import Project from '#models/project'
 import type { ProjectRole } from '#models/project_member'
 import type User from '#models/user'
 
-const RANK: Record<ProjectRole, number> = { viewer: 0, reviewer: 1, editor: 2, owner: 3 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export class ProjectNotFoundException extends Exception {
@@ -26,13 +31,33 @@ export interface ProjectAccess {
 }
 
 /**
- * Charge un projet dont l'utilisateur est membre, avec au moins le rôle demandé. Un projet dont
- * il n'est pas membre répond 404, pour ne pas révéler son existence.
+ * Exigence d'une route : une permission de la matrice (`@kaxolax/contracts`, forme à utiliser),
+ * ou un rôle minimal (forme historique, encore utilisée par la compilation, réécrite en parallèle
+ * par la tâche 14 : `'viewer'` y équivaut à la permission `compile`).
+ */
+export type ProjectRequirement = ProjectPermission | ProjectRole
+
+const PERMISSIONS: ReadonlySet<string> = new Set(PROJECT_PERMISSIONS)
+
+function isPermission(requirement: ProjectRequirement): requirement is ProjectPermission {
+  return PERMISSIONS.has(requirement)
+}
+
+/** Vrai si le rôle satisfait l'exigence, selon la matrice des permissions. */
+export function roleSatisfies(role: ProjectRole, requirement: ProjectRequirement): boolean {
+  return isPermission(requirement)
+    ? hasPermission(role, requirement)
+    : isRoleAtLeast(role, requirement)
+}
+
+/**
+ * Charge un projet dont l'utilisateur est membre, si son rôle accorde la permission demandée
+ * (403 sinon). Un projet dont il n'est pas membre répond 404, pour ne pas révéler son existence.
  */
 export async function projectFor(
   user: User,
   projectId: string,
-  minimumRole: ProjectRole,
+  requirement: ProjectRequirement,
   options: { trx?: TransactionClientContract; lock?: boolean } = {},
 ): Promise<ProjectAccess> {
   if (!UUID.test(projectId)) throw new ProjectNotFoundException()
@@ -48,7 +73,7 @@ export async function projectFor(
   if (options.lock === true) void projectQuery.forUpdate()
   const project = await projectQuery.first()
   if (!project) throw new ProjectNotFoundException()
-  if (RANK[member.role] < RANK[minimumRole]) throw new ProjectForbiddenException()
+  if (!roleSatisfies(member.role, requirement)) throw new ProjectForbiddenException()
   return { project, role: member.role }
 }
 

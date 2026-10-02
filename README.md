@@ -58,6 +58,11 @@ l'utilisateur depuis les claims de son jeton (d'où le jeton personnalisé ci-de
 recevoir en local : `cloudflared tunnel --url http://localhost:3333`, puis déclarer l'URL du
 tunnel dans le Dashboard.
 
+Admin (`apps/admin`, http://localhost:3001) : un compte devient admin par sa public metadata
+`{"role": "admin"}` (Dashboard Clerk → Users → Metadata) et doit avoir la MFA activée ;
+`ADMIN_URL` dans `apps/api/.env` (origine de l'admin, acceptée dans le claim `azp`) et, dans
+`apps/admin/.env`, les mêmes variables Clerk que `apps/web/.env`. Voir `apps/admin/README.md`.
+
 ## Services locaux (docker compose)
 
 Tous les ports sont ouverts sur `127.0.0.1` seulement. Les identifiants sont des valeurs de dev locales.
@@ -100,6 +105,7 @@ apps/
   compile-gateway/    verrous Redis, affinité et bascule entre agents (mode `gateway`)
   compile-worker/     Worker Cloudflare + Durable Object + Containers (mode `cloudflare`)
   web/                application Next.js (Clerk, tableau de bord, éditeur)
+  admin/              admin Next.js (utilisateurs, projets, bannière, statistiques, journal)
   realtime/           édition collaborative (Hocuspocus + Yjs, persistance PostgreSQL)
 functions/
   upload-processor/   vérification et classement d'un fichier uploadé
@@ -108,7 +114,7 @@ packages/
   collab/             conventions Yjs (nom des documents, champ texte)
   config/             tsconfig, ESLint, Prettier
   contracts/          schémas zod partagés entre services
-  editor/             extensions CodeMirror (langage LaTeX, repli, raccourcis)
+  editor/             CodeMirror : langage LaTeX, thèmes, registre d'actions, outline, auto-compilation
   ui/                 composants shadcn/ui partagés
   latex-log-parser/   parsing des logs LaTeX, BibTeX et Biber
 deploy/railway/  configuration des services Railway (config as code)

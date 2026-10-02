@@ -5,24 +5,26 @@ import { type Hocuspocus, Server } from '@hocuspocus/server'
 import { documentName, parseDocumentName, textOf } from '@kaxolax/collab'
 import { verifyRealtimeToken } from '@kaxolax/collab/token'
 import {
+  canEdit,
   type CloseDocumentResponse,
+  type DisconnectUserResponse,
   INTERNAL_TOKEN_HEADER,
-  type ProjectRole,
   type ProjectSnapshot,
   projectEventSchema,
 } from '@kaxolax/contracts'
 import type { Logger } from 'pino'
+import {
+  type ConnectionContext,
+  createAccessControl,
+  FORBIDDEN,
+  type MemberChangeFanout,
+  singleInstanceFanout,
+} from './access.js'
 import type { RealtimeConfig } from './config.js'
 import { broadcastProjectEvent, EVENTS_ROUTE, readJsonBody } from './events.js'
 import type { DocumentStore } from './store.js'
 
-/** Contexte d'une connexion authentifiée. */
-export interface ConnectionContext {
-  userId: string
-  projectId: string
-  documentId: string
-  role: ProjectRole
-}
+export type { ConnectionContext } from './access.js'
 
 type ServerOptions = Pick<
   RealtimeConfig,
@@ -32,10 +34,8 @@ type ServerOptions = Pick<
   | 'INTERNAL_TOKEN'
   | 'STORE_DEBOUNCE_MS'
   | 'STORE_MAX_DEBOUNCE_MS'
->
-
-/** Seuls ces rôles modifient le texte ; les autres reçoivent une connexion en lecture seule. */
-const WRITER_ROLES: ReadonlySet<ProjectRole> = new Set(['owner', 'editor'])
+> &
+  Partial<Pick<RealtimeConfig, 'ROLE_RECHECK_MS' | 'ROLE_SWEEP_MS'>>
 
 /** Un message Yjs peut contenir tout l'état d'un document de 2 Mio, historique compris. */
 const MAX_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -43,6 +43,8 @@ const MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const SNAPSHOT_ROUTE = new RegExp(`^/internal/projects/(${UUID})/snapshot$`)
 const CLOSE_ROUTE = new RegExp(`^/internal/documents/(${UUID})/close$`)
+const DISCONNECT_USER_ROUTE = new RegExp(`^/internal/users/(${UUID})/disconnect$`)
+const MEMBER_CHANGED_ROUTE = new RegExp(`^/internal/projects/(${UUID})/members/(${UUID})/changed$`)
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')
@@ -72,7 +74,23 @@ class AccessDenied extends Error {
   }
 }
 
-export function createRealtimeServer(options: ServerOptions, store: DocumentStore, logger: Logger) {
+/**
+ * Service temps réel. `fanout` relaie les changements de membres aux autres instances (une seule
+ * instance par défaut ; l'extension Redis de la tâche 5 en fournira une implémentation).
+ */
+export function createRealtimeServer(
+  options: ServerOptions,
+  store: DocumentStore,
+  logger: Logger,
+  fanout: MemberChangeFanout = singleInstanceFanout,
+) {
+  const access = createAccessControl({
+    store,
+    logger,
+    roleRecheckMs: options.ROLE_RECHECK_MS ?? 5_000,
+  })
+  const sweepMs = options.ROLE_SWEEP_MS ?? 30_000
+  let sweepTimer: NodeJS.Timeout | undefined
   const snapshot = async (instance: Hocuspocus, projectId: string): Promise<ProjectSnapshot> => {
     const documents = []
     for (const id of await store.documentIds(projectId)) {
@@ -106,6 +124,23 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
       }
     }
     return { closed }
+  }
+
+  /**
+   * Ferme toutes les connexions d'un utilisateur, sur tous les documents ouverts de cette
+   * instance. Sa reconnexion est refusée par onAuthenticate (compte banni ou supprimé).
+   */
+  const disconnectUser = (instance: Hocuspocus, userId: string): DisconnectUserResponse => {
+    let connections = 0
+    for (const { connection, context } of [...access.connectionsOf(instance)]) {
+      if (context.userId === userId) {
+        connection.readOnly = true
+        connection.close(FORBIDDEN)
+        connections++
+      }
+    }
+    if (connections > 0) logger.info({ userId, connections }, 'user disconnected')
+    return { connections }
   }
 
   const handleRequest = async (
@@ -146,6 +181,21 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
       sendJson(response, 200, broadcastProjectEvent(instance, eventsMatch[1], event.data))
       return
     }
+    const userMatch = request.method === 'POST' ? DISCONNECT_USER_ROUTE.exec(path) : null
+    if (userMatch?.[1]) {
+      sendJson(response, 200, disconnectUser(instance, userMatch[1]))
+      return
+    }
+    const memberMatch = request.method === 'POST' ? MEMBER_CHANGED_ROUTE.exec(path) : null
+    if (memberMatch?.[1] && memberMatch[2]) {
+      const change = { projectId: memberMatch[1], userId: memberMatch[2] }
+      const result = await access.applyMemberChange(instance, change)
+      await fanout.publish(change)
+      if (result.closed + result.updated > 0)
+        logger.info({ ...change, ...result }, 'member changed')
+      sendJson(response, 200, result)
+      return
+    }
     sendJson(response, 404, { code: 'E_NOT_FOUND' })
   }
 
@@ -167,13 +217,16 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
         if (!target) throw new AccessDenied('malformed document name')
         if (target.projectId !== claims.projectId)
           throw new AccessDenied('token is for another project')
-        // Le rôle est relu en base : un membre retiré ne se reconnecte pas avec un ancien jeton.
-        const role = await store.memberRole(target.projectId, claims.sub)
-        if (!role) throw new AccessDenied('not a member of the project')
+        // Le rôle est relu en base : un membre retiré, un compte banni ou supprimé, ou dont les
+        // sessions ont été révoquées depuis l'émission du jeton, ne se reconnecte pas avec un
+        // ancien jeton.
+        const role = await store.memberRole(target.projectId, claims.sub, claims.iat)
+        if (!role) throw new AccessDenied('not an active member of the project')
         if (!(await store.documentExists(target.projectId, target.documentId))) {
           throw new AccessDenied('unknown document')
         }
-        connectionConfig.readOnly = !WRITER_ROLES.has(role)
+        // Matrice des permissions : seuls les rôles qui éditent écrivent (owner, editor).
+        connectionConfig.readOnly = !canEdit(role)
         logger.debug(
           { socketId, documentName: name, userId: claims.sub, role },
           'connection authenticated',
@@ -183,13 +236,52 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
           projectId: target.projectId,
           documentId: target.documentId,
           role,
-        }
+          issuedAt: claims.iat,
+          roleCheckedAt: Date.now(),
+          rejectedUpdates: 0,
+        } satisfies ConnectionContext
       } catch (error) {
         if (error instanceof AccessDenied) {
           logger.info({ socketId, documentName: name, reason: error.detail }, 'connection refused')
         }
         throw error
       }
+    },
+
+    /**
+     * Seconde vérification, une fois la connexion attachée au document (après son chargement) :
+     * un bannissement, une suppression ou une révocation validés entre onAuthenticate et l'attache
+     * ont pu manquer `/internal/users/:id/disconnect`, qui ne voit que les connexions attachées.
+     * L'API appelle cette route après avoir validé l'effet : l'une des deux vérifications le voit.
+     * Même chose pour un changement de rôle ou un retrait (`…/members/:userId/changed`).
+     */
+    async connected({ connection }) {
+      await access.recheck(connection)
+    },
+
+    /** Rôle vérifié à chaque mise à jour Yjs (voir `createAccessControl`). */
+    async beforeSync({ connection, document, type, payload }) {
+      await access.beforeSync(connection, document, type, payload)
+    },
+
+    onListen({ instance }) {
+      fanout.subscribe(async (change) => {
+        await access.applyMemberChange(instance, change)
+      })
+      if (sweepMs > 0) {
+        sweepTimer = setInterval(() => {
+          access.sweep(instance).catch((error: unknown) => {
+            logger.error({ err: error }, 'role sweep failed')
+          })
+        }, sweepMs)
+        sweepTimer.unref()
+      }
+      return Promise.resolve()
+    },
+
+    onDestroy() {
+      clearInterval(sweepTimer)
+      return Promise.resolve()
     },
 
     extensions: [

@@ -13,6 +13,7 @@ import { importZip } from '@kaxolax/zip-importer'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
 import { type ApiClient, ApiRequest } from '@japa/api-client'
 import Compile from '#models/compile'
 import Document from '#models/document'
@@ -221,6 +222,11 @@ test.group('compile', (group) => {
     })
     assert.equal(await (await fetch(result.pdfUrl ?? '')).text(), '%PDF-1.7 fake')
     assert.equal(await (await fetch(result.logUrl ?? '')).text(), 'This is pdfTeX')
+    // Fichiers de sortie téléchargeables : seulement ceux que l'agent a produits.
+    assert.deepEqual(
+      result.outputFiles?.map((file) => file.name),
+      ['output.log'],
+    )
 
     const compile = await Compile.findOrFail(result.buildId)
     assert.include(compile.$attributes, {
@@ -246,11 +252,20 @@ test.group('compile', (group) => {
     assert.equal(result.buildId, compiled.body().buildId)
     assert.equal(result.entries[0]?.message, 'Undefined control sequence')
     assert.equal(await (await fetch(result.pdfUrl ?? '')).text(), '%PDF-1.7 fake')
+    assert.deepEqual(
+      result.outputFiles?.map((file) => file.name),
+      ['output.log'],
+    )
 
     // Sorties expirées (7 jours) : la compilation reste, sans URL.
     await new CompileOutputStorage().deletePrefix(`outputs/${projectId}/`)
     const expired = await client.get(`/api/v1/projects/${projectId}/compile/last`).loginAs(user)
-    assert.deepInclude(expired.body().compile, { pdfUrl: null, logUrl: null, entries: [] })
+    assert.deepInclude(expired.body().compile, {
+      pdfUrl: null,
+      logUrl: null,
+      outputFiles: [],
+      entries: [],
+    })
   })
 
   test('records an error when no compile agent is available', async ({ client, assert }) => {
@@ -283,6 +298,41 @@ test.group('compile', (group) => {
     const response = await client.post(`/api/v1/projects/${projectId}/compile`).loginAs(user)
     response.assertStatus(422)
     response.assertBodyContains({ code: 'E_NO_MAIN_DOCUMENT' })
+  })
+
+  test('forwards the compile options and validates them', async ({ client, assert }) => {
+    const user = await createUser()
+    const { projectId } = await setupProject(client, user)
+    const url = `/api/v1/projects/${projectId}/compile`
+
+    ;(await client.post(url).loginAs(user)).assertStatus(200)
+    assert.isUndefined(gateway.requests[0]?.options?.draft)
+
+    const options = { draft: true, haltOnFirstError: true }
+    ;(await client.post(url).json({ options }).loginAs(user)).assertStatus(200)
+    assert.deepEqual(gateway.requests[1]?.options, options)
+
+    for (const body of [
+      { options: { draft: 'yes' } },
+      { options: { shellEscape: true } },
+      { x: 1 },
+    ]) {
+      const response = await client.post(url).json(body).loginAs(user)
+      response.assertStatus(422)
+      response.assertBodyContains({ code: 'E_VALIDATION_ERROR' })
+    }
+    assert.lengthOf(gateway.requests, 2)
+
+    // Un lecteur compile aussi, avec ses options.
+    const viewer = await createUser()
+    await ProjectMember.create({ projectId, userId: viewer.id, role: 'viewer' })
+    ;(
+      await client
+        .post(url)
+        .json({ options: { draft: true } })
+        .loginAs(viewer)
+    ).assertStatus(200)
+    assert.deepEqual(gateway.requests[2]?.options, { draft: true })
   })
 
   test('relays stop, clear cache and SyncTeX, and validates SyncTeX queries', async ({
@@ -417,5 +467,12 @@ test.group('export', (group) => {
     theirs.assertStatus(200)
     await ProjectMember.query().where({ projectId, userId: stranger.id }).delete()
     ;(await client.get(String(theirs.body().url))).assertStatus(404)
+
+    // Compte banni après l'émission du lien : le lien ne sert plus.
+    const mine = await client.post(`/api/v1/projects/${projectId}/download-url`).loginAs(user)
+    mine.assertStatus(200)
+    user.bannedAt = DateTime.utc()
+    await user.save()
+    ;(await client.get(String(mine.body().url))).assertStatus(410)
   })
 })

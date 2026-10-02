@@ -3,6 +3,7 @@ import { join, posix } from 'node:path'
 import {
   type AgentCompileResponse,
   type AgentHealth,
+  type CompileOptions,
   type CompileRequest,
   type CompileStatus,
   type Compiler as CompilerName,
@@ -41,20 +42,40 @@ const ENGINE_FLAGS: Record<CompilerName, string> = {
 /** Fin du log d'un moteur qui a écrit des pages (XeLaTeX écrit un .xdv, converti ensuite en PDF). */
 const PDF_WRITTEN = /Output written on output\.(pdf|xdv)\b/
 
-/** Sorties envoyées vers S3 (le fichier SyncTeX reste sur l'agent, sauf `uploadSynctex`). */
+/**
+ * Sorties envoyées vers S3/R2. Le SyncTeX y est aussi : téléchargeable depuis l'interface, et
+ * restauré depuis R2 quand la VM du conteneur Cloudflare a été recyclée avant une requête SyncTeX.
+ */
 const UPLOADED_OUTPUTS: { name: string; contentType: string }[] = [
   { name: 'output.pdf', contentType: 'application/pdf' },
   { name: 'output.log', contentType: 'text/plain; charset=utf-8' },
   { name: 'output.blg', contentType: 'text/plain; charset=utf-8' },
+  // Proposés au téléchargement dans l'interface (fichiers de sortie).
+  { name: 'output.bbl', contentType: 'text/plain; charset=utf-8' },
+  { name: 'output.synctex.gz', contentType: 'application/gzip' },
 ]
 
 const SYNCTEX_TIMEOUT_MS = 20_000
 
 /**
- * Commande de compilation. `-norc` n'est pas dans la spécification : sans lui, latexmk exécuterait
- * le `latexmkrc` (du Perl) d'un projet (voir docs/decisions.md).
+ * Code TeX lu avant le document principal en mode brouillon : graphicx et hyperref reçoivent
+ * l'option draft sans que les fichiers du projet soient modifiés. Texte constant, jamais issu de
+ * la demande.
  */
-export function latexmkCommand(compiler: CompilerName, mainFile: string): string[] {
+export const DRAFT_PRETEX =
+  '\\PassOptionsToPackage{draft}{graphicx}\\PassOptionsToPackage{draft}{hyperref}'
+
+/**
+ * Commande de compilation. `-norc` n'est pas dans la spécification : sans lui, latexmk exécuterait
+ * le `latexmkrc` (du Perl) d'un projet (voir docs/decisions.md). Les options ne font qu'ajouter
+ * des arguments constants (`-halt-on-error`, `-usepretex=` avec `DRAFT_PRETEX`) : aucune valeur de
+ * la demande n'entre dans la commande, et `-shell-escape` n'est jamais passé.
+ */
+export function latexmkCommand(
+  compiler: CompilerName,
+  mainFile: string,
+  options: CompileOptions = {},
+): string[] {
   return [
     'latexmk',
     '-norc',
@@ -64,6 +85,8 @@ export function latexmkCommand(compiler: CompilerName, mainFile: string): string
     '-synctex=1',
     '-interaction=batchmode',
     '-file-line-error',
+    ...(options.haltOnFirstError === true ? ['-halt-on-error'] : []),
+    ...(options.draft === true ? [`-usepretex=${DRAFT_PRETEX}`] : []),
     ENGINE_FLAGS[compiler],
     mainFile,
   ]
@@ -84,14 +107,7 @@ export interface CompilerOptions {
   binaries: BinarySource
   outputs: OutputStore
   logger: CompilerLogger
-  /**
-   * Envoie aussi `output.synctex.gz` (conteneur Cloudflare : la VM peut être recyclée entre la
-   * compilation et une requête SyncTeX, le fichier est alors restauré depuis R2).
-   */
-  uploadSynctex?: boolean
 }
-
-const SYNCTEX_OUTPUT = { name: 'output.synctex.gz', contentType: 'application/gzip' }
 
 export class InvalidRequestError extends Error {}
 
@@ -251,7 +267,7 @@ export class Compiler {
     let result: SandboxResult
     try {
       result = await this.options.sandbox.run({
-        command: latexmkCommand(request.compiler, mainFile),
+        command: latexmkCommand(request.compiler, mainFile, request.options),
         hostWorkdir: paths.files,
         workingDir,
         timeoutMs: request.timeoutMs,
@@ -337,13 +353,10 @@ export class Compiler {
     // 4. Envoi des sorties vers S3.
     const uploadStarted = performance.now()
     const outputFiles: OutputFile[] = []
-    const uploaded = this.options.uploadSynctex
-      ? [...UPLOADED_OUTPUTS, SYNCTEX_OUTPUT]
-      : UPLOADED_OUTPUTS
-    for (const output of uploaded) {
+    for (const output of UPLOADED_OUTPUTS) {
       if (output.name === 'output.pdf' && !uploadPdf) continue
       // Le SyncTeX ne vaut que pour le PDF envoyé.
-      if (output.name === SYNCTEX_OUTPUT.name && !uploadPdf) continue
+      if (output.name === 'output.synctex.gz' && !uploadPdf) continue
       if (output.name === 'output.log' && !uploadLog) continue
       const path = join(outputDir, output.name)
       const size = outputDirSafe ? await fileSize(path) : null

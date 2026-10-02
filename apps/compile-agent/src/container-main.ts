@@ -44,7 +44,6 @@ const compiler = new Compiler({
   binaries: cache,
   outputs: new LocalOutputStore(config.OUTPUTS_DIR),
   logger,
-  uploadSynctex: true,
 })
 const server = buildContainerServer({
   compiler,

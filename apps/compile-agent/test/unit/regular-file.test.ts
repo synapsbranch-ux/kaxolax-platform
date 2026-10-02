@@ -68,7 +68,6 @@ function compiler(sandbox: CompileSandbox, outputsDir: string) {
     binaries: { get: () => Promise.reject(new Error('no binaries')) },
     outputs: new LocalOutputStore(outputsDir),
     logger: { info: () => undefined, warn: () => undefined },
-    uploadSynctex: true,
   })
 }
 

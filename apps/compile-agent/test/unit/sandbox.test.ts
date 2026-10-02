@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { latexmkCommand } from '../../src/compiler.js'
+import { DRAFT_PRETEX, latexmkCommand } from '../../src/compiler.js'
 import { buildContainerSpec, SANDBOX_LIMITS } from '../../src/sandbox.js'
 
 describe('buildContainerSpec', () => {
@@ -73,5 +73,20 @@ describe('latexmkCommand', () => {
     ])
     expect(latexmkCommand('xelatex', 'a.tex')).toContain('-xelatex')
     expect(latexmkCommand('lualatex', 'a.tex')).toContain('-lualatex')
+  })
+
+  it('adds constant arguments for the compile options, never shell escape', () => {
+    const command = latexmkCommand('pdflatex', 'main.tex', { draft: true, haltOnFirstError: true })
+    expect(command).toContain('-halt-on-error')
+    expect(command).toContain(`-usepretex=${DRAFT_PRETEX}`)
+    expect(command.slice(0, 2)).toEqual(['latexmk', '-norc'])
+    expect(command.at(-1)).toBe('main.tex')
+    expect(command.some((arg) => arg.includes('shell-escape'))).toBe(false)
+    expect(DRAFT_PRETEX).toBe(
+      '\\PassOptionsToPackage{draft}{graphicx}\\PassOptionsToPackage{draft}{hyperref}',
+    )
+    expect(
+      latexmkCommand('pdflatex', 'main.tex', { draft: false, haltOnFirstError: false }),
+    ).toEqual(latexmkCommand('pdflatex', 'main.tex'))
   })
 })

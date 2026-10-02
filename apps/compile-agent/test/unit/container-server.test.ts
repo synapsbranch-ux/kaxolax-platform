@@ -74,7 +74,6 @@ function setup() {
     binaries: cache,
     outputs: new LocalOutputStore(join(root, 'outputs')),
     logger: pino({ level: 'silent' }),
-    uploadSynctex: true,
   })
   return buildContainerServer({
     compiler,

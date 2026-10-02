@@ -1,11 +1,17 @@
 import type {
+  ActiveBanner,
   CodePosition,
+  CompileOptions,
   Compiler,
   CompileResult,
   PdfPosition,
+  PreferencesResponse,
   ProjectRole,
+  ProjectSearchQuery,
+  ProjectSearchResponse,
   RealtimeTokenResponse,
   SpellcheckLanguage,
+  UserPreferences,
   Workspace,
 } from '@kaxolax/contracts'
 
@@ -106,11 +112,25 @@ function errorFrom(status: number, body: unknown): ApiError {
   return new ApiError(status, data.code, message, fieldErrors)
 }
 
+/**
+ * Âge maximal du dernier jeton obtenu pour un envoi synchrone (`sendOnExit`) : les jetons de
+ * session Clerk vivent environ 60 s.
+ */
+const RECENT_TOKEN_MAX_AGE_MS = 45_000
+/** Dernier jeton de session obtenu, et sa date (envoi pendant la fermeture de la page). */
+let recentToken: { value: string; at: number } | null = null
+
+/** Jeton de session Clerk frais (Clerk le renouvelle avant son expiration, environ 60 s). */
+async function freshToken(): Promise<string | null> {
+  const token = await (await tokenGetter)()
+  if (token !== null) recentToken = { value: token, at: Date.now() }
+  return token
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' }
   if (body !== undefined) headers['content-type'] = 'application/json'
-  // Jeton de session Clerk frais (Clerk le renouvelle avant son expiration, environ 60 s).
-  const token = await (await tokenGetter)()
+  const token = await freshToken()
   if (token !== null) headers.authorization = `Bearer ${token}`
   const response = await fetch(`/api/v1${path}`, {
     method,
@@ -124,9 +144,43 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T
 }
 
+/**
+ * Envoi pendant la fermeture ou le masquage de la page : synchrone (aucune attente du jeton, qui
+ * n'aboutirait pas), avec le dernier jeton obtenu et `keepalive` pour que la requête survive à la
+ * page. Renvoie false sans rien envoyer si aucun jeton récent n'est disponible.
+ */
+function sendOnExit(method: string, path: string, body: unknown): boolean {
+  if (recentToken === null || Date.now() - recentToken.at > RECENT_TOKEN_MAX_AGE_MS) return false
+  void fetch(`/api/v1${path}`, {
+    method,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      authorization: `Bearer ${recentToken.value}`,
+    },
+    credentials: 'omit',
+    body: JSON.stringify(body),
+    keepalive: true,
+  }).catch(() => undefined)
+  return true
+}
+
 /** Appels de l'API REST (même origine, jeton de session Clerk dans `Authorization`). */
 export const api = {
   me: () => request<{ user: User }>('GET', '/me'),
+  /** Bannières système affichées maintenant (tout compte connecté). */
+  activeBanners: () => request<{ banners: ActiveBanner[] }>('GET', '/banners/active'),
+
+  /** Préférences complètes (valeurs par défaut appliquées par l'API). */
+  preferences: () => request<PreferencesResponse>('GET', '/me/preferences'),
+  /** Modification partielle (fusion profonde côté API) ; renvoie les préférences complètes. */
+  updatePreferences: (patch: UserPreferences) =>
+    request<PreferencesResponse>('PATCH', '/me/preferences', patch),
+  /** Même modification, envoyée pendant la fermeture de la page (voir `sendOnExit`). */
+  updatePreferencesOnExit: (patch: UserPreferences) =>
+    sendOnExit('PATCH', '/me/preferences', patch),
+  /** Obtient un jeton de session et le garde pour un envoi pendant la fermeture de la page. */
+  warmToken: () => freshToken().then(() => undefined),
 
   workspaces: () => request<{ workspaces: Workspace[] }>('GET', '/workspaces'),
 
@@ -204,13 +258,25 @@ export const api = {
   realtimeToken: (id: string) =>
     request<RealtimeTokenResponse>('POST', `/projects/${id}/realtime-token`),
 
-  compile: (id: string) => request<CompileResult>('POST', `/projects/${id}/compile`),
+  compile: (id: string, options: CompileOptions = {}) =>
+    request<CompileResult>('POST', `/projects/${id}/compile`, { options }),
   stopCompile: (id: string) =>
     request<{ stopped: boolean }>('POST', `/projects/${id}/compile/stop`),
   lastCompile: (id: string) =>
     request<{ compile: CompileResult | null }>('GET', `/projects/${id}/compile/last`),
   clearCache: (id: string) =>
     request<{ cleared: boolean }>('POST', `/projects/${id}/compile/clear-cache`),
+  /** Recherche dans le texte de tous les documents du projet. */
+  search: (id: string, query: ProjectSearchQuery) =>
+    request<ProjectSearchResponse>(
+      'GET',
+      `/projects/${id}/search?${new URLSearchParams({
+        q: query.q,
+        caseSensitive: String(query.caseSensitive),
+        wholeWord: String(query.wholeWord),
+        regex: String(query.regex),
+      }).toString()}`,
+    ),
   synctexCode: (id: string, file: string, line: number, column = 0) =>
     request<{ pdf: PdfPosition[] }>(
       'GET',

@@ -1,9 +1,9 @@
 'use client'
 
 import { useParams } from 'next/navigation'
-import { EditorPage } from '@/components/editor/editor-page'
+import { WorkspacePage } from '@/components/workspace/workspace-page'
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>()
-  return <EditorPage key={id} projectId={id} />
+  return <WorkspacePage key={id} projectId={id} />
 }

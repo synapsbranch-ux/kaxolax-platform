@@ -80,8 +80,27 @@ async function compile(page: Page) {
   }
 }
 
+/** Choisit le compilateur dans le menu de la pastille de statut et attend son enregistrement. */
+async function chooseCompiler(page: Page, label: string): Promise<void> {
+  await page.getByTestId('compile-menu').click()
+  const item = page.getByRole('menuitemradio', { name: label })
+  if ((await item.getAttribute('aria-checked')) === 'true') {
+    await page.keyboard.press('Escape')
+    return
+  }
+  const saved = page.waitForResponse(
+    (candidate) =>
+      /\/projects\/[0-9a-f-]{36}$/.test(new URL(candidate.url()).pathname) &&
+      candidate.request().method() === 'PATCH',
+  )
+  await item.click()
+  expect((await saved).ok()).toBe(true)
+}
+
 async function expectPdfText(page: Page, ...texts: string[]): Promise<void> {
-  await page.getByTestId('panel-pdf').click()
+  // Le tiroir des logs recouvre le haut du PDF : il est refermé.
+  const closeLogs = page.getByTestId('close-logs')
+  if (await closeLogs.isVisible()) await closeLogs.click()
   const viewer = page.getByTestId('pdf-viewer')
   // Couches texte de toutes les pages rendues (les pages hors de l'écran le sont à la demande).
   for (const text of texts) await expect(viewer).toContainText(text)
@@ -117,7 +136,8 @@ test('stage 1 definition of done', async ({ page }, testInfo) => {
   })
 
   await test.step('3. write a document with a figure, a citation and a section in an \\input file', async () => {
-    await page.getByRole('button', { name: 'Nouveau fichier' }).click()
+    await page.getByTestId('sidebar-add').click()
+    await page.getByRole('menuitem', { name: 'Nouveau fichier' }).click()
     await page.fill('#name-dialog-input', 'intro.tex')
     await page.getByRole('button', { name: 'Créer' }).click()
     await expect(page.locator('[data-path="intro.tex"]')).toBeVisible()
@@ -131,8 +151,7 @@ test('stage 1 definition of done', async ({ page }, testInfo) => {
     expect(pdflatex.status).toBe('success')
     await expectPdfText(page, 'Introduction', 'A generated plot', 'References', 'The TeXbook')
 
-    await page.getByLabel('Compilateur').selectOption('xelatex')
-    await expect(page.getByLabel('Compilateur')).toHaveValue('xelatex')
+    await chooseCompiler(page, 'XeLaTeX')
     const xelatex = await compile(page)
     expect(xelatex.status).toBe('success')
     await expectPdfText(page, 'A generated plot', 'The TeXbook')
@@ -176,6 +195,7 @@ test('stage 1 definition of done', async ({ page }, testInfo) => {
   })
 
   await test.step('7. download the zip and import it back: it compiles the same way', async () => {
+    await page.getByTestId('pdf-more-menu').click()
     const [download] = await Promise.all([
       page.waitForEvent('download'),
       page.getByTestId('download-zip').click(),
@@ -204,11 +224,10 @@ test('stage 1 definition of done', async ({ page }, testInfo) => {
   })
 
   await test.step('9. a simple 10-page document recompiles in under 3 s once warm', async () => {
-    await page.getByLabel('Compilateur').selectOption('pdflatex')
-    await expect(page.getByLabel('Compilateur')).toHaveValue('pdflatex')
+    await chooseCompiler(page, 'pdfLaTeX')
     await replaceEditorContent(page, tenPages('First version.'))
     expect((await compile(page)).status).toBe('success')
-    await expect(page.getByText('10 page(s)')).toBeVisible()
+    await expect(page.getByTestId('pdf-page-count')).toHaveText('10')
 
     await replaceEditorContent(page, tenPages('Edited version.'))
     const warm = await compile(page)

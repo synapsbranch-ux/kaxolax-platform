@@ -1,3 +1,4 @@
+import { compileProjectBodySchema } from '@kaxolax/contracts'
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import compileConfig from '#config/compile'
@@ -15,6 +16,7 @@ import ProjectEvents from '#services/project_events'
 import RealtimeClient from '#services/realtime_client'
 import { buildTree } from '#services/tree_service'
 import { synctexCodeValidator, synctexPdfValidator } from '#validators/compile'
+import { validateWithZod } from '#validators/zod'
 
 @inject()
 export default class CompilesController {
@@ -31,16 +33,23 @@ export default class CompilesController {
   }
 
   /**
-   * Tout membre du projet peut compiler : la compilation ne modifie pas le contenu. En mode
-   * `cloudflare`, réponse 202 `{ buildId, status }` (`queued`, ou `preparing` pendant le réveil du
-   * conteneur) ; le résultat arrive par le service temps réel (ou `GET …/builds/:buildId`).
+   * Tout membre du projet peut compiler : la compilation ne modifie pas le contenu. Corps
+   * facultatif : `{ options: { draft?, haltOnFirstError? } }`. En mode `cloudflare`, réponse 202
+   * `{ buildId, status }` (`queued`, ou `preparing` pendant le réveil du conteneur) ; le résultat
+   * arrive par le service temps réel (ou `GET …/builds/:buildId`).
    */
-  async compile({ params, auth, response }: HttpContext) {
+  async compile({ params, auth, request, response }: HttpContext) {
     const user = auth.getUserOrFail()
     const { project } = await projectFor(user, String(params.id), 'viewer')
+    const body = validateWithZod(compileProjectBodySchema, request.body())
     if (this.async) {
       const deps = { worker: this.worker, realtime: this.realtime, outputs: this.outputs }
-      const accepted = await enqueueCompile({ ...deps, events: this.events }, user, project)
+      const accepted = await enqueueCompile(
+        { ...deps, events: this.events },
+        user,
+        project,
+        body.options,
+      )
       response.status(202)
       return accepted
     }
@@ -48,6 +57,7 @@ export default class CompilesController {
       { gateway: this.gateway, realtime: this.realtime, outputs: this.outputs },
       user,
       project,
+      body.options,
     )
   }
 

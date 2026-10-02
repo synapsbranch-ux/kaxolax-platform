@@ -117,7 +117,7 @@ export async function startFileUpload(
   projectId: string,
   input: { filename: string; folderId: string | null; sizeBytes: number },
 ): Promise<StartedUpload> {
-  const { project } = await projectFor(user, projectId, 'editor')
+  const { project } = await projectFor(user, projectId, 'edit')
   // Vérification anticipée (refaite à la complétion) : pas d'upload pour un nom déjà pris.
   await db.transaction(async (trx) => {
     await assertFolder(trx, project.id, input.folderId)
@@ -146,7 +146,7 @@ export async function completeFileUpload(
   projectId: string,
   uploadId: string,
 ): Promise<CompletedUpload> {
-  const { project } = await projectFor(user, projectId, 'editor')
+  const { project } = await projectFor(user, projectId, 'edit')
   const upload = await pendingUpload({
     id: uploadId,
     userId: user.id,
@@ -178,7 +178,7 @@ export async function completeFileUpload(
   let completed: CompletedUpload
   try {
     completed = await db.transaction(async (trx) => {
-      await projectFor(user, project.id, 'editor', { trx, lock: true })
+      await projectFor(user, project.id, 'edit', { trx, lock: true })
       const locked = await pendingUpload(
         { id: upload.id, userId: user.id, purpose: 'file', projectId: project.id },
         trx,

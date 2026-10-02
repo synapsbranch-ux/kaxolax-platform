@@ -8,6 +8,7 @@ celle du tableau de bord. `kaxolax-infra/railway/provision.sh` pose les mêmes v
 | Service Railway | Fichier                                                                         | Image                                                   | Healthcheck      | Réplicas |
 | --------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------- | ---------------- | -------- |
 | `web`           | `web.json`                                                                      | `docker/Dockerfile`, `KAXOLAX_SERVICE=web`              | `/healthz`       | 2        |
+| `admin`         | `admin.json`                                                                    | `docker/Dockerfile`, `KAXOLAX_SERVICE=admin`            | `/healthz`       | 1        |
 | `api`           | `api.json`                                                                      | `docker/Dockerfile`, `KAXOLAX_SERVICE=api`              | `/api/v1/health` | 2        |
 | `realtime`      | `realtime.json`                                                                 | `docker/Dockerfile`, `KAXOLAX_SERVICE=realtime`         | `/health`        | 1 (\*)   |
 | `admin`         | à créer avec la tâche 13 (`KAXOLAX_SERVICE=admin`, cible `admin` du Dockerfile) |                                                         |                  | 1        |

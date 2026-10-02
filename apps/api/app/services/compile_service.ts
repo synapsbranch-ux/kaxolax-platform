@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import {
+  type CompileOptions,
   compileOutputPrefix,
   type CompileRequest,
   compileRequestSchema,
   type CompileResult,
   compileStatusSchema,
+  DOWNLOADABLE_OUTPUTS,
   type GatewayCompileResponse,
   type LogEntry,
   logEntrySchema,
@@ -53,6 +55,7 @@ export async function buildCompileRequest(
   realtime: RealtimeClient,
   project: Project,
   bucket: string,
+  options: CompileOptions = {},
 ): Promise<CompileRequest> {
   const content = await projectContent(realtime, project.id)
   const main = content.documents.find((document) => document.id === project.mainDocumentId)
@@ -64,6 +67,7 @@ export async function buildCompileRequest(
     compiler: project.compiler,
     rootResourcePath: main.path,
     timeoutMs: compileConfig.timeoutMs,
+    options,
     resources: [
       ...content.documents.map((document) => ({
         path: document.path,
@@ -100,19 +104,33 @@ export async function outputUrls(
     presign('output.pdf', 'application/pdf'),
     presign('output.log', 'text/plain; charset=utf-8'),
   ])
-  return { pdfUrl, logUrl }
+  // Sorties proposées au téléchargement (menu ⋯ du PDF) : en pièce jointe.
+  const available = DOWNLOADABLE_OUTPUTS.filter((output) => names.has(output.name))
+  const outputFiles = await Promise.all(
+    available.map(async (output) => ({
+      name: output.name,
+      url: await outputs.presignDownload(`${prefix}${output.name}`, output.name, {
+        mode: 'attachment',
+        contentType: output.contentType,
+        expiresIn: compileConfig.outputUrlTtlSeconds,
+      }),
+    })),
+  )
+  return { pdfUrl, logUrl, outputFiles }
 }
 
 /**
- * Compile un projet : demande construite par l'API, envoyée au gateway ; résultat enregistré dans
- * compiles, entrées du log gardées à côté des sorties (pour « dernière compilation »).
+ * Compile un projet (options : mode brouillon, arrêt à la première erreur) : demande construite
+ * par l'API, envoyée au gateway ; résultat enregistré dans compiles, entrées du log gardées à côté
+ * des sorties (pour « dernière compilation »).
  */
 export async function compileProject(
   deps: CompileDependencies,
   user: User,
   project: Project,
+  options: CompileOptions = {},
 ): Promise<CompileResult> {
-  const request = await buildCompileRequest(deps.realtime, project, deps.outputs.bucket)
+  const request = await buildCompileRequest(deps.realtime, project, deps.outputs.bucket, options)
   const started = Date.now()
   let response: GatewayCompileResponse | null = null
   try {
@@ -181,19 +199,14 @@ export async function compileResultOf(
   compile: Compile,
 ): Promise<CompileResult> {
   const prefix = compile.outputPrefix
-  const [pdfSize, logSize] = await Promise.all([
-    outputs.size(`${prefix}output.pdf`),
-    outputs.size(`${prefix}output.log`),
-  ])
+  const outputNames = ['output.pdf', ...DOWNLOADABLE_OUTPUTS.map((output) => output.name)]
+  const sizes = await Promise.all(outputNames.map((name) => outputs.size(`${prefix}${name}`)))
   let entries: LogEntry[] = []
   if ((await outputs.size(`${prefix}${ENTRIES_FILE}`)) !== null) {
     const raw = Buffer.concat(await (await outputs.read(`${prefix}${ENTRIES_FILE}`)).toArray())
     entries = entriesSchema.catch([]).parse(JSON.parse(raw.toString('utf8')))
   }
-  const names = new Set([
-    ...(pdfSize === null ? [] : ['output.pdf']),
-    ...(logSize === null ? [] : ['output.log']),
-  ])
+  const names = new Set(outputNames.filter((_, index) => sizes[index] !== null))
   return {
     buildId: compile.id,
     status: compileStatusSchema.parse(compile.status),

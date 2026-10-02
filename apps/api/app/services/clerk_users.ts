@@ -7,6 +7,7 @@ import ProjectMember from '#models/project_member'
 import User from '#models/user'
 import WorkspaceMember from '#models/workspace_member'
 import { type DeletedProject, deleteProjectRows } from '#services/project_service'
+import { acceptPendingInvitationsFor } from '#services/sharing_service'
 import { ensurePersonalWorkspace } from '#services/workspace_service'
 
 /** Ce que Kaxolax garde d'un compte Clerk (miroir local, jamais de mot de passe ni de jeton). */
@@ -30,6 +31,10 @@ export interface ClerkUserJson {
   first_name?: string | null
   last_name?: string | null
   image_url?: string | null
+  /** Compte banni dans Clerk (Dashboard ou API Backend). */
+  banned?: boolean | null
+  /** Dernière modification du compte chez Clerk, en millisecondes. */
+  updated_at?: number | null
   primary_email_address_id?: string | null
   email_addresses?: {
     id: string
@@ -79,7 +84,8 @@ export function profileFromClaims(claims: Record<string, unknown>): ClerkProfile
 
 /**
  * Crée ou met à jour le miroir local d'un compte Clerk, avec son workspace personnel (webhook
- * user.created ou création à la volée par le guard). Un compte supprimé n'est jamais recréé ni
+ * user.created ou création à la volée par le guard). À la création, les invitations en attente
+ * pour son email vérifié sont acceptées. Un compte supprimé n'est jamais recréé ni
  * modifié (événement rejoué ou en retard).
  */
 export async function upsertClerkUser(
@@ -100,6 +106,7 @@ export async function upsertClerkUser(
       .first()
     if (taken) throw new ClerkEmailConflictException()
 
+    const created = user === null
     user ??= new User()
     user.useTransaction(trx)
     user.merge({
@@ -111,6 +118,8 @@ export async function upsertClerkUser(
     await user.save()
     // Idempotent : rattrape aussi un compte resté sans workspace.
     await ensurePersonalWorkspace(user, trx)
+    // Inscription : les invitations en attente pour cet email (vérifié) sont acceptées.
+    if (created) await acceptPendingInvitationsFor(user, trx)
     return user
   }
   return client ? run(client) : db.transaction(run)
@@ -151,4 +160,46 @@ export async function deleteClerkUser(
   })
   await user.save()
   return deleted
+}
+
+/** État de bannissement d'un compte, daté par Clerk (`updated_at` du compte) si connu. */
+export interface ClerkBanState {
+  banned: boolean
+  changedAt: DateTime | null
+}
+
+/** État de bannissement porté par un webhook `user.*`, ou null s'il n'en porte pas. */
+export function banStateFromWebhook(user: ClerkUserJson): ClerkBanState | null {
+  if (typeof user.banned !== 'boolean') return null
+  return {
+    banned: user.banned,
+    changedAt:
+      typeof user.updated_at === 'number'
+        ? DateTime.fromMillis(user.updated_at, { zone: 'utc' })
+        : null,
+  }
+}
+
+/**
+ * Reflète le bannissement d'un compte (action de l'admin ou webhook). Un état daté d'avant celui
+ * déjà reflété (webhook en retard, ou rejoué après une action de l'admin) est ignoré ; un compte
+ * supprimé ne change plus. Renvoie vrai si le compte vient d'être banni : l'appelant ferme alors
+ * ses connexions temps réel, une fois la transaction validée.
+ */
+export async function applyBanState(
+  user: User,
+  state: ClerkBanState,
+  trx: TransactionClientContract,
+): Promise<boolean> {
+  if (user.deletedAt) return false
+  const known = user.banStateUpdatedAt
+  if (state.changedAt && known && state.changedAt <= known) return false
+  const newlyBanned = state.banned && user.bannedAt === null
+  user.useTransaction(trx)
+  user.merge({
+    bannedAt: state.banned ? (user.bannedAt ?? DateTime.utc()) : null,
+    banStateUpdatedAt: state.changedAt ?? known,
+  })
+  await user.save()
+  return newlyBanned
 }

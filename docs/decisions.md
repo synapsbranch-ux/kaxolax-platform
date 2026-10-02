@@ -259,6 +259,161 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `next typegen` (typecheck) et `next build` écrivent tous deux dans `apps/web/.next` ; lancés en parallèle sans cache, le build effaçait `.next/types/routes.d.ts` pendant `tsc` (échec intermittent de `pnpm check`).
 - `apps/web/turbo.json` : `build` dépend du `typecheck` du même paquet. Même règle pour `apps/admin` à sa création.
 
+## 2026-10-01 · Jetons de design dans packages/ui
+
+- `@kaxolax/ui/tokens.css` (source CSS servie telle quelle) porte couleurs oklch, rayons, tailles de barres et le bloc `@theme inline` de Tailwind 4 ; les applications l'importent au lieu de redéfinir leurs variables.
+- Thème choisi par `data-theme` sur `<html>` (sombre par défaut), posé avant le rendu par `ThemeScript` ; la variante `dark:` suit cet attribut et non `prefers-color-scheme`. Un sous-arbre `data-theme="light"` reste clair ; les jetons `pdf-*` sont clairs dans les deux thèmes.
+- Huit couleurs de présence (même teinte, luminosité par thème) ; couleur d'un collaborateur = hachage FNV-1a de son id, identique sur tous les clients sans coordination.
+- `Command` écrit sans `cmdk` : liste filtrée et navigation clavier suffisent, une dépendance de moins.
+
+## 2026-10-01 · Éditeur : registre d'actions et barre Tools
+
+- `@kaxolax/editor` tient un registre typé (`createActionRegistry`) : une action = id, libellé français, menu, groupe, icône lucide (nom), raccourci CodeMirror, prédicat `when`, `run(ctx)` avec l'`EditorView` et les callbacks de l'application (`ActionHost`). Les outils des tâches 9 et 10 s'y enregistrent ; la barre Tools ne fait que lister `byMenu`.
+- Raccourcis liés en `Prec.high` et suivis à chaque (dés)inscription par un Compartment ; une action désactivée laisse passer la touche. Rechercher/remplacer : `Mod-Alt-f` (Cmd+H masque l'application sur macOS).
+- Une action = une transaction annotée `isolateHistory` et `userEvent: input.action` : une étape d'annulation, packages requis (amsmath, graphicx) ajoutés au préambule dans la même transaction, sans doublon.
+
+## 2026-10-01 · Éditeur : thème et réglages reconfigurables
+
+- Thème sombre par défaut ; couleurs lues dans les variables de `tokens.css` (`--editor`, `--editor-syntax-*`…) avec palette de repli. `.cm-editor` porte `data-theme` : l'éditeur garde son mode quel que soit le thème de la page.
+- Thème, lecture seule et retour à la ligne dans des Compartments (`reconfigureEditor`) : changer un paramètre ne recrée ni l'éditeur ni la connexion Yjs.
+- Auto-compilation en extension (`autoCompile`) : seules les modifications locales (avec `userEvent`) relancent l'attente, pas celles des collaborateurs.
+
+## 2026-10-01 · Préférences utilisateur : schéma partiel et fusion profonde
+
+- `userPreferencesSchema` (@kaxolax/contracts) : toutes les clés facultatives, objets stricts ; seules les valeurs changées sont stockées, `resolvePreferences` applique `DEFAULT_PREFERENCES` à la lecture (les défauts peuvent évoluer sans migration).
+- `PATCH /me/preferences` : fusion profonde, tableaux remplacés ; `INSERT … ON CONFLICT DO NOTHING` puis `SELECT … FOR UPDATE` pour sérialiser les modifications simultanées.
+- Onglets ouverts bornés (20 projets, 30 onglets) : chaque entrée reçoit de l'API un numéro croissant `usedSeq` (jsonb ne garde pas l'ordre des clés), les plus anciens numéros sortent ; JSON limité à 32 Kio. Une clé stockée devenue invalide est écartée seule (`sanitizePreferences`), les autres restent.
+- Client : PATCH enchaînés et seule la réponse du dernier envoi appliquée ; à la fermeture de la page, envoi `fetch` `keepalive` avec le dernier jeton Clerk obtenu (gardé en mémoire 45 s).
+
+## 2026-10-01 · Recherche dans tout le projet : expression régulière sous délai
+
+- `GET /projects/:id/search` relit le texte courant via `projectContent` (instantané temps réel), comme la compilation ; pas d'index : un projet tient en mémoire.
+- Texte et expression passent par le même `RegExp` (flag `u`, `i` sauf casse respectée, mot entier par lookarounds Unicode). Expression limitée à 200 caractères.
+- Contre le ReDoS : boucle exécutée dans `vm.runInNewContext` avec `timeout` de 500 ms (V8 interrompt aussi une regex en retour arrière), dans une réserve de `worker_threads` (4 par processus, 429 au-delà) : la boucle d'événements de l'API n'est jamais bloquée. Une recherche par utilisateur : la suivante annule la précédente (409, worker arrêté). Écarté : heuristique sur les motifs (incomplète).
+
+## 2026-10-01 · Options de compilation : brouillon et arrêt à la première erreur
+
+- `options: { draft?, haltOnFirstError? }` dans le corps de `POST /projects/:id/compile` et dans `CompileRequest` (objet strict : une option inconnue est refusée par l'API, le gateway et l'agent).
+- Arrêt à la première erreur : `-halt-on-error` de latexmk. Brouillon : `-usepretex=\PassOptionsToPackage{draft}{graphicx}\PassOptionsToPackage{draft}{hyperref}`, code constant lu avant le document ; aucun fichier du projet modifié.
+- La commande reste un tableau d'arguments constants (pas de shell côté Docker), `-norc` conservé, jamais `-shell-escape`.
+
+## 2026-10-01 · Web : page projet en trois colonnes
+
+- `editor-page.tsx` découpé dans `components/workspace/` : `workspace-page` (données, onglets, compilation, SyncTeX), `workspace-layout`, `sidebar/`, `editor/`, `pdf/`, `file-actions` (contexte partagé par l'arbre, le menu + et le menu Fichier de Tools).
+- Colonnes react-resizable-panels ; seules les tailles issues d'un geste de l'utilisateur (`isUserInteraction`) vont dans `layout`, la sidebar repliée garde sa dernière largeur. Sous 1024 px : sidebar en tiroir, éditeur et PDF en onglets, tous deux montés (connexion Yjs et rendu PDF conservés).
+- Onglets ouverts par projet dans `openTabs` (documents et fichiers prévisualisés) ; dérivés des préférences tant que l'utilisateur n'y touche pas, sans effet de synchronisation.
+- Emplacements des tâches suivantes posés sans fonction : `PresenceStack`, `ShareButton` (modale), `ChatsPanel`, `ReviewPanel`, `HistoryDrawer`, `AskSlot`.
+
+## 2026-10-01 · Web : barre Tools, plan et recherche dans le projet
+
+- Barre Tools en `Menubar` Radix (un menu par entrée de `ACTION_MENUS`) plutôt que des `DropdownMenu` isolés : navigation au clavier d'un menu à l'autre ; disponibilité des actions évaluée à l'ouverture.
+- Point d'extension des tâches 9 et 10 : `useEditorActions()` (registre partagé, `host`, `run`) et `ACTION_DIALOGS` (boîte de dialogue par id, ouverte par `host.openDialog`). Lecture seule (viewer, reviewer) : `host.readOnly` et callbacks de fichiers absents.
+- Plan : document courant relu 250 ms après la frappe ; fichiers inclus du projet lus en direct par des fournisseurs Yjs sans présence sur la connexion partagée (30 au plus, inclusions imbriquées comprises).
+- Recherche projet : panneau dans la sidebar (Ctrl+Maj+F), requête 300 ms après la frappe, clic = onglet ouvert et occurrence sélectionnée.
+
+## 2026-10-01 · Web : préférences et thème sans flash
+
+- `PreferencesProvider` dans le layout `(app)` : `GET /me/preferences` une fois, modifications optimistes regroupées 800 ms avant `PATCH`, envoi immédiat quand la page est masquée ; en cas de refus, retour à l'état enregistré.
+- Thème recopié dans le cookie `kaxolax-theme` : le layout racine (déjà dynamique) rend `data-theme` dans le HTML ; `ThemeScript` (localStorage) couvre les pages sans cookie.
+- Composants Clerk habillés par `appearance.variables` pointant vers les variables CSS des jetons : ils suivent le thème sans `@clerk/themes` (paquet de Core 2, non aligné sur `@clerk/nextjs` 7).
+- Logs dans un tiroir au-dessus du PDF (non modal : un clic dans l'éditeur ne le ferme pas) ; compilateur, auto-compilation, brouillon et arrêt à la première erreur dans le menu de la pastille de statut.
+
+## 2026-10-01 · Web : clavier, états et bascule de thème de la page projet
+
+- Arborescence en motif ARIA « tree view » (une ligne dans l'ordre de tabulation, flèches, F2, Suppr, Maj+F10 pour le menu) ; onglets des fichiers et vue Éditeur/PDF en « tabs » (flèches). Logique de navigation pure dans `lib/tree.ts`, testée.
+- Sidebar repliée rendue `inert` : sa largeur nulle ne suffit pas à la sortir de l'ordre de tabulation ; le focus passe au bouton inverse après repli ou dépli.
+- États explicites : squelettes, page d'erreur du chargement initial, échec du jeton temps réel affiché dans l'éditeur (plus de promesse rejetée sans traitement).
+- Bascule sombre/clair dans le pied de sidebar (préférence `theme`) en attendant les paramètres de la tâche 10 : le thème clair reste atteignable dès la tâche 3.
+
+## 2026-10-01 · Éditeur : `happy-dom` pour les tests qui créent une vue CodeMirror
+
+- `happy-dom` 20.14.5 (devDependency de `packages/editor`, version exacte dans le catalog) fournit le DOM aux tests qui instancient une `EditorView` (`configuration.test.ts` : thème, compartiments, auto-compilation). Plus léger que jsdom, activé fichier par fichier (`@vitest-environment happy-dom`) ; les autres tests restent en environnement Node.
+
+## 2026-10-01 · Admin : accès par rôle Clerk et MFA vérifiée deux fois
+
+- Rôle `admin` lu dans le claim `metadata.role` et second facteur vérifié dans la session (`fva[1] !== -1`) : un non-admin est refusé sans appel réseau.
+- Puis l'API Backend de Clerk confirme le rôle et `twoFactorEnabled` (MFA retirée ou rôle enlevé depuis l'émission du jeton), en cache mémoire 60 s par instance ; une erreur de Clerk n'est pas mise en cache.
+- `ClerkBackend` (service résolu par le conteneur) isole `@clerk/backend` : les tests le remplacent par un faux, sans réseau. Le guard expose les claims vérifiés (`getClaimsOrFail()`).
+
+## 2026-10-01 · Bannissement : `users.banned_at` local en plus de Clerk
+
+- Clerk révoque les sessions d'un compte banni, mais ses jetons déjà émis restent valides jusqu'à 60 s : l'API refuse tout compte avec `banned_at` (401 `E_ACCOUNT_BANNED`, remonté même par `check()`).
+- Posé par l'action de l'admin et par le webhook `user.updated` (`banned`) ; `ban_state_updated_at` garde le `updated_at` Clerk de l'état reflété, un webhook plus ancien arrivé en retard est ignoré.
+- Le service temps réel ferme toutes les connexions du compte (`POST /internal/users/:id/disconnect`, code 4403) et `memberRole` ignore les comptes bannis ou supprimés : pas de reconnexion. Les liens de téléchargement déjà émis sont refusés aussi.
+
+## 2026-10-01 · Révocation des sessions : coupure locale `users.sessions_revoked_at`
+
+- Clerk révoque les sessions, mais le jeton déjà émis reste valide jusqu'à 60 s et le web demande un jeton temps réel à chaque reconnexion : fermer les connexions ne suffisait pas.
+- L'action pose `sessions_revoked_at` ; l'API refuse un jeton Clerk émis avant (`iat`), le service temps réel un jeton temps réel émis avant (nouveau claim `iat`, obligatoire).
+- `iat` est à la seconde : un jeton émis dans la seconde de la coupure est refusé (le suivant passe). La colonne n'est jamais remise à zéro.
+
+## 2026-10-01 · Journal de l'admin : même transaction que l'effet
+
+- Chaque action écrit `admin_audit_log` dans la transaction de son effet : l'entrée n'existe que si l'effet a eu lieu. Pour les actions via Clerk, l'appel Clerk précède la transaction locale.
+- Un échec significatif (Clerk en erreur, erreur interne) est journalisé hors transaction avec `metadata.outcome = failure` et le code d'erreur ; un refus 4xx (cible absente, action sur soi-même) ne l'est pas. Une action sans effet (projet déjà archivé) n'écrit rien.
+- La suppression d'un compte anonymise tout de suite après l'appel Clerk réussi ; le webhook `user.deleted` qui suit ne change plus rien.
+- Les entrées des actions sur un compte ne gardent que ses identifiants (uuid, id Clerk), jamais l'email : le journal, sans durée de conservation, ne défait pas l'anonymisation.
+
+## 2026-10-01 · Admin : déconnexion temps réel vérifiée et journalisée
+
+- Bannir, révoquer les sessions, supprimer : la déconnexion temps réel suit la validation en base ; son résultat est une entrée `user.realtime_disconnect` à part (`connectionsClosed`, `failure` si le service n'a pas répondu), l'entrée de l'action restant immuable.
+- La réponse porte `realtimeDisconnected` ; l'admin affiche un avertissement et propose « Révoquer les sessions ».
+- Le service temps réel revérifie le compte dans `connected` (connexion attachée au document) : une connexion authentifiée juste avant le bannissement n'échappe plus à la fermeture.
+
+## 2026-10-01 · Statistiques de l'admin : définitions
+
+- Utilisateur actif sur N jours : compte non supprimé qui a lancé une compilation, est auteur d'une version, ou possède un projet modifié (`projects.updated_at`) dans la fenêtre ; fenêtres de 7 et 30 jours qui finissent à la fin de la période.
+- Échec de compilation : tout statut autre que `success`. Abonnés Pro : comptes distincts avec un abonnement `pro` au statut `active` (`past_due` compté à part).
+- Inscriptions par jour UTC ; période de 30 jours par défaut, 366 au plus. Requêtes SQL à la suite (pas de `Promise.all`) : une seule connexion, page peu consultée.
+
+## 2026-10-01 · Bannière système : sondage en attendant le document meta
+
+- `GET /banners/active` (tout compte connecté, `no-store`) ; le web la relit toutes les 60 s et au retour sur l'onglet.
+- `RealtimeClient.notifyBannerChanged` est appelée après chaque création, modification ou suppression ; elle ne fait que journaliser et sera branchée sur le document meta des projets (tâche 5).
+- Terminer une bannière : `POST /admin/banners/:id/end`, fin à l'heure du serveur (pas celle du navigateur de l'admin). Fermeture côté web mémorisée par id, niveau et message : une bannière modifiée réapparaît.
+- Affichage en haut de l'application (bandeau fixe pleine largeur, refermable), sans hauteur ajoutée à l'éditeur plein écran ; la nouvelle interface (tâche 3) pourra lui réserver une place.
+
+## 2026-10-01 · Admin : application Next.js séparée, sans accès direct aux données
+
+- `apps/admin` : Next.js 16 à part (domaine propre, port 3001, image `standalone`), même pile que `apps/web` ; une faille ou une dépendance de l'admin ne touche pas l'application, et inversement.
+- Aucune lecture de base : tout passe par `/api/v1/admin/*` (réécriture `/api`), réponses validées par les schémas zod de `@kaxolax/contracts`.
+- Layout serveur : session, claim `metadata.role` et `fva[1] !== -1`, sinon page « Accès refusé » identique quelle que soit la raison ; l'API reste seule juge (MFA activée vérifiée chez Clerk).
+- Sous-domaine du domaine principal Clerk : session partagée sans instance satellite. Actions irréversibles : confirmation avec texte à recopier.
+
+## 2026-10-01 · Partage : matrice des permissions partagée
+
+- Une seule matrice rôle → permissions dans `packages/contracts/src/permissions.ts` (`read`, `compile`, `comment`, `edit`, `manageMembers`, `manageShareLinks`, `transferOwnership`, `manageProject`, `leave`), fonctions pures testées (`canEdit`, `canManageMembers`…).
+- L'API demande une permission à `projectFor` (plus de rangs dispersés) ; le service temps réel décide la lecture seule par `canEdit` ; le web s'en servira pour l'affichage.
+- Comportements inchangés : viewer et reviewer lisent et compilent, reviewer commente, editor édite, owner gère tout. La compilation garde provisoirement la forme « rôle minimal » (fichiers de la tâche 14).
+
+## 2026-10-01 · Partage : jetons hachés, liens régénérables
+
+- Invitation : jeton aléatoire de 256 bits envoyé une seule fois par email, seul son sha256 est stocké ; 7 jours ; une relance remplace le jeton et repousse l'échéance (1 envoi par minute, 10 par invitation, 30 créations par heure et par compte).
+- Lien de partage : jeton = HMAC-SHA256 (`APP_KEY`) de l'identifiant aléatoire du lien, seul son sha256 est stocké ; le propriétaire peut réafficher son lien sans qu'il soit en base. Changer `APP_KEY` invalide tous les liens.
+- Désactiver puis réactiver redonne le même lien ; régénérer remplace la ligne (nouvel identifiant, donc nouveau jeton) et l'ancien lien cesse aussitôt de fonctionner.
+- Aperçus publics (`GET /invitations/:token`, `GET /share/:token`) : nom du projet, rôle, nom de l'invitant ; jamais d'email ni d'identifiant.
+
+## 2026-10-01 · Partage : acceptation automatique et limite de collaborateurs
+
+- À la création du miroir Clerk (webhook ou création à la volée, email vérifié), les invitations en attente non expirées pour cet email sont acceptées dans la même transaction ; celles que la limite du plan bloque restent en attente.
+- Acceptation manuelle : l'email du compte connecté doit être celui de l'invitation (403 avec indice masqué `a***@domaine`).
+- Limite : celle du plan du propriétaire (`plan_limits`, abonnement lu dans `subscriptions`, pas les claims du jeton : la requête peut venir d'un autre compte). Membres hors propriétaire + invitations en attente non expirées, projet verrouillé ; 403 `E_PLAN_LIMIT` avec la limite. Un membre qui rejoint par lien ou invitation garde son rôle le plus élevé.
+
+## 2026-10-02 · Partage : limites d'envoi durables, emails des membres, journal
+
+- Invitation annulée gardée (`cancelled_at`) : réinviter la réactive avec ses compteurs (1 envoi par minute, 10 en tout) ; la limite de 30 créations par heure compte les annulées, sous verrou consultatif par compte. Un email qui ne part pas annule l'envoi (ancien lien valide, envoi non compté).
+- Acceptation idempotente pour le compte invité (déjà acceptée → 200 `joined: false`) : la page d'invitation retrouve le projet après l'acceptation automatique à l'inscription ; acceptation automatique invitation par invitation, en point de sauvegarde.
+- Verrous toujours dans l'ordre projet puis ligne visée (invitation, lien, membre) : pas d'interblocage entre propriétaire et adhésion par jeton.
+- Emails des membres visibles du seul propriétaire (et de chacun pour le sien) : un lien public ne livre pas les adresses des collaborateurs.
+- Journal `project_sharing_events` (sans clé étrangère, survit au projet) + ligne de journal structurée par action ; jamais de jeton, d'URL de lien ni d'email.
+
+## 2026-10-01 · Partage : retraits et changements de rôle appliqués en temps réel
+
+- L'API appelle `POST /internal/projects/:id/members/:userId/changed` après validation ; le service relit le rôle et ferme (4403) ou passe en lecture seule ou en écriture les connexions concernées, avec un message sans état `member.role-changed`.
+- Filets si la notification se perd : rôle d'un rédacteur relu à sa mise à jour si la dernière lecture date de plus de 5 s, et relecture de toutes les connexions toutes les 30 s.
+- Mise à jour forcée par un lecteur : rejetée et journalisée ; connexion fermée au 5e rejet. Logique isolée dans `apps/realtime/src/access.ts`, avec une interface `MemberChangeFanout` pour l'extension Redis (tâche 5).
+- Transfert de propriété : logique commune avec l'admin (`project_ownership.ts`), qui notifie désormais aussi le service temps réel.
+
 ## 2026-10-01 · Compilation asynchrone (mode `cloudflare`)
 
 - `COMPILE_BACKEND=cloudflare` : `POST /projects/:id/compile` répond 202 `{ buildId, status: 'queued' | 'preparing' }` (`preparing` : le conteneur se réveille, dit par le Durable Object, qui ne compte comme prêt qu'un conteneur `healthy`) ; `queued` est publié avant l'appel au Worker ; l'état suit `queued → preparing → running → success|failure|timeout|error|cancelled` dans `compiles` (migration …0026 : `backend`, `timeout_ms`, `last_event_seq`, `updated_at`, `finished_at`). `gateway` (défaut local et CI) garde la compilation synchrone de l'étape 1, inchangée pour le web actuel.

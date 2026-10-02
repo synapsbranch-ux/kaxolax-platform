@@ -2,7 +2,7 @@
 #
 # Images des services de la plateforme, construites depuis la racine du monorepo :
 #   docker build -f docker/Dockerfile --target api .
-# Cibles : web, api, realtime, compile-gateway, compile-agent.
+# Cibles : web, admin, api, realtime, compile-gateway, compile-agent.
 # Railway ne choisit pas de cible : sans --target, la dernière étape (« service ») reprend celle
 # désignée par l'argument KAXOLAX_SERVICE (variable du service Railway, voir deploy/railway/).
 
@@ -30,7 +30,7 @@ RUN --mount=type=secret,id=ca,required=false \
     --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     NODE_EXTRA_CA_CERTS=/run/secrets/ca pnpm install --frozen-lockfile
 RUN pnpm turbo run build \
-      --filter=@kaxolax/web --filter=@kaxolax/api --filter=@kaxolax/realtime \
+      --filter=@kaxolax/web --filter=@kaxolax/admin --filter=@kaxolax/api --filter=@kaxolax/realtime \
       --filter=@kaxolax/compile-gateway --filter=@kaxolax/compile-agent
 # Un dossier autonome par service : code compilé et dépendances de production seulement.
 RUN --mount=type=secret,id=ca,required=false \
@@ -80,5 +80,13 @@ ENV HOSTNAME=0.0.0.0 PORT=3000
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
 
-# Étape par défaut (Railway) : l'image du service KAXOLAX_SERVICE (web, api ou realtime).
+# Admin (apps/admin), même principe que web.
+FROM runtime AS admin
+COPY --from=builder --chown=node:node /repo/apps/admin/.next/standalone /app
+COPY --from=builder --chown=node:node /repo/apps/admin/.next/static /app/apps/admin/.next/static
+ENV HOSTNAME=0.0.0.0 PORT=3001
+EXPOSE 3001
+CMD ["node", "apps/admin/server.js"]
+
+# Étape par défaut (Railway) : l'image du service KAXOLAX_SERVICE (web, admin, api ou realtime).
 FROM ${KAXOLAX_SERVICE} AS service

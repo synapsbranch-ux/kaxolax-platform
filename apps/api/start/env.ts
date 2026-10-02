@@ -51,12 +51,14 @@ export default await Env.create(new URL('../', import.meta.url), {
   APP_KEY: Env.schema.secret(),
   /** Origine publique de l'application (claim `azp` des jetons Clerk, liens des emails). */
   APP_URL: Env.schema.string({ format: 'url', tld: false }),
+  /** Origine de l'admin (apps/admin, domaine séparé) : ses jetons Clerk sont aussi acceptés. */
+  ADMIN_URL: Env.schema.string.optional({ format: 'url', tld: false }),
   /** Nombre de proxys de confiance devant l'API (Next.js en local, CDN en production). */
   TRUSTED_PROXY_HOPS: Env.schema.number.optional(),
 
   /** Clé publique PEM de l'instance Clerk : vérification des jetons de session sans réseau. */
   CLERK_JWT_KEY: Env.schema.string.optional(),
-  /** Clé secrète Clerk (API Backend : import des comptes). */
+  /** Clé secrète Clerk (API Backend : vérification de la MFA des admins, actions de l'admin). */
   CLERK_SECRET_KEY: Env.schema.secret.optional(),
   /** Secret de signature des webhooks Clerk (Standard Webhooks). */
   CLERK_WEBHOOK_SIGNING_SECRET: Env.schema.secret.optional(),

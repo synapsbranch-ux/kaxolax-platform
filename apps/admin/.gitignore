@@ -1,0 +1,6 @@
+.next/
+next-env.d.ts
+# Écrits par `next dev` quand il détecte un agent IA.
+AGENTS.md
+CLAUDE.md
+*.tsbuildinfo

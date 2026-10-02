@@ -1,7 +1,10 @@
 import { signRealtimeToken } from '@kaxolax/collab/token'
 import {
+  type ActiveBanner,
   closeDocumentResponseSchema,
+  disconnectUserResponseSchema,
   INTERNAL_TOKEN_HEADER,
+  memberChangedResponseSchema,
   type ProjectSnapshot,
   projectSnapshotSchema,
   type ProjectRole,
@@ -15,10 +18,11 @@ import realtimeConfig from '#config/realtime'
 export default class RealtimeClient {
   /** Jeton court (5 minutes) : il ouvre les connexions WebSocket aux documents d'un projet. */
   issueToken(userId: string, projectId: string, role: ProjectRole): RealtimeTokenResponse {
-    const exp = Math.floor(Date.now() / 1000) + REALTIME_TOKEN_TTL_SECONDS
+    const iat = Math.floor(Date.now() / 1000)
+    const exp = iat + REALTIME_TOKEN_TTL_SECONDS
     return {
       token: signRealtimeToken(
-        { sub: userId, projectId, role, exp },
+        { sub: userId, projectId, role, iat, exp },
         realtimeConfig.tokenSecret.release(),
       ),
       url: realtimeConfig.publicUrl,
@@ -49,6 +53,68 @@ export default class RealtimeClient {
         }
       }),
     )
+  }
+
+  /**
+   * Ferme toutes les connexions d'un utilisateur, sur tous les documents (compte banni, sessions
+   * révoquées, compte supprimé). Au mieux : renvoie le nombre de connexions fermées, ou null si le
+   * service n'a pas répondu ; une reconnexion est de toute façon refusée à un compte banni.
+   */
+  async disconnectUser(userId: string): Promise<number | null> {
+    try {
+      const response = await fetch(
+        `${realtimeConfig.internalUrl}/internal/users/${userId}/disconnect`,
+        {
+          method: 'POST',
+          headers: { [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release() },
+          signal: AbortSignal.timeout(realtimeConfig.internalTimeoutMs),
+        },
+      )
+      if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+      return disconnectUserResponseSchema.parse(await response.json()).connections
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'could not disconnect realtime user')
+      return null
+    }
+  }
+
+  /**
+   * Le rôle de ces membres a changé, ou ils ont été retirés du projet : le service temps réel relit
+   * leur rôle en base et l'applique à leurs connexions ouvertes (fermeture, lecture seule ou
+   * écriture). À appeler une fois la transaction validée. Au mieux : un échec est journalisé ; le
+   * service relit de toute façon le rôle à la prochaine mise à jour d'un rédacteur et
+   * périodiquement pour toutes les connexions.
+   */
+  async membersChanged(projectId: string, userIds: readonly string[]): Promise<void> {
+    await Promise.all(
+      [...new Set(userIds)].map(async (userId) => {
+        try {
+          const response = await fetch(
+            `${realtimeConfig.internalUrl}/internal/projects/${projectId}/members/${userId}/changed`,
+            {
+              method: 'POST',
+              headers: { [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release() },
+              signal: AbortSignal.timeout(realtimeConfig.internalTimeoutMs),
+            },
+          )
+          if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+          memberChangedResponseSchema.parse(await response.json())
+        } catch (error) {
+          logger.warn({ err: error, projectId, userId }, 'could not notify realtime member change')
+        }
+      }),
+    )
+  }
+
+  /**
+   * Une bannière système a été créée, modifiée ou supprimée ; `active` : les bannières actives
+   * maintenant. Pour l'instant les navigateurs relisent `GET /banners/active` (toutes les 60 s et
+   * au retour sur l'onglet) ; la diffusion en direct passera par le document meta de chaque projet
+   * (tâche 5) et sera branchée ici.
+   */
+  notifyBannerChanged(active: readonly ActiveBanner[]): Promise<void> {
+    logger.debug({ active: active.length }, 'system banners changed')
+    return Promise.resolve()
   }
 
   /**
