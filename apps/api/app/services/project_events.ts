@@ -3,7 +3,8 @@ import type RealtimeClient from '#services/realtime_client'
 
 /**
  * Événements des membres d'un projet, diffusés sur son document meta après la validation de la
- * transaction (voir `RealtimeClient.publishProjectEvent`, au mieux).
+ * transaction (voir `RealtimeClient.publishProjectEvent`, au mieux). Les événements de compilation
+ * (`compile.updated`) passent par le même client, depuis `async_compile_service`.
  */
 
 /** Transfert de propriété : le nouveau propriétaire devient owner, l'ancien editor. */

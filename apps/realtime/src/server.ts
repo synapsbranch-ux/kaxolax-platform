@@ -16,6 +16,7 @@ import {
   type CloseDocumentResponse,
   type DisconnectUserResponse,
   INTERNAL_TOKEN_HEADER,
+  MAX_PROJECT_EVENT_BYTES,
   type ProjectEventMessage,
   projectEventMessage,
   type ProjectSnapshot,
@@ -60,8 +61,11 @@ const MEMBER_CHANGED_ROUTE = new RegExp(`^/internal/projects/(${UUID})/members/(
 const PROJECT_EVENTS_ROUTE = new RegExp(`^/internal/projects/(${UUID})/events$`)
 const BROADCAST_EVENTS_ROUTE = '/internal/events'
 
-/** Corps maximal d'une requête interne (un événement, jamais un document). */
-const MAX_REQUEST_BYTES = 1024 * 1024
+/**
+ * Corps maximal d'une requête interne (un événement, jamais un document) : l'API retire d'un
+ * événement de compilation le résultat qui le dépasserait (`fitProjectEvent`).
+ */
+const MAX_REQUEST_BYTES = MAX_PROJECT_EVENT_BYTES
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')

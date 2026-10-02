@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { buildStatusSchema } from './builds.js'
 import { compileStatusSchema, compilerSchema } from './common.js'
 import { projectRoleSchema } from './realtime.js'
 import { workspaceTypeSchema } from './workspaces.js'
@@ -174,7 +175,8 @@ export const adminProjectDetailSchema = adminProjectSummarySchema.extend({
   lastCompile: z
     .object({
       id: z.uuid(),
-      status: compileStatusSchema,
+      // Statut final, ou état d'une compilation asynchrone (mode cloudflare) encore en cours.
+      status: buildStatusSchema,
       compiler: compilerSchema,
       durationMs: count,
       agentId: z.string().nullable(),

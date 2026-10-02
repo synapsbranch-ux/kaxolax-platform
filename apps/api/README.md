@@ -168,7 +168,11 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     `POST /internal/events`), depuis `notifyBannerChanged`.
     Une requête refusée ne publie rien. Les helpers des membres sont dans
     `app/services/project_events.ts`. `chat.message-created` et `comment.created` sont définis pour
-    les tâches 6 et 7, `compile.updated` pour la tâche 14.
+    les tâches 6 et 7 ;
+  - `compile.updated` (`buildId`, `status`, `result` une fois terminée) à chaque étape d'une
+    compilation asynchrone (voir **Compilation**). `RealtimeClient` passe chaque événement par
+    `fitProjectEvent` : un résultat qui ferait dépasser 1 Mio au corps de la requête est retiré
+    (`resultOmitted: true`), le client le relit par `GET /projects/:id/builds/:buildId`.
 
 - **Uploads** : `POST /projects/:id/uploads` renvoie une URL de PUT présignée (taille signée),
   puis `POST /projects/:id/uploads/:uploadId/complete` vérifie l'objet et crée un document texte
@@ -183,7 +187,19 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   première erreur, transmis tels quels au gateway puis à l'agent) (instantané temps réel + table `files`, envoyé
   au compile-gateway ; résultat enregistré dans `compiles`, URL présignées du PDF et du log),
   `POST /projects/:id/compile/stop`, `GET /projects/:id/compile/last`,
-  `POST /projects/:id/compile/clear-cache`.
+  `POST /projects/:id/compile/clear-cache`. Mode `COMPILE_BACKEND=cloudflare` (production) :
+  `POST /projects/:id/compile` répond 202 `{ buildId, status }` (`queued`, ou `preparing` si le
+  conteneur se réveille ; état initial, que le client ignore s'il a déjà reçu un événement du
+  même `buildId`), le Worker (`apps/compile-worker`) rappelle
+  `POST /internal/compile-callbacks` (HMAC, horodatage, `seq` anti-rejeu) et le service temps
+  réel diffuse l'événement `compile.updated` sur le document meta du projet (même route et même
+  enveloppe que les autres événements du projet) ; repli par sondage
+  `GET /projects/:id/builds/:buildId`, qui clôt aussi en `error` une compilation restée sans
+  nouvelles du Worker au-delà de son timeout + 5 min (entrée de log « The compiler did not
+  respond in time »). `POST /projects/:id/compiler/warm`
+  réveille le conteneur du projet à l'ouverture de l'éditeur. Une compilation active à la fois
+  par projet (409 `E_COMPILE_IN_PROGRESS`) ; au plus 5 projets réveillés par utilisateur sur
+  15 min (429 `E_TOO_MANY_COMPILERS`).
 - **SyncTeX** : `GET /projects/:id/synctex/code` (`file`, `line`, `column`) et
   `GET /projects/:id/synctex/pdf` (`page`, `h`, `v`).
 - **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel ; ou

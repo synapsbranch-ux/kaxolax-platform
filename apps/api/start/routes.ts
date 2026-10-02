@@ -19,6 +19,8 @@ const ImportsController = () => import('#controllers/imports_controller')
 const FilesController = () => import('#controllers/files_controller')
 const CompilesController = () => import('#controllers/compiles_controller')
 const ExportsController = () => import('#controllers/exports_controller')
+const BuildsController = () => import('#controllers/builds_controller')
+const CompileCallbacksController = () => import('#controllers/compile_callbacks_controller')
 const SearchController = () => import('#controllers/search_controller')
 const BannersController = () => import('#controllers/banners_controller')
 const SharingController = () => import('#controllers/sharing_controller')
@@ -32,6 +34,8 @@ router
     router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
     // Lien chiffré de 60 s, lié à l'utilisateur et au projet (navigation sans en-tête Authorization).
     router.get('downloads/:token', [ExportsController, 'downloadWithLink'])
+    // Rappels du Worker de compilation Cloudflare : corps signé (HMAC), ni session ni jeton.
+    router.post('internal/compile-callbacks', [CompileCallbacksController, 'handle'])
     // Aperçus publics d'une invitation et d'un lien de partage (nom du projet, rôle).
     router.get('invitations/:token', [JoinController, 'invitation'])
     router.get('share/:token', [JoinController, 'shareLink'])
@@ -95,6 +99,8 @@ router
         router.post('projects/:id/compile/clear-cache', [CompilesController, 'clearCache'])
         router.get('projects/:id/synctex/code', [CompilesController, 'synctexCode'])
         router.get('projects/:id/synctex/pdf', [CompilesController, 'synctexPdf'])
+        router.get('projects/:id/builds/:buildId', [BuildsController, 'show'])
+        router.post('projects/:id/compiler/warm', [BuildsController, 'warm'])
         router.get('projects/:id/download.zip', [ExportsController, 'download'])
         router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })

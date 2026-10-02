@@ -4,6 +4,7 @@ import {
   type BroadcastEvent,
   closeDocumentResponseSchema,
   disconnectUserResponseSchema,
+  fitProjectEvent,
   INTERNAL_TOKEN_HEADER,
   memberChangedResponseSchema,
   type ProjectEvent,
@@ -121,7 +122,8 @@ export default class RealtimeClient {
   /**
    * Publie un événement sur le document meta d'un projet (`@kaxolax/contracts`, events) : tous les
    * clients connectés au projet le reçoivent, quelle que soit l'instance du service temps réel. À
-   * appeler une fois la transaction validée. Au mieux : un échec est journalisé, jamais propagé.
+   * appeler une fois la transaction validée. Au mieux : un échec est journalisé, jamais propagé
+   * (pour une compilation, le client garde le repli par sondage `GET /projects/:id/builds/:id`).
    */
   async publishProjectEvent(projectId: string, event: ProjectEvent): Promise<void> {
     await this.publish(`/internal/projects/${projectId}/events`, event, { projectId })
@@ -144,7 +146,9 @@ export default class RealtimeClient {
           [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release(),
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ event }),
+        // Un résultat de compilation trop gros pour le service temps réel est remplacé par
+        // `resultOmitted` : le client le relit par l'API.
+        body: JSON.stringify({ event: fitProjectEvent(event) }),
         signal: AbortSignal.timeout(realtimeConfig.internalTimeoutMs),
       })
       if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)

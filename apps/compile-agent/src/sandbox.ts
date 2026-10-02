@@ -21,7 +21,7 @@ export interface SandboxRunRequest {
   command: string[]
   /** Répertoire de l'hôte monté sur /compile : le seul point de montage inscriptible. */
   hostWorkdir: string
-  /** Répertoire courant dans le conteneur (sous /compile). */
+  /** Répertoire courant de la commande (sous `workdirPath`). */
   workingDir?: string
   readOnly?: boolean
   timeoutMs: number
@@ -92,11 +92,26 @@ export function buildContainerSpec(options: SandboxOptions, run: SandboxRunReque
   }
 }
 
-export class Sandbox {
+/**
+ * Exécution isolée d'une commande sur le répertoire d'un projet : conteneur Docker neuf (agents de
+ * l'étape 1) ou processus non privilégié dans la VM du conteneur Cloudflare (`ProcessSandbox`).
+ */
+export interface CompileSandbox {
+  run(run: SandboxRunRequest): Promise<SandboxResult>
+  /** Chemin du répertoire du projet tel que le voit la commande (cwd et chemins du log). */
+  workdirPath(hostWorkdir: string): string
+}
+
+export class Sandbox implements CompileSandbox {
   constructor(
     private readonly docker: DockerClient,
     private readonly options: SandboxOptions,
   ) {}
+
+  /** Le répertoire du projet est monté sur /compile. */
+  workdirPath(): string {
+    return SANDBOX_WORKDIR
+  }
 
   /** Lance un conteneur neuf, attend sa fin (ou le tue), puis le supprime dans tous les cas. */
   async run(run: SandboxRunRequest): Promise<SandboxResult> {

@@ -48,7 +48,10 @@ Toute la logique est dans `src/access.ts` :
   `{ kind: 'project-event', v: 1, sentAt, event }`) envoyés à chaque connexion des documents
   meta, publiés par l'API (`POST /internal/projects/:id/events`, ou `POST /internal/events`
   pour tous les projets, réservé à `banner.changed`). Les clients les lisent avec
-  `parseProjectEventMessage` et ignorent le reste (dont `member.role-changed`).
+  `parseProjectEventMessage` et ignorent le reste (dont `member.role-changed`). Les changements
+  d'état des compilations asynchrones (`compile.updated`, tâche 14) suivent le même chemin ; le
+  corps d'une requête interne est limité à 1 Mio (`MAX_PROJECT_EVENT_BYTES`), l'API retirant au
+  besoin le résultat de compilation (`resultOmitted`).
 - Présence : le hook `beforeHandleAwareness` (`src/presence.ts`) impose dans chaque état reçu
   d'une connexion l'identité `user` de son utilisateur (`presenceUserFor` : id, nom complet et
   photo de profil https lus en base, jamais l'email : « Collaborateur » sans nom complet ;

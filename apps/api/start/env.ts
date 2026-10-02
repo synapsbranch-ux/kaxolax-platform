@@ -28,6 +28,12 @@ function urlWith(...protocols: string[]) {
   }
 }
 
+/** Rend facultative une variable validée par `validate` (absente ou vide : undefined). */
+function optional<T>(validate: (key: string, value?: string) => T) {
+  return (key: string, value?: string): T | undefined =>
+    value === undefined || value === '' ? undefined : validate(key, value)
+}
+
 export default await Env.create(new URL('../', import.meta.url), {
   NODE_ENV: Env.schema.enum(['development', 'production', 'test'] as const),
   PORT: Env.schema.number(),
@@ -91,6 +97,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   REALTIME_PUBLIC_URL: urlWith('ws', 'wss'),
   /** URL HTTP du service temps réel pour les routes /internal. */
   REALTIME_INTERNAL_URL: urlWith('http', 'https'),
-  /** URL HTTP du compile-gateway (réseau interne). */
-  COMPILE_GATEWAY_URL: urlWith('http', 'https'),
+  /** `gateway` (synchrone : compile-gateway + agents Docker, défaut) ou `cloudflare` (asynchrone). */
+  COMPILE_BACKEND: Env.schema.enum.optional(['gateway', 'cloudflare'] as const),
+  /** URL HTTP du compile-gateway (réseau interne), exigée en mode `gateway`. */
+  COMPILE_GATEWAY_URL: optional(urlWith('http', 'https')),
+  /** URL du Worker de compilation Cloudflare, exigée en mode `cloudflare`. */
+  COMPILE_WORKER_URL: optional(urlWith('http', 'https')),
+  /** Secret partagé avec le Worker (jetons API → Worker, signature des rappels). */
+  COMPILE_WORKER_SECRET: optional(sharedSecret),
 })

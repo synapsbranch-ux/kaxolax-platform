@@ -49,14 +49,21 @@ export function parseSynctexView(output: string): PdfPosition[] {
     .filter((position) => Number.isInteger(position.page) && position.page > 0)
 }
 
-/** Sortie de `synctex edit` : fichier et ligne sources, ramenés à un chemin du projet. */
-export function parseSynctexEdit(output: string, rootDir: string): CodePosition[] {
+/**
+ * Sortie de `synctex edit` : fichier et ligne sources, ramenés à un chemin du projet. `workdir` est
+ * le répertoire du projet vu par la commande (`/compile` sous Docker).
+ */
+export function parseSynctexEdit(
+  output: string,
+  rootDir: string,
+  workdir: string = SANDBOX_WORKDIR,
+): CodePosition[] {
   return records(output)
     .filter((record) => record.Input !== undefined && record.Line !== undefined)
     .map((record) => {
       let input = record.Input ?? ''
-      if (input.startsWith(`${SANDBOX_WORKDIR}/`)) {
-        input = posix.normalize(input.slice(SANDBOX_WORKDIR.length + 1))
+      if (input.startsWith(`${workdir}/`)) {
+        input = posix.normalize(input.slice(workdir.length + 1))
       } else if (!input.startsWith('/')) {
         input = posix.normalize(posix.join(rootDir, input))
       }

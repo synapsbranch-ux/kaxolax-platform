@@ -49,6 +49,20 @@ jobs:
       - if: always()
         run: docker compose down -v
 
+  # Sauvegardes PostgreSQL : image du job cron, sauvegarde chiffrée, rétention et test de
+  # restauration sur la pile locale (S3 SeaweedFS à la place de R2).
+  backup:
+    name: postgres backup and restore test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: shellcheck -x scripts/backup/*.sh
+      - run: docker compose up -d --wait postgres s3 s3-init
+      - run: scripts/backup/test-local.sh
+      - if: always()
+        run: docker compose down -v
+
   # Agent de compilation avec un vrai Docker et l'image TeX Live publiée par kaxolax-texlive-images
   # (sous runc puis sous gVisor), puis parcours Playwright de la « Définition de terminé » sur la
   # pile locale complète.

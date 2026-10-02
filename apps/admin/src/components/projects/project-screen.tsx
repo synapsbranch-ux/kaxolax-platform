@@ -1,5 +1,6 @@
 'use client'
 
+import type { BuildStatus } from '@kaxolax/contracts'
 import { Alert, Button, Card, CardContent, CardHeader, CardTitle } from '@kaxolax/ui'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
@@ -22,11 +23,15 @@ const ROLE_LABELS = {
 } as const
 
 const STATUS_LABELS = {
+  queued: 'En attente',
+  preparing: 'Préparation du compilateur',
+  running: 'En cours',
   success: 'Réussie',
   failure: 'Erreurs LaTeX',
   timeout: 'Durée dépassée',
   error: 'Erreur du service',
-} as const
+  cancelled: 'Annulée',
+} as const satisfies Record<BuildStatus, string>
 
 /** Fiche d'un projet (métadonnées) et actions de l'admin. */
 export function ProjectScreen({ projectId }: { projectId: string }) {

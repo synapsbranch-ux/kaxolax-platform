@@ -1,0 +1,10 @@
+{
+  "extends": "@kaxolax/config/tsconfig/base.json",
+  "compilerOptions": {
+    // Runtime Workers : types de @cloudflare/workers-types, sans Node ni DOM.
+    "lib": ["es2024"],
+    "types": ["@cloudflare/workers-types"],
+    "noEmit": true
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

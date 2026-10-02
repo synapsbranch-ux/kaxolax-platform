@@ -1,0 +1,39 @@
+// Worker de compilation Kaxolax (Cloudflare Workers + Durable Objects + Containers).
+// Déploiement : voir docs/deploy.md. Remplacer kaxolax.com par le domaine de production.
+// Secret (jamais ici) : `wrangler secret put COMPILE_WORKER_SECRET` (même valeur que l'API).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kaxolax-compile",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-25",
+  "workers_dev": false,
+  "routes": [{ "pattern": "compile.kaxolax.com", "custom_domain": true }],
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "CompileContainer",
+      // Image linux/amd64 : agent de compilation sur l'image TeX Live (contexte = racine du monorepo).
+      "image": "./container/Dockerfile",
+      "image_build_context": "../..",
+      // TeX Live complet (plusieurs Go) : le disque des petites instances ne suffit pas.
+      "instance_type": "standard-4",
+      "max_instances": 50,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "COMPILER", "class_name": "CompileContainer" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CompileContainer"] }],
+  "r2_buckets": [
+    { "binding": "PROJECT_FILES", "bucket_name": "kaxolax-project-files", "jurisdiction": "eu" },
+    {
+      "binding": "COMPILE_OUTPUTS",
+      "bucket_name": "kaxolax-compile-outputs",
+      "jurisdiction": "eu",
+    },
+  ],
+  "vars": {
+    "OUTPUTS_BUCKET_NAME": "kaxolax-compile-outputs",
+    "API_CALLBACK_URL": "https://api.kaxolax.com/api/v1/internal/compile-callbacks",
+  },
+}

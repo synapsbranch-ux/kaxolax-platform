@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { activeBannerSchema } from './admin.js'
+import { buildStatusSchema } from './builds.js'
+import { compileResultSchema } from './compile.js'
 import { projectRoleSchema } from './realtime.js'
 
 /**
@@ -120,13 +122,23 @@ export const bannerChangedEventSchema = z.object({
 })
 
 /**
- * Emplacement réservé à l'événement de compilation asynchrone (tâche 14) : seul `buildId` est fixé
- * ici, les autres champs passent tels quels jusqu'à ce que la tâche 14 précise le schéma.
+ * Changement d'état d'une compilation asynchrone (tâche 14, voir `builds.ts`). Publié par l'API à
+ * chaque étape (acceptée, rappel du Worker, annulation, compilation perdue) ; un client dédoublonne
+ * par `buildId` et `status`, et garde le repli par sondage (`GET /projects/:id/builds/:buildId`).
  */
-export const compileUpdatedEventSchema = z.looseObject({
+export const compileUpdatedEventSchema = z.object({
   type: z.literal('compile.updated'),
-  buildId: z.string().min(1).max(200),
+  buildId: z.uuid(),
+  status: buildStatusSchema,
+  /** Présent quand la compilation est terminée (URL présignées valables 1 heure). */
+  result: compileResultSchema.nullable(),
+  /**
+   * Vrai quand le résultat, trop gros pour un événement (log très bavard), a été retiré
+   * (`fitProjectEvent`) : le client le lit par `GET /projects/:id/builds/:buildId`.
+   */
+  resultOmitted: z.boolean().optional(),
 })
+export type CompileUpdatedEvent = z.infer<typeof compileUpdatedEventSchema>
 
 export const projectEventSchema = z.discriminatedUnion('type', [
   treeChangedEventSchema,
@@ -173,6 +185,24 @@ export function parseProjectEventMessage(payload: string): ProjectEventMessage |
   }
   const parsed = projectEventMessageSchema.safeParse(value)
   return parsed.success ? parsed.data : null
+}
+
+/**
+ * Taille maximale du corps de `POST /internal/projects/:id/events` et `POST /internal/events` du
+ * service temps réel.
+ */
+export const MAX_PROJECT_EVENT_BYTES = 1024 * 1024
+
+/**
+ * Événement prêt à envoyer au service temps réel : un résultat de compilation qui ferait dépasser
+ * `MAX_PROJECT_EVENT_BYTES` au corps de la requête est retiré (`resultOmitted`), le client le relit
+ * par l'API. Les autres événements sont bornés par leur schéma et passent tels quels.
+ */
+export function fitProjectEvent(event: ProjectEvent): ProjectEvent {
+  if (event.type !== 'compile.updated' || event.result === null) return event
+  const body = JSON.stringify({ event } satisfies PublishProjectEventRequest)
+  if (new TextEncoder().encode(body).byteLength <= MAX_PROJECT_EVENT_BYTES) return event
+  return { ...event, result: null, resultOmitted: true }
 }
 
 /** POST /internal/projects/:id/events et POST /internal/events du service temps réel. */

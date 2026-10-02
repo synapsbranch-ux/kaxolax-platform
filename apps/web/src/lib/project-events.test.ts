@@ -58,7 +58,12 @@ describe('realtime messages', () => {
       kind: 'banners',
       banners: [],
     })
-    expect(eventEffect({ type: 'compile.updated', buildId: 'b1' }, SELF)).toEqual({ kind: 'none' })
+    expect(
+      eventEffect(
+        { type: 'compile.updated', buildId: OTHER, status: 'running', result: null },
+        SELF,
+      ),
+    ).toEqual({ kind: 'none' })
   })
 
   it('relays live banners to subscribers until they unsubscribe', () => {

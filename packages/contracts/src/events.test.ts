@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   broadcastEventSchema,
+  fitProjectEvent,
+  MAX_PROJECT_EVENT_BYTES,
   MAX_TREE_CHANGES,
   parseProjectEventMessage,
   PROJECT_EVENTS_VERSION,
@@ -50,7 +52,7 @@ const events: ProjectEvent[] = [
       },
     ],
   },
-  { type: 'compile.updated', buildId: 'build-1', status: 'running' },
+  { type: 'compile.updated', buildId: id, status: 'running', result: null },
 ]
 
 describe('project events', () => {
@@ -60,9 +62,14 @@ describe('project events', () => {
     expect(parseProjectEventMessage(JSON.stringify(message))).toEqual(message)
   })
 
-  it('keeps unknown fields of the compile placeholder for task 14', () => {
-    const message = projectEventMessage({ type: 'compile.updated', buildId: 'b', extra: 1 })
-    expect(parseProjectEventMessage(JSON.stringify(message))?.event).toMatchObject({ extra: 1 })
+  it('validates the compile event of task 14 through the shared envelope', () => {
+    const compile = { type: 'compile.updated', buildId: id, status: 'running', result: null }
+    const message = (event: unknown) =>
+      JSON.stringify({ ...projectEventMessage(memberAdded), event })
+    expect(parseProjectEventMessage(message(compile))?.event).toEqual(compile)
+    expect(parseProjectEventMessage(message({ ...compile, status: 'paused' }))).toBeNull()
+    expect(parseProjectEventMessage(message({ ...compile, buildId: 'b' }))).toBeNull()
+    expect(parseProjectEventMessage(message({ ...compile, type: 'compile' }))).toBeNull()
   })
 
   it.each([
@@ -107,5 +114,36 @@ describe('project events', () => {
   it('only broadcasts banner changes to everyone', () => {
     expect(broadcastEventSchema.safeParse(events[7]).success).toBe(true)
     expect(broadcastEventSchema.safeParse(events[0]).success).toBe(false)
+  })
+})
+
+describe('fitProjectEvent', () => {
+  const event = (message: string): ProjectEvent => ({
+    type: 'compile.updated',
+    buildId: id,
+    status: 'failure',
+    result: {
+      buildId: id,
+      status: 'failure',
+      durationMs: 10,
+      pdfUrl: null,
+      logUrl: null,
+      entries: [{ level: 'warning', file: null, line: null, message, raw: message }],
+    },
+  })
+
+  it('keeps an event that fits the realtime body limit, and events without result', () => {
+    const small = event('Overfull \\hbox')
+    expect(fitProjectEvent(small)).toBe(small)
+    expect(fitProjectEvent(memberAdded)).toBe(memberAdded)
+  })
+
+  it('drops a result too large for the realtime service, which the client reads from the API', () => {
+    const large = fitProjectEvent(event('x'.repeat(MAX_PROJECT_EVENT_BYTES / 2)))
+    expect(large).toMatchObject({ status: 'failure', result: null, resultOmitted: true })
+    expect(publishProjectEventRequestSchema.parse({ event: large }).event).toEqual(large)
+    expect(
+      new TextEncoder().encode(JSON.stringify({ event: large })).byteLength,
+    ).toBeLessThanOrEqual(MAX_PROJECT_EVENT_BYTES)
   })
 })

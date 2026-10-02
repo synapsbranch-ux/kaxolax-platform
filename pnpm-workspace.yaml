@@ -8,11 +8,13 @@ savePrefix: ''
 engineStrict: true
 # Une version publiée depuis moins de 24 h n'est pas installée (protection supply chain).
 minimumReleaseAge: 1440
-# Scripts d'installation : refusés par défaut. esbuild (via tsx) et @swc/core (via AdonisJS)
-# n'en ont pas besoin, leur binaire vient d'une dépendance optionnelle par plateforme.
+# Scripts d'installation : refusés par défaut. esbuild (via tsx et wrangler), @swc/core (via
+# AdonisJS) et workerd (via wrangler) n'en ont pas besoin, leur binaire vient d'une dépendance
+# optionnelle par plateforme.
 allowBuilds:
   '@swc/core': false
   esbuild: false
+  workerd: false
 
 catalog:
   '@adonisjs/assembler': 8.5.2
@@ -27,6 +29,8 @@ catalog:
   '@clerk/localizations': 4.21.0
   '@clerk/nextjs': 7.9.8
   '@clerk/testing': 2.2.40
+  '@cloudflare/containers': 0.3.7
+  '@cloudflare/workers-types': 5.20260929.1
   '@aws-sdk/s3-request-presigner': 3.1142.0
   '@codemirror/autocomplete': 6.20.3
   '@codemirror/commands': 6.11.1
@@ -92,6 +96,7 @@ catalog:
   typescript: 6.0.3
   typescript-eslint: 8.71.0
   vitest: 5.0.2
+  wrangler: 4.144.0
   ws: 8.22.0
   'y-codemirror.next': 0.3.6
   'y-protocols': 1.0.7

@@ -414,6 +414,58 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Mise à jour forcée par un lecteur : rejetée et journalisée ; connexion fermée au 5e rejet. Logique isolée dans `apps/realtime/src/access.ts`, avec une interface `MemberChangeFanout` pour l'extension Redis (tâche 5).
 - Transfert de propriété : logique commune avec l'admin (`project_ownership.ts`), qui notifie désormais aussi le service temps réel.
 
+## 2026-10-01 · Compilation asynchrone (mode `cloudflare`)
+
+- `COMPILE_BACKEND=cloudflare` : `POST /projects/:id/compile` répond 202 `{ buildId, status: 'queued' | 'preparing' }` (`preparing` : le conteneur se réveille, dit par le Durable Object, qui ne compte comme prêt qu'un conteneur `healthy`) ; `queued` est publié avant l'appel au Worker ; l'état suit `queued → preparing → running → success|failure|timeout|error|cancelled` dans `compiles` (migration …0026 : `backend`, `timeout_ms`, `last_event_seq`, `updated_at`, `finished_at`). `gateway` (défaut local et CI) garde la compilation synchrone de l'étape 1, inchangée pour le web actuel.
+- Une compilation à la fois par projet garantie par la base : index unique partiel sur les états actifs, `INSERT … ON CONFLICT DO NOTHING` (409 `E_COMPILE_IN_PROGRESS` avec le `buildId` en cours). Une compilation sans nouvelles du Worker au-delà de son timeout + 5 min est close en `error` (événement publié) à la demande suivante ou au sondage `GET …/builds/:buildId` : ni le verrou ni le client ne restent bloqués. Côté Worker, toute exception de `run()` se termine par un rappel `error`.
+- Résultat poussé par le service temps réel (`POST /internal/projects/:id/events`, `INTERNAL_TOKEN`, message stateless sur les documents ouverts du projet) ; repli par sondage `GET /projects/:id/builds/:buildId`. Schémas zod dans `packages/contracts/src/builds.ts`.
+- Écarté : garder une requête HTTP ouverte (Cloudflare coupe à 100 s, une compilation Pro dure jusqu'à 4 min).
+
+## 2026-10-01 · API ↔ Worker de compilation : HMAC dans les deux sens
+
+- Secret partagé `COMPILE_WORKER_SECRET` (≥ 32 caractères), WebCrypto seulement (même code dans Node et Workers), domaines de signature distincts par sens.
+- API → Worker : jeton `v1.<charge>.<HMAC>` de 60 s lié au `projectId` de l'URL. Worker → API : `POST /api/v1/internal/compile-callbacks`, HMAC du corps brut + horodatage (± 5 min).
+- Anti-rejeu et idempotence : `seq` croissant par compilation (`last_event_seq`, ligne verrouillée `FOR UPDATE`), état final figé ; un rappel rejoué, en retard ou après annulation est ignoré (200 `applied: false`). `entries.json` est écrit dans R2 avant le statut final (échec → 5xx, le Worker réessaie).
+- Le conteneur n'est pas fiable : le Worker n'écrit dans R2 que `outputs/<projet>/<build>/<nom>` pour les quatre sorties attendues (PDF, log, blg, SyncTeX).
+
+## 2026-10-01 · Cloudflare Containers : un conteneur par projet
+
+- `apps/compile-worker` : Worker + Durable Object `CompileContainer` (classe `Container` de `@cloudflare/containers`) nommé par `projectId`, `enableInternet = false`, `sleepAfter = '15m'`, type `standard-4` (TeX Live complet). File d'une compilation (la plus récente), traitée dans une alarme ; `preparing` pendant le réveil ; `POST /warm` appelé par l'API (`POST /projects/:id/compiler/warm`) à l'ouverture de l'éditeur.
+- Le Worker lit la demande et les binaires dans R2 (bindings), les pousse au conteneur (cache par sha256 vérifié), relit PDF, log et SyncTeX et les écrit dans R2 : le conteneur n'a ni réseau ni identifiants. Jeton interne tiré au hasard par le Durable Object.
+- Agent factorisé, pas dupliqué : `apps/compile-agent` gagne `container-main` (même `Compiler`, même latexmk, même parseur) et une interface `CompileSandbox` (Docker de l'étape 1, ou `ProcessSandbox`).
+- Une compilation par alarme (limite de 15 min d'une alarme) : la suivante est reprogrammée dans une nouvelle alarme. Un rappel final que l'API n'a pas reçu (redéploiement, panne) est gardé dans le stockage du Durable Object et réessayé toutes les 30 s jusqu'au timeout + 5 min. Un événement temps réel de plus de 1 Mo part sans résultat (`resultOmitted`), relu par `GET …/builds/:buildId`.
+
+## 2026-10-01 · Écart de sandbox à valider : VM par projet au lieu de conteneur + gVisor par compilation
+
+- Étape 1 : conteneur Docker neuf par compilation, gVisor, cgroup mémoire/CPU. Cloudflare : VM isolée par projet (réutilisée pendant la session, recyclée après 15 min d'inactivité), sans réseau, pas de Docker dans la VM.
+- Gardé : `latexmk -norc`, texmf.cnf durci (shell-escape refusé, vérifié dans l'image), UID 1000 sans capability ni `no_new_privs` (`setpriv`), `prlimit` (fichier 101 Mo, 256 processus, pas de core), timeout, chien de garde du répertoire, tous les processus de l'UID tués avant et après chaque compilation, `/tmp` vidé.
+- Perdu : isolation entre deux compilations d'un même projet (seul ce projet partage la VM), limites mémoire et CPU par compilation (celles de la VM s'appliquent, `oom_score_adj` protège l'agent). À valider par l'utilisateur avant la mise en production.
+- L'agent (root) partage le système de fichiers de TeX : il ouvre les sorties sans suivre de lien (`O_NOFOLLOW`, `fstat`, lecture et copie par descripteur, `regular-file.ts`) et ignore un répertoire de sortie remplacé par un lien, sinon un lien `output.pdf` → `/proc/1/environ` publierait le jeton interne.
+
+## 2026-10-01 · Compilateurs plafonnés par utilisateur
+
+- `compiler/warm` et la compilation asynchrone réveillent une VM `standard-4` pour 15 min ; `max_instances` (50) vaut pour tout le compte Cloudflare. Sans plafond, un seul compte (une cinquantaine de projets réveillés toutes les 15 min) bloquerait les compilations de tous.
+- Au plus 5 projets distincts par utilisateur sur 15 min (`maxCompilersPerUser`, table `compiler_activations`, verrou consultatif par utilisateur), sinon 429 `E_TOO_MANY_COMPILERS` ; un projet déjà compté reste utilisable.
+- Valeur fixe pour l'instant ; elle pourra rejoindre `plan_limits` (abonnements) si un plan doit en autoriser plus.
+
+## 2026-10-01 · R2 par le SDK S3 existant
+
+- Mêmes clients (API, agent de l'étape 1) : `S3_REGION=auto`, `S3_ENDPOINT=https://<compte>.eu.r2.cloudflarestorage.com` (juridiction UE), `S3_FORCE_PATH_STYLE=true`, checksums `WHEN_REQUIRED`. Aucune ACL, SSE ni classe de stockage dans le code (test unitaire des URL présignées).
+- Les handlers Lambda de `functions/*` ne sont pas déployés : l'API appelle `processUpload` et `importZip` dans son processus, avec son client R2.
+
+## 2026-10-01 · Railway : config as code et étape finale par argument de build
+
+- `deploy/railway/<service>.json` (web, api, realtime, pg-backup, pg-restore-test) : Dockerfile, healthchecks, `preDeployCommand` des migrations (api), réplicas (2 pour web et api, 1 pour realtime), cron. Chemin à déclarer dans les réglages de chaque service ; `kaxolax-infra/railway/provision.sh` pose les mêmes valeurs.
+- Railway ne choisit pas de cible de build : dernière étape `service` de `docker/Dockerfile` = `FROM ${KAXOLAX_SERVICE}` (variable du service, passée en argument de build). `--target` reste valable pour la CI.
+- realtime à plusieurs réplicas suppose l'extension Redis de Hocuspocus (tâche 5) : 1 réplica jusque-là, 2 avec elle.
+- `API_INTERNAL_URL` (cible des réécritures `/api` du web) est figée par `next build` : `ARG` de l'étape `builder`, remplie par Railway depuis la variable du service.
+
+## 2026-10-01 · Sauvegardes PostgreSQL chiffrées vers R2
+
+- `scripts/backup/pg-backup.sh` (cron Railway, 03:17 UTC) : instantané exporté (`pg_export_snapshot`), nombres de lignes des tables clés et `pg_dump --snapshot` sur les mêmes données ; archive vérifiée, chiffrée avec age (clé publique seule dans Railway), manifeste (sha256, comptes) ; rétention 35 jours en gardant les 7 dernières.
+- `pg-restore-test.sh` : restauration dans une base temporaire, égalité exacte des comptes avec le manifeste, échec si la sauvegarde a plus de 26 h ; jeton R2 `backup_read` (lecture seule), puisqu'il détient la clé privée. `test-local.sh` le rejoue en CI sur la pile locale.
+- Image `scripts/backup/Dockerfile` : PostgreSQL 18.6, rclone 1.75.1 et age 1.3.2 épinglés par empreinte (pas d'apk ni d'aws-cli). Remplace l'image `backup/` provisoire de kaxolax-infra.
+
 ## 2026-10-02 · Document meta du projet
 
 - `project:{projectId}:meta` (`@kaxolax/collab`) : un document Hocuspocus par projet, sans contenu, jamais enregistré en base ; même autorisation que les documents du projet (tout membre, rôle relu en base).
@@ -452,3 +504,8 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Vue selon la matrice des permissions : complète pour le propriétaire, limitée sinon (membres, quitter). Régénérer un lien, transférer, retirer et quitter demandent une confirmation.
 - `E_PLAN_LIMIT` : limite et lien vers `PRICING_URL` (`/pricing`, page des tarifs de la tâche 12, absente pour l'instant).
 - `/invitations/[token]` et `/share/[token]` publiques, hors du groupe `(app)` ; sans session, connexion ou inscription Clerk avec `redirect_url` vers la page ; une invitation déjà acceptée à l'inscription mène au projet sans clic.
+
+## 2026-10-02 · Un seul système d'événements du projet (fusion des tâches 5 et 14)
+
+- Les deux tâches avaient chacune un `projectEventSchema` ; celui de `events.ts` (tâche 5) reste la seule source. L'événement de compilation y devient `compile.updated` (`buildId`, `status`, `result`, `resultOmitted`), à la place de l'emplacement réservé ; `projectId` n'est plus dans l'événement, il est donné par la route et le document meta comme pour les autres. `fitProjectEvent` et `MAX_PROJECT_EVENT_BYTES` (1 Mio, limite du corps des routes internes) passent dans `events.ts`.
+- Les événements de compilation utilisent l'enveloppe commune (`{ kind: 'project-event', v: 1, sentAt, event }`) : publiés par `RealtimeClient.publishProjectEvent` (la classe `ProjectEvents` disparaît), par la même route `POST /internal/projects/:id/events` (`INTERNAL_TOKEN`), livrés connexion par connexion sur le document meta et relayés aux autres instances par le bus Redis. La diffusion propre à la tâche 14 (`broadcastStateless` sur tous les documents ouverts du projet, `apps/realtime/src/events.ts`) est retirée.
