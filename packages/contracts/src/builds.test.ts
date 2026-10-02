@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildStatusSchema,
-  compileEventSchema,
   compileRequestKey,
-  fitProjectEvent,
   isFinalBuildStatus,
-  MAX_PROJECT_EVENT_BYTES,
-  projectEventSchema,
   workerCallbackSchema,
 } from './builds.js'
 import {
@@ -77,14 +73,6 @@ describe('workerCallbackSchema', () => {
   })
 })
 
-describe('project events', () => {
-  it('validates a compile event through the union', () => {
-    const event = { type: 'compile', projectId, buildId, status: 'running', result: null }
-    expect(projectEventSchema.parse(event)).toEqual(compileEventSchema.parse(event))
-    expect(projectEventSchema.safeParse({ ...event, type: 'other' }).success).toBe(false)
-  })
-})
-
 describe('compile worker token', () => {
   it('round-trips and is bound to the project', async () => {
     const token = await signCompileWorkerToken(projectId, secret, 1_000)
@@ -148,33 +136,5 @@ describe('callback signature', () => {
     expect(await verifyCallback(body, { timestamp: '10000', signature }, secret, 10_000)).toBe(
       false,
     )
-  })
-})
-
-describe('fitProjectEvent', () => {
-  const event = (message: string) => ({
-    type: 'compile' as const,
-    projectId,
-    buildId,
-    status: 'failure' as const,
-    result: {
-      buildId,
-      status: 'failure' as const,
-      durationMs: 10,
-      pdfUrl: null,
-      logUrl: null,
-      entries: [{ level: 'warning' as const, file: null, line: null, message, raw: message }],
-    },
-  })
-
-  it('keeps an event that fits the realtime body limit', () => {
-    const small = event('Overfull \\hbox')
-    expect(fitProjectEvent(small)).toBe(small)
-  })
-
-  it('drops a result too large for the realtime service, which the client reads from the API', () => {
-    const large = fitProjectEvent(event('x'.repeat(MAX_PROJECT_EVENT_BYTES / 2)))
-    expect(large).toMatchObject({ status: 'failure', result: null, resultOmitted: true })
-    expect(projectEventSchema.parse(large)).toEqual(large)
   })
 })

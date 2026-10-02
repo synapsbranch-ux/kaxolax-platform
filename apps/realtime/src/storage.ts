@@ -119,7 +119,8 @@ export function createStorageGuard(options: {
   const beforeSync = async (connection: Connection, type: number): Promise<void> => {
     if (type !== SYNC_STEP_2 && type !== SYNC_UPDATE) return
     const context = contextOf(connection) as ConnectionContext | undefined
-    if (typeof context?.projectId !== 'string' || !canEdit(context.role)) return
+    // Le document meta reste en lecture seule (`./access.ts`) : le stockage ne le concerne pas.
+    if (typeof context?.projectId !== 'string' || context.meta || !canEdit(context.role)) return
     apply(connection, context, await storageOf(context.projectId))
   }
 

@@ -19,6 +19,6 @@
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5,
     "drainingSeconds": 30,
-    "multiRegionConfig": { "europe-west4-drams3a": { "numReplicas": 1 } }
+    "multiRegionConfig": { "europe-west4-drams3a": { "numReplicas": 2 } }
   }
 }

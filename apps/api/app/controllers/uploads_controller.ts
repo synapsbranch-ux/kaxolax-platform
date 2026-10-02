@@ -1,12 +1,16 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import ObjectStorage from '#services/object_storage'
+import RealtimeClient from '#services/realtime_client'
 import { completeFileUpload, startFileUpload } from '#services/upload_service'
 import { createUploadValidator } from '#validators/uploads'
 
 @inject()
 export default class UploadsController {
-  constructor(private readonly storage: ObjectStorage) {}
+  constructor(
+    private readonly storage: ObjectStorage,
+    private readonly realtime: RealtimeClient,
+  ) {}
 
   /** Crée un upload en attente et renvoie l'URL présignée où envoyer le fichier. */
   async store({ request, params, auth, response }: HttpContext) {
@@ -20,13 +24,29 @@ export default class UploadsController {
   }
 
   async complete({ params, auth, response }: HttpContext) {
+    const user = auth.getUserOrFail()
     const completed = await completeFileUpload(
       this.storage,
-      auth.getUserOrFail(),
+      user,
       String(params.id),
       String(params.uploadId),
     )
     const { entity } = completed
+    // Diffusé aux clients connectés au projet, une fois l'upload enregistré.
+    await this.realtime.publishProjectEvent(entity.projectId, {
+      type: 'tree.changed',
+      reason: 'upload',
+      actorId: user.id,
+      changes: [
+        {
+          action: 'created',
+          entity: completed.type,
+          id: entity.id,
+          parentId: entity.folderId,
+          name: entity.name,
+        },
+      ],
+    })
     response.created(
       completed.type === 'document'
         ? {

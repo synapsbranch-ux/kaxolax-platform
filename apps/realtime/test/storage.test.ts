@@ -32,11 +32,14 @@ function fakeStorage(initial: { used: number; limit: number } | null) {
   return { store, state }
 }
 
-function fakeConnection(role: ProjectRole, userId = 'user') {
+function fakeConnection(role: ProjectRole, userId = 'user', meta = false) {
   const context: ConnectionContext = {
     userId,
+    userName: null,
+    avatarUrl: null,
     projectId: 'project',
-    documentId: 'document',
+    documentId: meta ? null : 'document',
+    meta,
     role,
     issuedAt: 1,
     roleCheckedAt: Date.now(),
@@ -49,7 +52,7 @@ function fakeConnection(role: ProjectRole, userId = 'user') {
   const document = Object.assign(new Y.Doc(), { hasConnection: () => true })
   const connection = {
     context,
-    readOnly: role === 'viewer' || role === 'reviewer',
+    readOnly: meta || role === 'viewer' || role === 'reviewer',
     messageAddress: 'project:project:doc:document',
     sendStateless: (message: string) => sent.push(message),
     send: (message: Uint8Array) => binary.push(message),
@@ -70,6 +73,20 @@ function fakeConnection(role: ProjectRole, userId = 'user') {
 }
 
 describe('storage limit on edits', () => {
+  it('leaves the project meta document alone, read-only whatever the storage', async () => {
+    const { store, state } = fakeStorage({ used: 100, limit: 100 })
+    const guard = createStorageGuard({ store, logger, checkMs: 0 })
+    const { connection, raw, context, sent } = fakeConnection('editor', 'user', true)
+
+    await guard.beforeSync(connection, SYNC_UPDATE)
+    state.value = { used: 10, limit: 100 }
+    await guard.beforeSync(connection, SYNC_UPDATE)
+    expect(state.reads).toBe(0)
+    expect(context.storageFull).toBeUndefined()
+    expect(raw.readOnly).toBe(true)
+    expect(sent).toEqual([])
+  })
+
   it('makes an editor read-only while the owner storage is full, then writable again', async () => {
     let now = 0
     const { store, state } = fakeStorage({ used: 100, limit: 100 })

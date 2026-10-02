@@ -11,7 +11,7 @@ import logger from '@adonisjs/core/services/logger'
 import compileConfig from '#config/compile'
 import { applyWorkerCallback } from '#services/async_compile_service'
 import { CompileOutputStorage } from '#services/object_storage'
-import ProjectEvents from '#services/project_events'
+import RealtimeClient from '#services/realtime_client'
 
 /**
  * Rappels du Worker de compilation (route interne, hors session) : HMAC du corps brut avec
@@ -21,7 +21,7 @@ import ProjectEvents from '#services/project_events'
 export default class CompileCallbacksController {
   constructor(
     private readonly outputs: CompileOutputStorage,
-    private readonly events: ProjectEvents,
+    private readonly realtime: RealtimeClient,
   ) {}
 
   async handle({ request, response }: HttpContext): Promise<WorkerCallbackResponse | undefined> {
@@ -56,7 +56,7 @@ export default class CompileCallbacksController {
       return
     }
     const { applied, found } = await applyWorkerCallback(
-      { outputs: this.outputs, events: this.events },
+      { outputs: this.outputs, realtime: this.realtime },
       parsed.data,
     )
     if (!found) {

@@ -12,7 +12,6 @@ import { compileProject, lastCompile } from '#services/compile_service'
 import CompileWorkerClient from '#services/compile_worker'
 import { CompileOutputStorage } from '#services/object_storage'
 import { projectFor } from '#services/project_access'
-import ProjectEvents from '#services/project_events'
 import RealtimeClient from '#services/realtime_client'
 import { buildTree } from '#services/tree_service'
 import { synctexCodeValidator, synctexPdfValidator } from '#validators/compile'
@@ -25,7 +24,6 @@ export default class CompilesController {
     private readonly realtime: RealtimeClient,
     private readonly outputs: CompileOutputStorage,
     private readonly worker: CompileWorkerClient,
-    private readonly events: ProjectEvents,
   ) {}
 
   private get async() {
@@ -44,12 +42,7 @@ export default class CompilesController {
     const body = validateWithZod(compileProjectBodySchema, request.body())
     if (this.async) {
       const deps = { worker: this.worker, realtime: this.realtime, outputs: this.outputs }
-      const accepted = await enqueueCompile(
-        { ...deps, events: this.events },
-        user,
-        project,
-        body.options,
-      )
+      const accepted = await enqueueCompile(deps, user, project, body.options)
       response.status(202)
       return accepted
     }
@@ -65,7 +58,10 @@ export default class CompilesController {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
     if (this.async) {
       return {
-        stopped: await cancelActiveBuild({ worker: this.worker, events: this.events }, project.id),
+        stopped: await cancelActiveBuild(
+          { worker: this.worker, realtime: this.realtime },
+          project.id,
+        ),
       }
     }
     return { stopped: await this.gateway.stop(project.id) }

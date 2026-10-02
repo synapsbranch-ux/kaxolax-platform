@@ -140,7 +140,8 @@ async function findEntity(
   return entity
 }
 
-function parentOf(entity: Entity): string | null {
+/** Dossier parent d'une entité (null : racine du projet). */
+export function parentOf(entity: Entity): string | null {
   return entity instanceof Folder ? entity.parentId : entity.folderId
 }
 

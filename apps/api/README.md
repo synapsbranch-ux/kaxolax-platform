@@ -147,9 +147,32 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     document (les frappes refusées pendant la lecture seule bloqueraient les suivantes).
 
 - **Temps réel** : `POST /projects/:id/realtime-token` signe un jeton de 5 minutes pour le
-  service `apps/realtime` (`REALTIME_TOKEN_SECRET`, `REALTIME_PUBLIC_URL`). À la suppression
+  service `apps/realtime` (`REALTIME_TOKEN_SECRET`, `REALTIME_PUBLIC_URL`), valable pour les
+  documents du projet et pour son document meta (`project:{id}:meta`). À la suppression
   d'un document, d'un dossier ou d'un projet, l'API demande au service de fermer les connexions
   ouvertes (`REALTIME_INTERNAL_URL`, `INTERNAL_TOKEN`), au mieux et avec un délai de 2 s.
+- **Événements du projet** (`packages/contracts/src/events.ts`) : après la validation de sa
+  transaction, l'API publie sur le document meta du projet (`RealtimeClient.publishProjectEvent`,
+  route interne `POST /internal/projects/:id/events`), au mieux (échec journalisé, la requête
+  réussit quand même) :
+  - `tree.changed` pour chaque écriture de l'arborescence, avec ce qui a changé : création de
+    dossier ou de document (`create`), renommage (`rename`), déplacement (`move`), suppression
+    (`delete`, le dossier racine supprimé), upload (`upload`), import zip (`import`, projet neuf,
+    liste vide) et document principal (`main-document`, `mainDocumentId`) ;
+  - `member.added` (arrivée par lien ou invitation, y compris les invitations acceptées d'office
+    à l'inscription, par le webhook `user.created` ou le guard), `member.removed` (retrait,
+    départ, compte supprimé par le webhook `user.deleted` ou l'admin) et
+    `member.role-updated` (changement de rôle, rôle relevé, transfert : deux événements), en
+    plus de `RealtimeClient.membersChanged` ;
+  - `banner.changed` à tous les clients connectés (`RealtimeClient.broadcastEvent`, route
+    `POST /internal/events`), depuis `notifyBannerChanged`.
+    Une requête refusée ne publie rien. Les helpers des membres sont dans
+    `app/services/project_events.ts`. `chat.message-created` et `comment.created` sont définis pour
+    les tâches 6 et 7 ;
+  - `compile.updated` (`buildId`, `status`, `result` une fois terminée) à chaque étape d'une
+    compilation asynchrone (voir **Compilation**). `RealtimeClient` passe chaque événement par
+    `fitProjectEvent` : un résultat qui ferait dépasser 1 Mio au corps de la requête est retiré
+    (`resultOmitted: true`), le client le relit par `GET /projects/:id/builds/:buildId`.
 
 - **Uploads** : `POST /projects/:id/uploads` renvoie une URL de PUT présignée (taille signée),
   puis `POST /projects/:id/uploads/:uploadId/complete` vérifie l'objet et crée un document texte
@@ -169,7 +192,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   conteneur se réveille ; état initial, que le client ignore s'il a déjà reçu un événement du
   même `buildId`), le Worker (`apps/compile-worker`) rappelle
   `POST /internal/compile-callbacks` (HMAC, horodatage, `seq` anti-rejeu) et le service temps
-  réel diffuse l'événement `compile` aux connexions du projet ; repli par sondage
+  réel diffuse l'événement `compile.updated` sur le document meta du projet (même route et même
+  enveloppe que les autres événements du projet) ; repli par sondage
   `GET /projects/:id/builds/:buildId`, qui clôt aussi en `error` une compilation restée sans
   nouvelles du Worker au-delà de son timeout + 5 min (entrée de log « The compiler did not
   respond in time »). `POST /projects/:id/compiler/warm`
@@ -188,6 +212,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
 - **Bannière système** : `GET /banners/active` (tout compte connecté) renvoie les bannières
   commencées et pas encore terminées, maintenance d'abord. Le web la relit toutes les 60 s et au
   retour sur l'onglet ; `RealtimeClient.notifyBannerChanged`, appelée à chaque création,
+  modification ou suppression, diffuse aussi `banner.changed` en direct à tous les clients
+  connectés à un document meta.
   modification ou suppression, sera branchée sur le document meta des projets (tâche 5).
 - **Abonnements (Clerk Billing)** (contrats : `packages/contracts/src/billing.ts`).
   - Droits (`app/services/entitlements.ts`) : plan et features lus dans les claims `pla`
@@ -336,3 +362,10 @@ Admin (`tests/functional/admin_*.spec.ts`, faux Clerk et faux service temps rée
 de chaque action, échec de Clerk compris ; compte banni refusé (401), webhook `banned` en
 retard ignoré ; transfert de propriété ; bannières actives selon leurs dates ; statistiques sur
 un jeu de données daté.
+
+Événements du projet (`tests/functional/project_events.spec.ts`, faux service temps réel qui
+valide chaque événement avec le schéma de la route interne) : un événement par création,
+renommage, déplacement, suppression, upload, import et changement de document principal, avec
+ce qui a changé ; aucun pour une requête refusée ; événements des membres (rôle, retrait,
+transfert, arrivée par lien) ; appels HTTP du vrai client et absence d'échec si le service est
+injoignable.

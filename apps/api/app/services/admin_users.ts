@@ -20,6 +20,7 @@ import { isoString, isoStringOrNull } from '#services/dates'
 import type ObjectStorage from '#services/object_storage'
 import { CURRENT_SUBSCRIPTION_STATUSES, FREE_PLAN_SLUG } from '#services/plans'
 import { isUuid } from '#services/project_access'
+import { announceDepartures } from '#services/project_events'
 import { releaseDeletedProject } from '#services/project_service'
 import type RealtimeClient from '#services/realtime_client'
 
@@ -361,10 +362,10 @@ export async function deleteUser(
 ): Promise<{ user: User; realtimeDisconnected: boolean }> {
   assertActionable(admin, target)
   const action = userAction(admin, 'user.delete', target)
-  const { user, deleted } = await auditFailures(action, async () => {
+  const { user, deleted, leftProjectIds } = await auditFailures(action, async () => {
     const existed = await deps.clerk.deleteUser(target.clerkUserId)
     return db.transaction(async (trx) => {
-      const projects = await deleteClerkUser(target.clerkUserId, trx)
+      const { deleted: projects, leftProjectIds } = await deleteClerkUser(target.clerkUserId, trx)
       await recordAdminAction(
         {
           ...action,
@@ -376,11 +377,12 @@ export async function deleteUser(
         },
         trx,
       )
-      return { user: await lockUser(target.id, trx), deleted: projects }
+      return { user: await lockUser(target.id, trx), deleted: projects, leftProjectIds }
     })
   })
   forgetAdminStatus(target.clerkUserId)
   for (const project of deleted) await releaseDeletedProject(project, deps)
   const realtimeDisconnected = await disconnectRealtime(admin, target, 'user.delete', deps.realtime)
+  await announceDepartures(deps.realtime, target.id, leftProjectIds, admin.id)
   return { user, realtimeDisconnected }
 }

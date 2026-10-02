@@ -7,7 +7,7 @@ import CompileWorkerClient from '#services/compile_worker'
 import { reserveCompiler } from '#services/compiler_quota'
 import { CompileOutputStorage } from '#services/object_storage'
 import { isUuid, projectFor } from '#services/project_access'
-import ProjectEvents from '#services/project_events'
+import RealtimeClient from '#services/realtime_client'
 
 /** Compilation asynchrone : état d'une compilation (repli par sondage) et réveil du compilateur. */
 @inject()
@@ -15,7 +15,7 @@ export default class BuildsController {
   constructor(
     private readonly worker: CompileWorkerClient,
     private readonly outputs: CompileOutputStorage,
-    private readonly events: ProjectEvents,
+    private readonly realtime: RealtimeClient,
   ) {}
 
   async show({ params, auth }: HttpContext) {
@@ -23,7 +23,11 @@ export default class BuildsController {
     const buildId = String(params.buildId)
     if (!isUuid(buildId)) throw new BuildNotFoundException()
     return {
-      build: await buildState({ outputs: this.outputs, events: this.events }, project.id, buildId),
+      build: await buildState(
+        { outputs: this.outputs, realtime: this.realtime },
+        project.id,
+        buildId,
+      ),
     }
   }
 

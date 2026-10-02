@@ -32,6 +32,7 @@ export { latexLanguage } from './language.js'
 export * from './theme.js'
 export * from './auto-compile.js'
 export * from './outline.js'
+export * from './presence.js'
 export {
   findPreamble,
   loadedPackages,
@@ -48,6 +49,17 @@ export {
   defaultActions,
   FONT_SIZES,
 } from './actions/defaults.js'
+export * from './actions/writing.js'
+export * from './writing/apply.js'
+export * from './writing/formula.js'
+export * from './writing/formula-library.js'
+export * from './writing/math-packages.js'
+export * from './writing/mathlive.js'
+export * from './writing/symbols.js'
+export * from './writing/table-import.js'
+export * from './writing/table-latex.js'
+export * from './writing/table-model.js'
+export * from './writing/track.js'
 export {
   ACTION_USER_EVENT,
   type BlockTemplate,

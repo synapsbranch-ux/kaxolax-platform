@@ -484,3 +484,93 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `subscription.*` et `subscriptionItem.*` sur la même route ; rejeu écarté par `clerk_webhook_events`. Chaque élément est reflété par son id ; `subscriptions.updated_at` = `timestamp` de l'événement : un événement plus ancien n'écrase rien.
 - Payeur sans miroir local (webhook `user.created` pas encore reçu) : 409 et rien d'enregistré, Clerk réessaie. Payeur organisation ignoré (étape 3).
 - Emails après validation, décidés par la transition de statut sous verrou de ligne : bienvenue à l'entrée en `active` d'un plan payant (pas depuis `past_due` ni `canceled`), paiement en retard à l'entrée en `past_due`. Deux événements portant la même transition n'en envoient qu'un.
+
+## 2026-10-02 · Document meta du projet
+
+- `project:{projectId}:meta` (`@kaxolax/collab`) : un document Hocuspocus par projet, sans contenu, jamais enregistré en base ; même autorisation que les documents du projet (tout membre, rôle relu en base).
+- Connexion toujours en lecture seule, quel que soit le rôle : les clients n'y publient que l'awareness, toute mise à jour Yjs est rejetée (fermeture au 5e rejet, comme un lecteur).
+- Présence : format `presenceStateSchema` (`@kaxolax/contracts`) ; le serveur impose l'identité (`user` : id de la connexion, nom complet et photo https lus en base, couleur dérivée de l'id par le même FNV-1a que packages/ui) et ignore un état qui reprend le clientId d'une autre connexion ou d'un autre utilisateur relayé par Redis ; chaque client valide les états reçus.
+- Jamais l'email dans la présence (visible de tous les membres, lien public compris, comme les emails masqués du partage) : sans nom complet, « Collaborateur » (`PRESENCE_FALLBACK_NAME`).
+
+## 2026-10-02 · Événements du projet en messages sans état
+
+- Schémas zod versionnés (`packages/contracts/src/events.ts`, `v: 1`) : `tree.changed` (avec ce qui a changé), `member.added|removed|role-updated`, `chat.message-created`, `comment.created`, `banner.changed`, et `compile.updated` réservé à la tâche 14 (objet ouvert, seul `buildId` fixé).
+- Publiés par l'API après validation de la transaction, au mieux (2 s, échec journalisé), par les routes internes `POST /internal/projects/:id/events` et `POST /internal/events` (bannière seulement) ; une requête refusée ne publie rien.
+- Envoyés connexion par connexion aux documents meta, pas par `broadcastStateless`, que l'extension Redis relaierait en double.
+
+## 2026-10-02 · Plusieurs instances du temps réel avec Redis
+
+- `REDIS_URL` active `@hocuspocus/extension-redis` 4.7.0 (même version que le serveur) : documents, awareness et messages sans état synchronisés, écriture en base verrouillée entre instances.
+- Bus pub/sub à part (`apps/realtime/src/cluster.ts`, ioredis du catalog) pour ce qui ne dépend pas d'un document chargé : changements de membres (`MemberChangeFanout`), fermeture des connexions d'un compte ou d'un document, événements. L'instance appelée applique puis publie ; les autres appliquent à la réception.
+- Départ d'une connexion relayé par le bus (`awareness-departed`) : l'extension ne transmet pas le retrait d'un état d'awareness (aucune publication sans connexion restante, état nul perdu à la réception).
+- Sans `REDIS_URL`, une seule instance (rien à relayer). Test d'intégration à deux instances sur le Redis local, préfixe aléatoire par lancement.
+
+## 2026-10-02 · Web : présence et suivi d'un collaborateur
+
+- Document meta ouvert par la page projet sur le WebSocket partagé ; présence publiée : identité et onglet actif (`documentId`, document ou fichier). États reçus validés (`parsePresenceState`), regroupés par personne (plusieurs onglets), soi-même exclu.
+- Curseurs distants dessinés par y-codemirror.next depuis l'identité imposée par le serveur ; nom toujours visible (`collaboratorCursorTheme` de `@kaxolax/editor`), texte en `--presence-foreground`.
+- Suivre : ouvre le fichier de la personne et la suit de fichier en fichier (changements de présence, pas d'effet React), défilement jusqu'à son curseur sans toucher à la sélection ; fin à la première frappe dans l'éditeur (modificateurs seuls exclus), au bouton d'arrêt ou après 3 s d'absence (une reconnexion efface brièvement la présence des autres).
+
+## 2026-10-02 · Web : événements du projet et changements d'accès
+
+- `tree.changed` : arborescence relue (une requête par rafale de 150 ms) plutôt qu'appliquée : l'événement ne porte ni chemins ni tailles, et la relecture reste juste après un événement perdu.
+- Changement de rôle (message `member.role-changed`) : rôle local mis à jour, lecture seule par reconfiguration ; retour en écriture en rouvrant le document. Retrait : fermeture « Forbidden », `member.removed` sur soi ou 404 sur le projet → page d'accès retiré, puis tableau de bord après 6 s.
+- `banner.changed` relayé par un petit bus en mémoire (`bannerFeed`) vers la bannière du layout ; le sondage de 60 s reste en filet (tableau de bord, connexion coupée).
+
+## 2026-10-02 · Web : modale de partage et pages d'adhésion
+
+- Réponses du partage validées côté navigateur par les schémas zod de `@kaxolax/contracts` ; `ApiError` garde le corps de la réponse (limite du plan, délai de relance, indice d'email).
+- Vue selon la matrice des permissions : complète pour le propriétaire, limitée sinon (membres, quitter). Régénérer un lien, transférer, retirer et quitter demandent une confirmation.
+- `E_PLAN_LIMIT` : limite et lien vers `PRICING_URL` (`/pricing`, page des tarifs de la tâche 12, absente pour l'instant).
+- `/invitations/[token]` et `/share/[token]` publiques, hors du groupe `(app)` ; sans session, connexion ou inscription Clerk avec `redirect_url` vers la page ; une invitation déjà acceptée à l'inscription mène au projet sans clic.
+
+## 2026-10-02 · Un seul système d'événements du projet (fusion des tâches 5 et 14)
+
+- Les deux tâches avaient chacune un `projectEventSchema` ; celui de `events.ts` (tâche 5) reste la seule source. L'événement de compilation y devient `compile.updated` (`buildId`, `status`, `result`, `resultOmitted`), à la place de l'emplacement réservé ; `projectId` n'est plus dans l'événement, il est donné par la route et le document meta comme pour les autres. `fitProjectEvent` et `MAX_PROJECT_EVENT_BYTES` (1 Mio, limite du corps des routes internes) passent dans `events.ts`.
+- Les événements de compilation utilisent l'enveloppe commune (`{ kind: 'project-event', v: 1, sentAt, event }`) : publiés par `RealtimeClient.publishProjectEvent` (la classe `ProjectEvents` disparaît), par la même route `POST /internal/projects/:id/events` (`INTERNAL_TOKEN`), livrés connexion par connexion sur le document meta et relayés aux autres instances par le bus Redis. La diffusion propre à la tâche 14 (`broadcastStateless` sur tous les documents ouverts du projet, `apps/realtime/src/events.ts`) est retirée.
+
+## 2026-10-02 · Outils d'écriture : logique dans `@kaxolax/editor`, interface dans l'application
+
+- Détection, génération et analyse (formules, symboles, tableaux) sont des fonctions pures de `packages/editor`, sans React ni MathLive : testées sous Node, réutilisables par d'autres interfaces.
+- `math.formula` (`Mod-Shift-e`), `math.symbols` et `structures.table` sont dans `createDefaultRegistry()` et passent par `host.openDialog(id, payload)` ; le payload typé porte la plage et le texte détectés. « Tableau » remplace l'ancien modèle fixe `structures.table`.
+- Insertion en une étape d'annulation, packages manquants ajoutés au préambule ; la plage est suivie à travers les modifications faites pendant l'édition (collaborateurs) ; modifiée ou disparue : `stale` et rien n'est écrit.
+- Une formule ou un tableau inchangé n'est pas réécrit (`unchanged`) ; une formule modifiée garde délimiteurs, environnement et `\label` (seul le corps change).
+
+## 2026-10-02 · Tableaux : grille avec aller-retour exact, texte brut sinon
+
+- Modèle : colonnes et séparateurs bruts (`|`, `@{}`, `>{…}`), cellules avec `colspan`/`rowspan` (cases couvertes à `null`), filets par frontière (`\hline`, `\cline`, booktabs, commandes brutes comme `\addlinespace`).
+- `parseTable(generateTable(m))` redonne `m` et le même texte ; un tableau écrit à la main est relu avec avertissements (commentaires retirés, `*{n}{…}` développé, lignes complétées, `\multirow` chevauchant gardé dans la cellule) ou `ok: false` + texte brut (plus de cellules que de colonnes, spécification inconnue).
+- Le flottant `table` n'est repris que s'il ne contient que `\centering`, `\caption`, `\label` et le tableau ; sinon seule la grille est remplacée.
+- Collage : TSV (Excel, Google Sheets) ou CSV RFC 4180 (`,` ou `;` détecté), contenu échappé par défaut.
+
+## 2026-10-02 · Formules : normalisation de MathLive et packages calculés
+
+- `normalizeMathLive` convertit les commandes propres à MathLive (`\exponentialE`, `\differentialD`, `\mleft`, `\placeholder`…) par une table testée ; le résultat compile avec amsmath seul, sauf couleurs (xcolor) et `\cancel` (cancel), signalés.
+- Les packages d'une formule ou d'un symbole viennent du catalogue et d'une table de commandes et d'environnements ; `mathtools` vaut `amsmath`, `amssymb` vaut `amsfonts`.
+- Vérifié en compilant avec TeX Live 2026 (pdflatex, sans réseau) chaque symbole avec ses seuls packages déclarés, la bibliothèque de formules et les tableaux générés.
+
+## 2026-10-02 · Outils d'écriture dans l'application : MathLive à la demande
+
+- `mathlive` 0.110.0 (MIT, dernière version publiée avant le 2026-09-30) : seul éditeur visuel de formules web maintenu qui produit du LaTeX ; KaTeX/MathJax n'affichent que.
+- Chargé à la demande : boîtes de dialogue en `import()` dans un effet (échec de chargement ou de rendu : « Outil indisponible » avec Réessayer, l'éditeur reste ouvert) et `import('mathlive')` dans un effet, donc hors du bundle initial de la page projet et jamais exécuté au rendu serveur.
+- Aucune ressource externe : polices KaTeX importées par `mathlive/fonts.css` (servies par Next.js sous `/_next/static/media`), `fontsDirectory`, sons et moteur de calcul à `null` ; clavier virtuel, menu et suggestions de MathLive masqués (hors de la boîte modale).
+- Symboles récents dans les préférences (`recentSymbols`, 24 au plus, défaut vide) : ils suivent l'utilisateur sur ses appareils. Packages manquants : ajoutés à l'insertion ou en un clic ; fichier sans préambule, simple rappel (document principal).
+
+## 2026-10-02 · Outils d'écriture : plages suivies, cases et commentaires sûrs
+
+- La plage ouverte est suivie par un champ d'état CodeMirror (`trackTarget`, positions recalculées à chaque transaction, collaborateurs compris) ; si elle ne contient plus le texte d'origine : `stale`. Écarté : chercher l'occurrence la plus proche, qui remplaçait une autre formule identique.
+- Tableau : insertion refusée tant qu'une case contient `%`, `#`, `&`, `$` seul, `_`/`^` hors formule (colonnes `>{$}` comprises) ; échappement en un clic. Pas d'échappement à la frappe : le LaTeX tapé (`\textbf{…}`, `$x_1$`) doit rester tel quel.
+- Formules : sauts de ligne et commentaires `%` gardés par `normalizeMathLive` ; un `align` réécrit par MathLive (une seule ligne) reprend une ligne par `\\` ; comparaison « inchangée » sans commentaires, espaces des groupes texte gardés.
+- MathLive affiche du LaTeX écrit par des collaborateurs : `\href`, `\htmlStyle`, `\class`, `\cssId`, `\htmlData` retirés à l'entrée, `openUrl` neutralisé (ni requête externe ni lien ouvert).
+
+## 2026-10-02 · Outils d'écriture : rien d'inséré qui ne compile pas
+
+- Même règle que les cases pour la légende d'un tableau ; formule tapée en LaTeX vérifiée (accolades, `$`, `#`, `&` hors `align`/`aligned`/`split`, délimiteurs imbriqués, commandes MathLive `\unicode`/`\error`) : insertion refusée (`invalid`) plutôt qu'échappée ; `\href` ajoute hyperref.
+- Labels réduits à `A-Z a-z 0-9 : . _ / + -` à la saisie ; équation passée en ligne ou centrée : perte du `\label` annoncée.
+- Pas de flottant `table` inséré dans une figure, une minipage ou un argument de commande ; packages ajoutés seulement s'ils manquent (fournisseurs compris).
+- Collage : une colonne de nombres à virgule décimale (`3,5`) n'est jamais coupée sur la virgule ; ambigu (`1,2` sur chaque ligne) : lu comme décimal.
+
+## 2026-10-02 · Fusion des tâches 5 et 12 : limites du plan dans le partage et le temps réel
+
+- La modale de partage et les pages d'adhésion affichent un refus `E_PLAN_LIMIT` par `PlanLimitNotice` (`ApiError.planLimit`, lien `upgradeUrl` de l'API) et marquent l'erreur (`markPlanLimitHandled`) : la boîte des limites globale ne s'ouvre pas en plus. `PRICING_URL` disparaît, l'URL des tarifs vient du refus.
+- Le document meta n'est jamais concerné par le stockage du plan (`apps/realtime/src/storage.ts`) : il reste en lecture seule quel que soit l'état du stockage, et ses mises à jour refusées comptent toujours pour la fermeture.

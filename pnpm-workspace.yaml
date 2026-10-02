@@ -43,6 +43,7 @@ catalog:
   '@commitlint/config-conventional': 21.2.3
   '@eslint/js': 10.0.1
   '@hocuspocus/extension-database': 4.7.0
+  '@hocuspocus/extension-redis': 4.7.0
   '@hocuspocus/provider': 4.7.0
   '@hocuspocus/server': 4.7.0
   '@japa/api-client': 3.2.1
@@ -75,6 +76,7 @@ catalog:
   ioredis: 5.11.1
   lucide-react: 1.48.0
   luxon: 3.7.2
+  mathlive: 0.110.0
   next: 16.3.7
   otpauth: 9.5.2
   pdfjs-dist: 6.3.289

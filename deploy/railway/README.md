@@ -10,15 +10,15 @@ celle du tableau de bord. `kaxolax-infra/railway/provision.sh` pose les mêmes v
 | `web`           | `web.json`                                                                      | `docker/Dockerfile`, `KAXOLAX_SERVICE=web`              | `/healthz`       | 2        |
 | `admin`         | `admin.json`                                                                    | `docker/Dockerfile`, `KAXOLAX_SERVICE=admin`            | `/healthz`       | 1        |
 | `api`           | `api.json`                                                                      | `docker/Dockerfile`, `KAXOLAX_SERVICE=api`              | `/api/v1/health` | 2        |
-| `realtime`      | `realtime.json`                                                                 | `docker/Dockerfile`, `KAXOLAX_SERVICE=realtime`         | `/health`        | 1 (\*)   |
+| `realtime`      | `realtime.json`                                                                 | `docker/Dockerfile`, `KAXOLAX_SERVICE=realtime`         | `/health`        | 2 (\*)   |
 | `admin`         | à créer avec la tâche 13 (`KAXOLAX_SERVICE=admin`, cible `admin` du Dockerfile) |                                                         |                  | 1        |
 | `backup`        | `pg-backup.json`                                                                | `scripts/backup/Dockerfile` (cron 03:17 UTC)            | —                | —        |
 | `restore-test`  | `pg-restore-test.json`                                                          | `scripts/backup/Dockerfile` (cron le lundi, facultatif) | —                | —        |
 
-(\*) Une seule instance tant que l'extension Redis de Hocuspocus (tâche 5) n'existe pas : sans
-elle, deux clients d'un même document sur deux instances ne se voient pas, et les événements de
-projet (`REALTIME_INTERNAL_URL`, résultat des compilations) n'atteignent qu'une instance. Passer
-`numReplicas` à 2 dans `realtime.json` avec la tâche 5.
+(\*) Plusieurs instances exigent `REDIS_URL` (extension Redis de Hocuspocus et bus du cluster,
+tâche 5) : sans lui, deux clients d'un même document sur deux instances ne se voient pas, et les
+événements de projet (`REALTIME_INTERNAL_URL`, résultat des compilations compris) n'atteignent
+que l'instance appelée.
 
 - **Étape finale du Dockerfile** : Railway ne choisit pas de cible (`--target`). La dernière étape
   de `docker/Dockerfile` reprend celle que désigne l'argument de build `KAXOLAX_SERVICE` ; une

@@ -36,6 +36,21 @@ export class DocumentStore {
     return role === undefined ? null : projectRoleSchema.parse(role)
   }
 
+  /**
+   * Identité affichée d'un compte dans la présence : nom complet et photo de profil (miroir
+   * Clerk), jamais l'email (la présence est visible de tous les membres) ; null s'il n'existe pas.
+   */
+  async presenceProfile(
+    userId: string,
+  ): Promise<{ fullName: string | null; avatarUrl: string | null } | null> {
+    const result = await this.pool.query<{ full_name: string | null; avatar_url: string | null }>(
+      'SELECT full_name, avatar_url FROM users WHERE id = $1',
+      [userId],
+    )
+    const row = result.rows[0]
+    return row ? { fullName: row.full_name, avatarUrl: row.avatar_url } : null
+  }
+
   async documentExists(projectId: string, documentId: string): Promise<boolean> {
     const result = await this.pool.query(
       'SELECT 1 FROM documents WHERE id = $1 AND project_id = $2',

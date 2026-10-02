@@ -5,6 +5,7 @@ import { cn } from '@kaxolax/ui'
 import { Info, TriangleAlert, Wrench, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import { bannerFeed } from '@/lib/project-events'
 
 /** Bannières fermées pendant cette session du navigateur (sessionStorage). */
 const DISMISSED_KEY = 'kaxolax:dismissed-banners'
@@ -41,8 +42,9 @@ const LEVELS: Record<BannerLevel, { className: string; icon: typeof Info; label:
 }
 
 /**
- * Bannières système (publiées depuis l'admin). Relues toutes les 60 s et au retour sur l'onglet ;
- * la diffusion en direct par le service temps réel viendra avec le document meta des projets.
+ * Bannières système (publiées depuis l'admin). Reçues en direct sur la page projet (événement
+ * `banner.changed` du document meta, relayé par `bannerFeed`) ; relues aussi toutes les 60 s et
+ * au retour sur l'onglet, en filet (tableau de bord, connexion temps réel coupée).
  * Chaque bannière se ferme pour la session du navigateur, jusqu'à sa prochaine modification.
  * Affichées en haut de l'application, en bandeau fixe pleine largeur : elles n'ajoutent aucune
  * hauteur aux pages en plein écran (éditeur en `h-screen`) et se ferment d'un clic. La nouvelle
@@ -68,6 +70,7 @@ export function SystemBanner() {
 
   useEffect(() => {
     refresh()
+    const unsubscribe = bannerFeed.subscribe(setBanners)
     const interval = setInterval(refresh, BANNER_POLL_INTERVAL_MS)
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh()
@@ -75,6 +78,7 @@ export function SystemBanner() {
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', refresh)
     return () => {
+      unsubscribe()
       clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', refresh)

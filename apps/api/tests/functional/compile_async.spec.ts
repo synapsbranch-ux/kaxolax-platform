@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import { type AddressInfo } from 'node:net'
 import {
   buildStateSchema,
+  type CompileUpdatedEvent,
   compileRequestSchema,
   type ProjectEvent,
   signCallback,
@@ -21,7 +22,6 @@ import ProjectMember from '#models/project_member'
 import type User from '#models/user'
 import { noResponseEntry } from '#services/async_compile_service'
 import { CompileOutputStorage } from '#services/object_storage'
-import ProjectEvents from '#services/project_events'
 import RealtimeClient from '#services/realtime_client'
 import { createUser } from '#tests/helpers'
 
@@ -97,23 +97,22 @@ class FakeWorker {
   }
 }
 
-class FakeEvents extends ProjectEvents {
-  published: ProjectEvent[] = []
+/** Faux service temps réel : garde les événements de compilation publiés, avec leur projet. */
+class FakeRealtime extends RealtimeClient {
+  published: (CompileUpdatedEvent & { projectId: string })[] = []
 
-  override async publish(event: ProjectEvent) {
-    this.published.push(event)
+  override async snapshot() {
+    return Promise.resolve(null)
+  }
+
+  override async publishProjectEvent(projectId: string, event: ProjectEvent) {
+    if (event.type === 'compile.updated') this.published.push({ projectId, ...event })
     return Promise.resolve()
   }
 }
 
-class FakeRealtime extends RealtimeClient {
-  override async snapshot() {
-    return Promise.resolve(null)
-  }
-}
-
 let worker: FakeWorker
-let events: FakeEvents
+let realtime: FakeRealtime
 const saved = { ...compileConfig }
 
 async function newProject(client: ApiClient, user: User): Promise<string> {
@@ -142,15 +141,13 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
   group.each.setup(() => testUtils.db().wrapInGlobalTransaction())
   group.each.setup(async () => {
     worker = new FakeWorker()
-    events = new FakeEvents()
+    realtime = new FakeRealtime()
     compileConfig.backend = 'cloudflare'
     compileConfig.workerUrl = await worker.start()
     compileConfig.workerSecret = new Secret(SECRET)
-    app.container.swap(ProjectEvents, () => events)
-    app.container.swap(RealtimeClient, () => new FakeRealtime())
+    app.container.swap(RealtimeClient, () => realtime)
     return async () => {
       Object.assign(compileConfig, saved)
-      app.container.restore(ProjectEvents)
       app.container.restore(RealtimeClient)
       await worker.stop()
     }
@@ -191,8 +188,8 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
       backend: 'cloudflare',
       userId: user.id,
     })
-    assert.deepEqual(events.published, [
-      { type: 'compile', projectId, buildId, status: 'queued', result: null },
+    assert.deepEqual(realtime.published, [
+      { type: 'compile.updated', projectId, buildId, status: 'queued', result: null },
     ])
 
     const state = await client.get(`/api/v1/projects/${projectId}/builds/${buildId}`).loginAs(user)
@@ -239,7 +236,7 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     })
     ;(await callback(client, { ...base, seq: 2, status: 'running' })).assertBody({ applied: true })
     assert.deepEqual(
-      events.published.map((event) => event.status),
+      realtime.published.map((event) => event.status),
       ['queued', 'preparing', 'running'],
     )
   })
@@ -263,8 +260,8 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     // Le panneau des logs explique l'erreur, dans la réponse comme dans l'événement.
     const entries = [noResponseEntry()]
     assert.deepEqual(state.body().build.result.entries, entries)
-    const published = events.published.at(-1)
-    assert.include(published, { type: 'compile', projectId, buildId, status: 'error' })
+    const published = realtime.published.at(-1)
+    assert.include(published, { type: 'compile.updated', projectId, buildId, status: 'error' })
     assert.deepEqual(published?.result?.entries, entries)
     assert.equal(published?.result?.status, 'error')
   })
@@ -314,12 +311,12 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     })
     assert.isNotNull(compile.finishedAt)
 
-    const pushed = events.published.at(-1)
+    const pushed = realtime.published.at(-1)
     assert.equal(pushed?.status, 'failure')
     assert.equal(pushed?.result?.entries[0]?.message, 'Oops')
     assert.equal(await (await fetch(pushed?.result?.pdfUrl ?? '')).text(), '%PDF-1.7 async')
     assert.deepEqual(
-      events.published.map((event) => event.status),
+      realtime.published.map((event) => event.status),
       ['queued', 'preparing', 'running', 'failure'],
     )
 
@@ -374,7 +371,7 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     stop.assertBody({ stopped: true })
     assert.deepEqual(worker.calledOn('/cancel')[0]?.body, { buildId })
     assert.equal((await Compile.findOrFail(buildId)).status, 'cancelled')
-    assert.equal(events.published.at(-1)?.status, 'cancelled')
+    assert.equal(realtime.published.at(-1)?.status, 'cancelled')
     ;(
       await callback(client, {
         projectId,
@@ -404,7 +401,7 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     const compile = await Compile.query().where('projectId', projectId).firstOrFail()
     assert.equal(compile.status, 'error')
     assert.deepEqual(
-      events.published.map((event) => event.status),
+      realtime.published.map((event) => event.status),
       ['queued', 'error'],
     )
     const last = await client.get(`/api/v1/projects/${projectId}/compile/last`).loginAs(user)

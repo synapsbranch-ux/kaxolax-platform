@@ -310,7 +310,7 @@ test.group('admin: users', (group) => {
   })
 
   test('deletes an account in Clerk and anonymizes it at once', async ({ client, assert }) => {
-    const { token } = await createAdmin(adminFakes.clerk)
+    const { admin, token } = await createAdmin(adminFakes.clerk)
     const target = await createUser()
     const other = await createUser()
     adminFakes.clerk.account(target)
@@ -333,6 +333,13 @@ test.group('admin: users', (group) => {
     assert.equal(entry?.metadata.clerkUserId, target.clerkUserId)
     assert.notProperty(entry?.metadata ?? {}, 'email')
     assert.equal(entry?.metadata.deletedProjects, 1)
+    // Son départ du projet partagé est annoncé, avec l'admin pour auteur.
+    assert.deepEqual(adminFakes.realtime.events, [
+      {
+        projectId: shared,
+        event: { type: 'member.removed', userId: target.id, actorId: admin.id },
+      },
+    ])
 
     // Le webhook user.deleted qui suit n'a plus d'effet ; une seconde suppression est refusée.
     const body = JSON.stringify({ type: 'user.deleted', data: { id: target.clerkUserId } })
@@ -341,6 +348,7 @@ test.group('admin: users', (group) => {
       .headers({ ...signWebhook(body), 'content-type': 'application/json' })
       .json(JSON.parse(body) as object)
     webhook.assertStatus(204)
+    assert.lengthOf(adminFakes.realtime.events, 1)
     ;(await client.delete(`/api/v1/admin/users/${target.id}`).bearerToken(token)).assertStatus(409)
   })
 })

@@ -20,8 +20,17 @@ import type { DocumentStore } from './store.js'
 /** Contexte d'une connexion authentifiée (objet partagé par tous les hooks de la connexion). */
 export interface ConnectionContext {
   userId: string
+  /**
+   * Nom complet et photo de profil, lus en base à l'authentification : imposés dans l'awareness de
+   * la connexion (jamais l'email).
+   */
+  userName: string | null
+  avatarUrl: string | null
   projectId: string
-  documentId: string
+  /** Document texte ouvert ; null pour le document meta du projet. */
+  documentId: string | null
+  /** Document meta : toujours en lecture seule, quel que soit le rôle (awareness seulement). */
+  meta: boolean
   /** Rôle appliqué, mis à jour à chaque changement notifié ou relu. */
   role: ProjectRole
   /** `iat` du jeton (secondes) : la révocation des sessions est revérifiée à chaque relecture. */
@@ -54,9 +63,9 @@ export interface MemberChange {
 }
 
 /**
- * Diffusion des changements de membres entre instances. Une seule instance aujourd'hui : rien à
- * relayer. La tâche 5 fournira une implémentation Redis (pub/sub) : `publish` envoie aux autres
- * instances, qui appellent `applyMemberChange` dans leur abonnement.
+ * Diffusion des changements de membres entre instances : `publish` envoie aux autres instances,
+ * qui appellent `applyMemberChange` dans leur abonnement. Sans Redis, rien à relayer
+ * (`singleInstanceFanout`) ; avec `REDIS_URL`, implémentation pub/sub (`cluster.ts`).
  */
 export interface MemberChangeFanout {
   publish(change: MemberChange): Promise<void>
@@ -138,12 +147,17 @@ export function createAccessControl(options: {
       )
       return 'closed'
     }
-    const readOnly = !canEdit(role) || context.storageFull === true
+    // Le document meta reste en lecture seule ; le message décrit les documents du projet.
+    const readOnly = context.meta || !canEdit(role) || context.storageFull === true
     if (role === context.role && connection.readOnly === readOnly) return 'unchanged'
     context.role = role
     connection.readOnly = readOnly
     context.rejectedUpdates = 0
-    const message: RoleChangedMessage = { type: 'member.role-changed', role, readOnly }
+    const message: RoleChangedMessage = {
+      type: 'member.role-changed',
+      role,
+      readOnly: !canEdit(role),
+    }
     connection.sendStateless(JSON.stringify(message))
     logger.info(
       { userId: context.userId, documentId: context.documentId, role, readOnly },

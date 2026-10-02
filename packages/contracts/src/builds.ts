@@ -7,7 +7,8 @@ import { synctexCodeQuerySchema, synctexPdfQuerySchema } from './synctex.js'
 /**
  * Compilation asynchrone (Cloudflare Worker + Containers) : l'API répond 202 avec un `buildId`,
  * le Worker rappelle l'API à chaque changement d'état, et le résultat est poussé aux clients par
- * le service temps réel. `GET /projects/:id/builds/:buildId` sert de repli par sondage.
+ * le service temps réel (événement `compile.updated` du projet, `events.ts`).
+ * `GET /projects/:id/builds/:buildId` sert de repli par sondage.
  */
 
 /**
@@ -42,7 +43,8 @@ export function isFinalBuildStatus(status: BuildStatus): boolean {
 /**
  * Réponse 202 de `POST /projects/:id/compile` en mode asynchrone : `preparing` quand le conteneur
  * du projet se réveille (l'interface affiche « Préparation du compilateur… »). Ce n'est que l'état
- * initial : la réponse peut arriver après des événements `compile` du même `buildId` (rappels du
+ * initial : la réponse peut arriver après des événements `compile.updated` (`events.ts`) du même
+ * `buildId` (rappels du
  * Worker) ; le client qui en a déjà reçu un ignore ce statut.
  */
 export const compileAcceptedSchema = z.object({
@@ -62,47 +64,6 @@ export const buildStateSchema = z.object({
   result: compileResultSchema.nullable(),
 })
 export type BuildState = z.infer<typeof buildStateSchema>
-
-/** Événement diffusé par le service temps réel aux connexions du projet. */
-export const compileEventSchema = z.object({
-  type: z.literal('compile'),
-  projectId: z.uuid(),
-  buildId: z.uuid(),
-  status: buildStatusSchema,
-  /** Présent quand la compilation est terminée (URL présignées valables 1 heure). */
-  result: compileResultSchema.nullable(),
-  /**
-   * Vrai quand le résultat, trop gros pour un événement (log très bavard), a été retiré : le client
-   * le lit par `GET /projects/:id/builds/:buildId`.
-   */
-  resultOmitted: z.boolean().optional(),
-})
-export type CompileEvent = z.infer<typeof compileEventSchema>
-
-/**
- * Message sans état envoyé par `POST /internal/projects/:id/events` du service temps réel. Union
- * discriminée par `type`, que d'autres événements de projet pourront rejoindre.
- */
-export const projectEventSchema = z.discriminatedUnion('type', [compileEventSchema])
-export type ProjectEvent = z.infer<typeof projectEventSchema>
-
-/** Taille maximale du corps de `POST /internal/projects/:id/events` (service temps réel). */
-export const MAX_PROJECT_EVENT_BYTES = 1024 * 1024
-
-/**
- * Événement prêt à envoyer au service temps réel : un résultat de compilation qui dépasserait
- * `MAX_PROJECT_EVENT_BYTES` est retiré (`resultOmitted`), le client le relit par l'API.
- */
-export function fitProjectEvent(event: ProjectEvent): ProjectEvent {
-  if (event.result === null) return event
-  if (new TextEncoder().encode(JSON.stringify(event)).byteLength <= MAX_PROJECT_EVENT_BYTES) {
-    return event
-  }
-  return { ...event, result: null, resultOmitted: true }
-}
-
-export const projectEventResponseSchema = z.object({ delivered: z.number().int().nonnegative() })
-export type ProjectEventResponse = z.infer<typeof projectEventResponseSchema>
 
 /** `POST /projects/:id/compiler/warm` de l'API (réveil anticipé à l'ouverture de l'éditeur). */
 export const warmCompilerResponseSchema = z.object({

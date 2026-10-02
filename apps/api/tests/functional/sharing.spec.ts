@@ -6,6 +6,7 @@ import {
   joinProjectResponseSchema,
   memberResponseSchema,
   planLimitErrorSchema,
+  type ProjectEvent,
   projectInvitationsResponseSchema,
   projectMembersResponseSchema,
   type ProjectRole,
@@ -34,9 +35,15 @@ import { hashToken } from '#services/sharing_tokens'
 import { sessionClaims, signJwt, signWebhook } from '#tests/clerk_keys'
 import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
 
-/** Service temps réel simulé : notifications de changement de membres enregistrées. */
+/** Service temps réel simulé : changements de membres et événements du projet enregistrés. */
 class FakeRealtimeClient extends RealtimeClient {
   readonly changes: string[] = []
+  readonly events: { projectId: string; event: ProjectEvent }[] = []
+
+  override publishProjectEvent(projectId: string, event: ProjectEvent): Promise<void> {
+    this.events.push({ projectId, event })
+    return Promise.resolve()
+  }
 
   override membersChanged(projectId: string, userIds: readonly string[]): Promise<void> {
     for (const userId of new Set(userIds)) this.changes.push(`${projectId}:${userId}`)
@@ -595,6 +602,17 @@ test.group('sharing: automatic acceptance at sign-up', (group) => {
     assert.equal(await roleOf(first, user.id), 'editor')
     assert.equal(await roleOf(second, user.id), 'viewer')
     assert.isNull(await roleOf(expiredProject, user.id))
+    // Chaque arrivée est annoncée une fois, l'acceptation explicite suivante n'ajoute rien.
+    assert.deepEqual(realtime.events, [
+      {
+        projectId: first,
+        event: { type: 'member.added', userId: user.id, role: 'editor', actorId: user.id },
+      },
+      {
+        projectId: second,
+        event: { type: 'member.added', userId: user.id, role: 'viewer', actorId: user.id },
+      },
+    ])
     const pending = await ProjectInvitation.query().where('email', email).whereNull('acceptedAt')
     assert.deepEqual(
       pending.map((invitation) => invitation.projectId),
@@ -646,6 +664,13 @@ test.group('sharing: automatic acceptance at sign-up', (group) => {
     assert.equal(await roleOf(projectId, user.id), 'reviewer')
     const waiting = await send(fullEmail)
     assert.isNull(await roleOf(fullProject, waiting.id))
+    // Seule l'arrivée effective est annoncée.
+    assert.deepEqual(realtime.events, [
+      {
+        projectId,
+        event: { type: 'member.added', userId: user.id, role: 'reviewer', actorId: user.id },
+      },
+    ])
     assert.isNotNull(
       await ProjectInvitation.query().where('email', fullEmail).whereNull('acceptedAt').first(),
     )

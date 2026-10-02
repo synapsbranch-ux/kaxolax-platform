@@ -156,10 +156,10 @@ Avec `kaxolax-infra/railway/provision.sh` (procédure §4), ou à la main :
    (`railway_targets` de Terraform) ; attendre les certificats, puis TLS `strict`.
 5. Clerk : domaine de production, URL du webhook `https://api.<domaine>/api/v1/webhooks/clerk`.
 
-Réplicas de realtime : 1 dans `realtime.json` tant que l'extension Redis de Hocuspocus (tâche 5)
-n'existe pas : sans elle, deux clients d'un même document sur deux instances ne se voient pas, et
-un événement de compilation n'atteint que les connexions de l'instance appelée. Passer à 2 avec
-la tâche 5.
+Réplicas de realtime : 2 dans `realtime.json`, ce qui exige `REDIS_URL` (extension Redis de
+Hocuspocus et bus du cluster, tâche 5) : sans lui, deux clients d'un même document sur deux
+instances ne se voient pas, et un événement du projet (compilation comprise) n'atteint que les
+connexions de l'instance appelée.
 
 ## 6. Sauvegardes PostgreSQL
 
@@ -188,7 +188,7 @@ la tâche 5.
 5. Journal du job `backup` le lendemain, puis un test de restauration.
 
 **Limite actuelle** : l'interface web (apps/web) attend encore la réponse synchrone de
-l'étape 1 ; son passage à la compilation asynchrone (`buildId`, événement `compile`, appel de
+l'étape 1 ; son passage à la compilation asynchrone (`buildId`, événement `compile.updated`, appel de
 `compiler/warm`) se fait après la nouvelle interface (tâche 3). D'ici là, la production ne peut
 pas basculer en `COMPILE_BACKEND=cloudflare` pour les utilisateurs du web.
 

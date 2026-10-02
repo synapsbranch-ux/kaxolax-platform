@@ -1,26 +1,47 @@
 'use client'
 
 import { AvatarStack, type AvatarStackItem } from '@kaxolax/ui'
+import { useMemo } from 'react'
+import { type OnlinePerson, presenceDescription } from '@/lib/presence'
 
 /**
- * Collaborateurs en ligne sur le projet (pile d'avatars de la sidebar). Emplacement de la tâche 5
- * (présence) : elle fournira les personnes connectées (awareness du document meta du projet), leur
- * fichier ouvert et le suivi au clic. Rien n'est affiché tant que la liste est vide.
+ * Collaborateurs en ligne sur le projet (awareness du document meta), en pile d'avatars (photo de
+ * profil, sinon initiales) dans leur couleur de présence. Au survol : le fichier où se trouve chacun ; un clic suit ce collaborateur
+ * (son fichier s'ouvre et l'éditeur suit son curseur jusqu'à la prochaine frappe). Rien n'est
+ * affiché quand personne d'autre n'est en ligne.
  */
 export function PresenceStack({
-  people = [],
+  people,
+  nameOf,
   onFollow,
 }: {
-  people?: readonly AvatarStackItem[]
-  onFollow?: (person: AvatarStackItem) => void
+  people: readonly OnlinePerson[]
+  /** Nom d'un fichier du projet par son id (null : inconnu). */
+  nameOf: (id: string) => string | null
+  onFollow: (person: OnlinePerson) => void
 }) {
-  if (people.length === 0) return null
+  const items = useMemo<AvatarStackItem[]>(
+    () =>
+      people.map((person) => ({
+        id: person.user.id,
+        name: person.user.name,
+        imageUrl: person.user.avatarUrl,
+        color: person.user.color,
+        description: presenceDescription(person, nameOf),
+      })),
+    [people, nameOf],
+  )
+  if (items.length === 0) return null
   return (
     <AvatarStack
-      items={people}
+      items={items}
       max={4}
       size="sm"
-      onSelect={onFollow}
+      aria-label={`${String(items.length)} ${items.length > 1 ? 'collaborateurs' : 'collaborateur'} en ligne ; cliquer pour suivre`}
+      onSelect={(item) => {
+        const person = people.find((candidate) => candidate.user.id === item.id)
+        if (person) onFollow(person)
+      }}
       overflowLabel={(count) => `${String(count)} autres personnes en ligne`}
       data-testid="presence-stack"
     />

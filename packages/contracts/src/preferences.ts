@@ -14,6 +14,8 @@ import { z } from 'zod'
 export const MAX_OPEN_TABS_PROJECTS = 20
 /** Onglets ouverts mémorisés par projet. */
 export const MAX_OPEN_TABS_PER_PROJECT = 30
+/** Symboles récents mémorisés (sélecteur de symboles, `RECENT_SYMBOLS_LIMIT` de l'éditeur). */
+export const MAX_RECENT_SYMBOLS = 24
 /** Taille maximale du JSON stocké, en octets (UTF-8). */
 export const MAX_PREFERENCES_BYTES = 32 * 1024
 
@@ -86,6 +88,20 @@ export const userPreferencesSchema = z.strictObject({
     .optional(),
   /** Paramètres de l'éditeur (voir `DEFAULT_PREFERENCES.editor`). */
   editor: editorPreferencesSchema.optional(),
+  /**
+   * Symboles récents du sélecteur de symboles (identifiants = commandes LaTeX, le plus récent en
+   * tête). Défaut : aucun.
+   */
+  recentSymbols: z
+    .array(
+      z
+        .string()
+        .min(2)
+        .max(64)
+        .regex(/^\\\S+$/),
+    )
+    .max(MAX_RECENT_SYMBOLS)
+    .optional(),
 })
 /** Préférences stockées, ou modification envoyée par `PATCH /me/preferences`. */
 export type UserPreferences = z.infer<typeof userPreferencesSchema>
@@ -115,6 +131,7 @@ export const DEFAULT_PREFERENCES: ResolvedPreferences = {
     spellcheck: true,
     syntaxTheme: 'default',
   },
+  recentSymbols: [],
 }
 
 /** Réponse de `GET` et `PATCH /me/preferences`. */
@@ -284,5 +301,6 @@ export function resolvePreferences(stored: UserPreferences): ResolvedPreferences
       spellcheck: editor.spellcheck ?? defaults.editor.spellcheck,
       syntaxTheme: editor.syntaxTheme ?? defaults.editor.syntaxTheme,
     },
+    recentSymbols: stored.recentSymbols ?? defaults.recentSymbols,
   }
 }

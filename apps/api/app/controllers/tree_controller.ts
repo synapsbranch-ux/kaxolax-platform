@@ -12,6 +12,7 @@ import {
   createDocument,
   createFolder,
   deleteEntity,
+  parentOf,
   touchProject,
   updateEntity,
 } from '#services/tree_service'
@@ -40,10 +41,15 @@ export default class TreeController {
     return { mainDocumentId: project.mainDocumentId, ...(await buildTree(project.id)) }
   }
 
+  /**
+   * Les modifications de l'arborescence sont diffusées aux clients connectés au projet (document
+   * meta), après la validation de la transaction et au mieux.
+   */
   async storeFolder({ request, params, auth, response }: HttpContext) {
     const input = await request.validateUsing(createFolderValidator)
+    const user = auth.getUserOrFail()
     const folder = await db.transaction(async (trx) => {
-      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'edit', {
+      const { project } = await projectFor(user, String(params.id), 'edit', {
         trx,
         lock: true,
       })
@@ -53,6 +59,20 @@ export default class TreeController {
       })
       await touchProject(trx, project.id)
       return created
+    })
+    await this.realtime.publishProjectEvent(folder.projectId, {
+      type: 'tree.changed',
+      reason: 'create',
+      actorId: user.id,
+      changes: [
+        {
+          action: 'created',
+          entity: 'folder',
+          id: folder.id,
+          parentId: folder.parentId,
+          name: folder.name,
+        },
+      ],
     })
     response.created({
       folder: { id: folder.id, parentId: folder.parentId, name: folder.name },
@@ -80,6 +100,20 @@ export default class TreeController {
       await touchProject(trx, project.id)
       return created
     })
+    await this.realtime.publishProjectEvent(document.projectId, {
+      type: 'tree.changed',
+      reason: 'create',
+      actorId: user.id,
+      changes: [
+        {
+          action: 'created',
+          entity: 'document',
+          id: document.id,
+          parentId: document.folderId,
+          name: document.name,
+        },
+      ],
+    })
     response.created({
       document: { id: document.id, folderId: document.folderId, name: document.name },
     })
@@ -88,8 +122,9 @@ export default class TreeController {
   async update({ request, params, auth }: HttpContext) {
     const { type } = await entityParamsValidator.validate(params)
     const changes = await request.validateUsing(updateEntityValidator)
+    const user = auth.getUserOrFail()
     const entity = await db.transaction(async (trx) => {
-      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'edit', {
+      const { project } = await projectFor(user, String(params.id), 'edit', {
         trx,
         lock: true,
       })
@@ -97,22 +132,44 @@ export default class TreeController {
       await touchProject(trx, project.id)
       return updated
     })
+    await this.realtime.publishProjectEvent(entity.projectId, {
+      type: 'tree.changed',
+      reason: changes.folderId === undefined ? 'rename' : 'move',
+      actorId: user.id,
+      changes: [
+        {
+          action: 'updated',
+          entity: type,
+          id: entity.id,
+          parentId: parentOf(entity),
+          name: entity.name,
+        },
+      ],
+    })
     return { type, id: entity.id, name: entity.name }
   }
 
   async destroy({ params, auth, response }: HttpContext) {
     const { type } = await entityParamsValidator.validate(params)
+    const user = auth.getUserOrFail()
+    const entityId = String(params.entityId)
     const deleted = await db.transaction(async (trx) => {
-      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'edit', {
+      const { project } = await projectFor(user, String(params.id), 'edit', {
         trx,
         lock: true,
       })
-      const removed = await deleteEntity(trx, project.id, type, String(params.entityId))
+      const removed = await deleteEntity(trx, project.id, type, entityId)
       await touchProject(trx, project.id)
-      return removed
+      return { ...removed, projectId: project.id }
     })
     // Après la validation de la transaction : les onglets ouverts sur ces documents sont fermés.
     await this.realtime.closeDocuments(deleted.documentIds)
+    await this.realtime.publishProjectEvent(deleted.projectId, {
+      type: 'tree.changed',
+      reason: 'delete',
+      actorId: user.id,
+      changes: [{ action: 'deleted', entity: type, id: entityId }],
+    })
     await this.storage.delete(deleted.fileKeys)
     response.noContent()
   }

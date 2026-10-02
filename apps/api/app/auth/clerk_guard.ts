@@ -3,11 +3,14 @@ import { symbols } from '@adonisjs/auth'
 import type { AuthClientResponse, GuardContract } from '@adonisjs/auth/types'
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
+import app from '@adonisjs/core/services/app'
 import logger from '@adonisjs/core/services/logger'
 import type { DateTime } from 'luxon'
 import User from '#models/user'
 import { profileFromClaims, upsertClerkUser } from '#services/clerk_users'
 import { recordClaimedEntitlements, rememberSessionClaims } from '#services/entitlements'
+import { announceAutoJoins } from '#services/project_events'
+import RealtimeClient from '#services/realtime_client'
 
 export interface ClerkGuardOptions {
   /** Clé publique PEM de l'instance Clerk : vérification sans appel réseau. */
@@ -153,7 +156,13 @@ export class ClerkGuard implements GuardContract<User> {
       // Jeton reçu avant le webhook user.created : création à la volée, email vérifié exigé.
       const profile = profileFromClaims(claims)
       if (!profile) return this.unauthorized('unknown user without verified email claim')
-      user = await upsertClerkUser(profile)
+      const upserted = await upsertClerkUser(profile)
+      user = upserted.user
+      // Transaction validée : les projets rejoints d'office l'annoncent à leurs membres.
+      if (upserted.joined.length > 0) {
+        const realtime = await app.container.make(RealtimeClient)
+        await announceAutoJoins(realtime, user.id, upserted.joined)
+      }
     }
     if (user.deletedAt) return this.unauthorized('deleted user')
     // Banni : ses jetons émis avant le bannissement restent valides jusqu'à 60 s chez Clerk.

@@ -32,7 +32,6 @@ import type CompileWorkerClient from '#services/compile_worker'
 import { reserveCompiler } from '#services/compiler_quota'
 import type { CompileOutputStorage } from '#services/object_storage'
 import { compileTimeoutMs, withCompileTimeLimit } from '#services/plan_enforcement'
-import type ProjectEvents from '#services/project_events'
 import type RealtimeClient from '#services/realtime_client'
 
 /** Une compilation est déjà en cours sur le projet : le client peut la suivre ou l'arrêter. */
@@ -62,7 +61,6 @@ export interface AsyncCompileDependencies {
   worker: CompileWorkerClient
   realtime: RealtimeClient
   outputs: CompileOutputStorage
-  events: ProjectEvents
 }
 
 const ACTIVE = [...ACTIVE_BUILD_STATUSES]
@@ -77,14 +75,23 @@ async function updateBuilds(sql: string, bindings: unknown[]): Promise<string[]>
   return result.rows.map((row) => row.id)
 }
 
+/**
+ * Événement `compile.updated` sur le document meta du projet (même route et même enveloppe que les
+ * autres événements du projet). Au mieux : le client garde le repli par sondage.
+ */
 async function publishStatus(
-  events: ProjectEvents,
+  realtime: RealtimeClient,
   projectId: string,
   buildId: string,
   status: BuildStatus,
   result: CompileResult | null = null,
 ): Promise<void> {
-  await events.publish({ type: 'compile', projectId, buildId, status, result })
+  await realtime.publishProjectEvent(projectId, {
+    type: 'compile.updated',
+    buildId,
+    status,
+    result,
+  })
 }
 
 /** Entrée du log d'une compilation close faute de nouvelles du Worker. */
@@ -104,7 +111,7 @@ export function noResponseEntry(): LogEntry {
  * Une entrée de log explique l'erreur (le panneau des logs n'est pas vide).
  */
 export async function expireStaleBuilds(
-  deps: Pick<AsyncCompileDependencies, 'outputs' | 'events'>,
+  deps: Pick<AsyncCompileDependencies, 'outputs' | 'realtime'>,
   projectId: string,
 ): Promise<void> {
   const result = await db.rawQuery<{
@@ -129,7 +136,7 @@ export async function expireStaleBuilds(
       .catch((error: unknown) => {
         logger.warn({ err: error, buildId: row.id }, 'could not write the log entries')
       })
-    await publishStatus(deps.events, projectId, row.id, 'error', {
+    await publishStatus(deps.realtime, projectId, row.id, 'error', {
       buildId: row.id,
       status: 'error',
       durationMs: row.duration_ms,
@@ -186,7 +193,7 @@ export async function enqueueCompile(
   }
   // Publié avant l'appel au Worker : ses rappels (`preparing`, `running`) peuvent arriver avant sa
   // réponse, et le client ne doit pas revenir en arrière.
-  await publishStatus(deps.events, project.id, request.buildId, 'queued')
+  await publishStatus(deps.realtime, project.id, request.buildId, 'queued')
 
   let accepted: CompileAccepted['status']
   try {
@@ -214,7 +221,7 @@ export async function enqueueCompile(
       finishedAt: DateTime.utc().toSQL(),
       updatedAt: DateTime.utc().toSQL(),
     })
-    await publishStatus(deps.events, project.id, request.buildId, 'error')
+    await publishStatus(deps.realtime, project.id, request.buildId, 'error')
     throw error
   }
   if (accepted === 'preparing') {
@@ -226,7 +233,7 @@ export async function enqueueCompile(
       [request.buildId],
     )
     if (prepared.length > 0) {
-      await publishStatus(deps.events, project.id, request.buildId, 'preparing')
+      await publishStatus(deps.realtime, project.id, request.buildId, 'preparing')
     }
   }
   // Statut renvoyé par le Worker, jamais ramené en arrière. La réponse peut arriver après des
@@ -240,7 +247,7 @@ export async function enqueueCompile(
  * ou dont le numéro de séquence n'est pas plus grand que le dernier appliqué, est ignoré.
  */
 export async function applyWorkerCallback(
-  deps: Pick<AsyncCompileDependencies, 'outputs' | 'events'>,
+  deps: Pick<AsyncCompileDependencies, 'outputs' | 'realtime'>,
   callback: WorkerCallback,
 ): Promise<{ applied: boolean; found: boolean }> {
   const known = await Compile.query()
@@ -304,14 +311,14 @@ export async function applyWorkerCallback(
   }
   // `preparing` déjà annoncé par la réponse du Worker : pas de second événement identique.
   if (previous !== callback.status) {
-    await publishStatus(deps.events, compile.projectId, compile.id, callback.status, result)
+    await publishStatus(deps.realtime, compile.projectId, compile.id, callback.status, result)
   }
   return { applied: true, found: true }
 }
 
 /** Arrête la compilation en cours du projet (annulée tout de suite, le Worker est prévenu). */
 export async function cancelActiveBuild(
-  deps: Pick<AsyncCompileDependencies, 'worker' | 'events'>,
+  deps: Pick<AsyncCompileDependencies, 'worker' | 'realtime'>,
   projectId: string,
 ): Promise<boolean> {
   const cancelled = await updateBuilds(
@@ -327,7 +334,7 @@ export async function cancelActiveBuild(
       // Son rappel final sera ignoré : la compilation est déjà close.
       logger.warn({ err: error, projectId, buildId }, 'could not cancel the build on the worker')
     }
-    await publishStatus(deps.events, projectId, buildId, 'cancelled')
+    await publishStatus(deps.realtime, projectId, buildId, 'cancelled')
   }
   return cancelled.length > 0
 }
@@ -337,7 +344,7 @@ export async function cancelActiveBuild(
  * une compilation dont le Worker ne donne plus de nouvelles est close ici (événement `error`).
  */
 export async function buildState(
-  deps: Pick<AsyncCompileDependencies, 'outputs' | 'events'>,
+  deps: Pick<AsyncCompileDependencies, 'outputs' | 'realtime'>,
   projectId: string,
   buildId: string,
 ): Promise<BuildState> {
