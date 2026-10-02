@@ -105,4 +105,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   COMPILE_WORKER_URL: optional(urlWith('http', 'https')),
   /** Secret partagé avec le Worker (jetons API → Worker, signature des rappels). */
   COMPILE_WORKER_SECRET: optional(sharedSecret),
+
+  /**
+   * Catalogue public de la galerie (`templates.json` publié par kaxolax-templates sur R2). Absent
+   * hors production : catalogue de démonstration local (resources/templates.fixture.json).
+   */
+  TEMPLATES_CATALOG_URL: optional(urlWith('http', 'https')),
+  /** Base des fichiers du catalogue (PDF, miniatures, zip) ; défaut : dossier du catalogue. */
+  TEMPLATES_PUBLIC_URL: optional(urlWith('http', 'https')),
 })

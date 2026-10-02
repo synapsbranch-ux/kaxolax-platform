@@ -21,6 +21,7 @@ import {
   EllipsisIcon,
   FileArchiveIcon,
   FileTextIcon,
+  LayoutTemplateIcon,
   PlusIcon,
   SearchIcon,
 } from 'lucide-react'
@@ -32,6 +33,7 @@ import { AccountMenu } from '@/components/billing/account-menu'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DashboardSidebar, PROJECT_VIEWS } from '@/components/dashboard/dashboard-sidebar'
 import { NameDialog } from '@/components/name-dialog'
+import { TemplatePickerDialog } from '@/components/templates/template-picker-dialog'
 import { COMPILERS } from '@/components/workspace/pdf/compile-status'
 import { WorkspaceSwitcher } from '@/components/workspace/sidebar/sidebar-footer'
 import {
@@ -60,8 +62,8 @@ const dateFormat = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeS
 
 /**
  * Tableau de bord : projets du workspace choisi (ou de tous, partagés compris), vues actifs,
- * archivés et corbeille, recherche, tri, création, import d'un zip, et actions par projet
- * (renommer, archiver, corbeille, restaurer, supprimer). Le workspace vient de l'URL
+ * archivés et corbeille, recherche, tri, création (vide ou depuis un template), import d'un zip,
+ * et actions par projet (renommer, archiver, corbeille, restaurer, supprimer). Le workspace vient de l'URL
  * (`?workspace=`), réglée par le sélecteur du pied de sidebar.
  */
 export default function DashboardPage() {
@@ -77,6 +79,7 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [pickingTemplate, setPickingTemplate] = useState(false)
   const [renaming, setRenaming] = useState<Project | null>(null)
   const [deleting, setDeleting] = useState<Project | null>(null)
   const [importing, setImporting] = useState(false)
@@ -179,6 +182,9 @@ export default function DashboardPage() {
         onViewChange={changeView}
         onCreate={() => {
           setCreating(true)
+        }}
+        onCreateFromTemplate={() => {
+          setPickingTemplate(true)
         }}
         onImport={() => importInput.current?.click()}
       />
@@ -288,6 +294,15 @@ export default function DashboardPage() {
             <Button
               variant="outline"
               className="md:hidden"
+              onClick={() => {
+                setPickingTemplate(true)
+              }}
+            >
+              <LayoutTemplateIcon /> Template
+            </Button>
+            <Button
+              variant="outline"
+              className="md:hidden"
               disabled={importing}
               onClick={() => importInput.current?.click()}
             >
@@ -321,11 +336,21 @@ export default function DashboardPage() {
                 <FileTextIcon className="size-8 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
                   {view === 'active'
-                    ? 'Aucun projet pour l’instant. Créez-en un ou importez un zip.'
+                    ? 'Aucun projet pour l’instant. Créez-en un, partez d’un template ou importez un zip.'
                     : view === 'archived'
                       ? 'Aucun projet archivé.'
                       : 'La corbeille est vide.'}
                 </p>
+                {view === 'active' ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setPickingTemplate(true)
+                    }}
+                  >
+                    <LayoutTemplateIcon /> Nouveau projet depuis un template
+                  </Button>
+                ) : null}
               </div>
             ) : null}
             <ul className="divide-y">
@@ -374,6 +399,11 @@ export default function DashboardPage() {
         </main>
       </div>
 
+      <TemplatePickerDialog
+        open={pickingTemplate}
+        onOpenChange={setPickingTemplate}
+        workspaceId={workspaceId}
+      />
       <NameDialog
         open={creating}
         onOpenChange={setCreating}

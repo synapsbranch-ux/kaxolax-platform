@@ -181,6 +181,30 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
 - **Import zip** : `POST /imports`, puis `POST /imports/:uploadId/complete` crée le projet
   (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
   personnel.
+- **Galerie de templates** (contrat : `packages/contracts/src/templates.ts`) : catalogue
+  `templates.json` v1 publié par le dépôt kaxolax-templates sur un bucket R2 public (format :
+  README de ce dépôt, « Contrat du catalogue »), lu à `TEMPLATES_CATALOG_URL`
+  (`app/services/template_catalog.ts`). Validation zod stricte des valeurs (un template invalide
+  fait refuser tout le catalogue ; champs inconnus ignorés, comme le prévoit le contrat), copie en
+  mémoire servie 60 s puis revalidée par requête conditionnelle (`If-None-Match`,
+  `If-Modified-Since`) ; catalogue injoignable ou invalide : dernière copie valide servie jusqu'à
+  24 h (nouvel essai toutes les 30 s), sinon 503 `E_TEMPLATES_UNAVAILABLE`. Sans
+  `TEMPLATES_CATALOG_URL`, hors production seulement : catalogue de démonstration
+  `resources/templates.fixture.json` (métadonnées des dix templates de départ, fichiers non
+  publiés : URL nulles, création refusée en 503).
+  - `GET /templates?q=&category=&language=&compiler=` (public, `Cache-Control: max-age=60`) :
+    fiches (métadonnées, URL publiques de la miniature et du PDF sous `TEMPLATES_PUBLIC_URL`,
+    défaut le dossier du catalogue, suffixées de `?v=<sha256 court>`), compteurs par catégorie.
+    Recherche par mots (préfixes, sans accents) dans titre, description, mots-clés et id
+    (`filterTemplates`, partagée avec le web). `GET /templates/:id` : une fiche (404
+    `E_TEMPLATE_NOT_FOUND`).
+  - `POST /projects/from-template` `{ templateId, name?, workspaceId? }` (authentifié) :
+    workspace et stockage du plan vérifiés avant tout téléchargement, zip téléchargé (60 s au
+    plus, lecture interrompue au-delà de la taille annoncée) puis comparé à `bytes` et `sha256`
+    du catalogue (502 `E_TEMPLATE_INTEGRITY`, ou `E_TEMPLATE_DOWNLOAD_FAILED`), puis même
+    création que l'import zip (`createProjectFromZip` : stockage revérifié sur le contenu
+    extrait), nom par défaut le titre du template, compilateur et document principal repris du
+    catalogue. 201 `{ project }`, événement `tree.changed`.
 
 - **Compilation** : `POST /projects/:id/compile`, corps facultatif
   `{ options: { draft?, haltOnFirstError? } }` validé par zod (mode brouillon, arrêt à la
@@ -199,7 +223,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   respond in time »). `POST /projects/:id/compiler/warm`
   réveille le conteneur du projet à l'ouverture de l'éditeur. Une compilation active à la fois
   par projet (409 `E_COMPILE_IN_PROGRESS`) ; au plus 5 projets réveillés par utilisateur sur
-  15 min (429 `E_TOO_MANY_COMPILERS`).
+  15 min (429 `E_TOO_MANY_COMPILERS`) ; le réveil ne refuse jamais et ne prend pas le dernier
+  emplacement libre, gardé pour une vraie compilation (`{ status: 'skipped' }`).
   Chaque demande (synchrone et asynchrone) porte `timeoutMs`, la durée maximale du plan du
   propriétaire du projet (20 s Free, 240 s Pro) ; un résultat `timeout` sous une limite qu'un
   plan supérieur lève porte `planLimit` (corps `E_PLAN_LIMIT`, `compile_time`).
@@ -350,6 +375,12 @@ même nom ne réussissent jamais toutes les deux, que des appels simultanés ne 
 workspace personnel, qu'un projet inséré sans `workspace_id` (ancienne API) rejoint le
 workspace personnel de son propriétaire, et que `save()` ou `delete()` sur une ligne
 d'association ne touche qu'elle.
+
+Galerie (`tests/functional/templates.spec.ts`) : catalogue de démonstration, recherche et
+filtres, faux bucket public (serveur HTTP local) pour la revalidation (304), le repli sur la
+dernière copie valide, le 503 sans copie, la création d'un projet (compilateur et document
+principal du catalogue) et les refus (zip modifié ou trop long, zip absent, workspace d'un autre
+compte, stockage plein, aucun téléchargement pour une demande refusée).
 
 Abonnements (`tests/unit/entitlements.spec.ts`, `tests/functional/billing.spec.ts`) : lecture
 des claims `pla`/`fea`, repli sur le miroir, cache de `plan_limits`, chaque limite Free et Pro

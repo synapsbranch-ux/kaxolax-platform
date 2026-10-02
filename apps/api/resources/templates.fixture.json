@@ -1,0 +1,310 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-01T18:27:20Z",
+  "source": {
+    "commit": "56a06d6c5331b0947681b78b580e198b2c70b52f",
+    "texliveImage": "ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium"
+  },
+  "templates": [
+    {
+      "id": "article-deux-colonnes",
+      "title": "Article en deux colonnes",
+      "category": "article",
+      "description": "Article de conférence en anglais, sur deux colonnes : titre et résumé pleine largeur, figure sur toute la page, algorithme, tableau et références au style IEEE.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["article", "deux-colonnes", "conference", "ieee", "anglais", "algorithme"],
+      "language": "en",
+      "files": {
+        "pdf": {
+          "path": "article-deux-colonnes/article-deux-colonnes.pdf",
+          "bytes": 40000,
+          "sha256": "af220fd3cd438a6b2dcfd38836f8539454523ced634f59cf83f9e73f83283cf8"
+        },
+        "thumbnail": {
+          "path": "article-deux-colonnes/article-deux-colonnes.png",
+          "bytes": 90000,
+          "sha256": "e89b46ee7fae4c53552b26d70ddff363fdb31cf632bdb12be2a6e53267cdca74",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "article-deux-colonnes/article-deux-colonnes.zip",
+          "bytes": 4000,
+          "sha256": "2bdc807360e8639fe015524e64c1068f285ba04f978bc3865b4286a5bbfcdb61"
+        }
+      }
+    },
+    {
+      "id": "article-scientifique",
+      "title": "Article scientifique",
+      "category": "article",
+      "description": "Article en français avec résumé, théorèmes et démonstrations (amsmath, amsthm), figure pgfplots, tableau siunitx et bibliographie biblatex numérique.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["article", "mathematiques", "amsmath", "biblatex", "pgfplots", "theoremes"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "article-scientifique/article-scientifique.pdf",
+          "bytes": 40000,
+          "sha256": "3c178282ab3ca9d9dc9d972b14ef1afc58f2a001603d7f7e3e508ab11060b51e"
+        },
+        "thumbnail": {
+          "path": "article-scientifique/article-scientifique.png",
+          "bytes": 90000,
+          "sha256": "cca7edff89b75ce2279e25957ca3a69c6443c92d8a90a91ba02dcee654569098",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "article-scientifique/article-scientifique.zip",
+          "bytes": 4000,
+          "sha256": "7c9a1ef25f0c3648f1b35118a924326bc3fbb19d0b555c24440d308f6328db07"
+        }
+      }
+    },
+    {
+      "id": "cv-academique",
+      "title": "CV académique",
+      "category": "cv",
+      "description": "CV de chercheur ou d'enseignant-chercheur : postes, formation, thèmes de recherche et liste de publications générée par biblatex, classée par type et par année.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["cv", "recherche", "publications", "biblatex", "universite"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "cv-academique/cv-academique.pdf",
+          "bytes": 40000,
+          "sha256": "3e00553894a59a87623b0e0bedc28bc738efd8ca34495caa963242f0675c2903"
+        },
+        "thumbnail": {
+          "path": "cv-academique/cv-academique.png",
+          "bytes": 90000,
+          "sha256": "95d0ba2423126071f32374dd61234c0d822a4f2db2d51902283459085b77a509",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "cv-academique/cv-academique.zip",
+          "bytes": 4000,
+          "sha256": "363381cce27eae8ddbf9b2abceeb524285f8aaddaa34c4d02571949903da0119"
+        }
+      }
+    },
+    {
+      "id": "cv-moderne",
+      "title": "CV moderne",
+      "category": "cv",
+      "description": "CV d'une page sur deux colonnes : colonne latérale colorée (contact, compétences, langues) et parcours détaillé, en Noto Sans.",
+      "compiler": "xelatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["cv", "deux-colonnes", "moderne", "tikz", "fontspec"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "cv-moderne/cv-moderne.pdf",
+          "bytes": 40000,
+          "sha256": "095687e8e9f94341e4fc6e42fa86e23b45b360fbbc5b84cd5e9bb02cbfc935ff"
+        },
+        "thumbnail": {
+          "path": "cv-moderne/cv-moderne.png",
+          "bytes": 90000,
+          "sha256": "9d9820955f1ea39f55e3dab61a5bb18d3a094e4e7ebaf81964e0eb078c174043",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "cv-moderne/cv-moderne.zip",
+          "bytes": 4000,
+          "sha256": "2653d5b4767c393f528716dddeeeb94463b23954b80509423e49656a7540e3ec"
+        }
+      }
+    },
+    {
+      "id": "lettre-formelle",
+      "title": "Lettre formelle",
+      "category": "lettre",
+      "description": "Lettre administrative ou commerciale avec la classe KOMA-Script scrlttr2 et la mise en page française NF : expéditeur, destinataire pour enveloppe à fenêtre, objet, références et pièces jointes.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["lettre", "courrier", "scrlttr2", "koma-script", "administratif"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "lettre-formelle/lettre-formelle.pdf",
+          "bytes": 40000,
+          "sha256": "ad7e8dc7fd04e92ef65fd1813ebe334cf90f711da1da952b9e1dc7a6f99ba55a"
+        },
+        "thumbnail": {
+          "path": "lettre-formelle/lettre-formelle.png",
+          "bytes": 90000,
+          "sha256": "dec0f613961e9be1e36be25bd8bb0b16f05fed559b8b7d4c95de57e949f8f7a8",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "lettre-formelle/lettre-formelle.zip",
+          "bytes": 4000,
+          "sha256": "88b09f0093d844f7fb313d6c904a6f689c0ba57542c6a1896fdfb5d58618eb4f"
+        }
+      }
+    },
+    {
+      "id": "presentation-metropolis",
+      "title": "Présentation Metropolis",
+      "category": "presentation",
+      "description": "Présentation Beamer en 16:9 avec le thème moderne metropolis : barre de progression, pages de section, diapositive finale mise en avant et diapositives de secours.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["beamer", "presentation", "metropolis", "diaporama", "moderne", "pgfplots"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "presentation-metropolis/presentation-metropolis.pdf",
+          "bytes": 40000,
+          "sha256": "04f809bf7e0498eda54146f2917d9f4fcd8d87c3fa15c60aa8523078ad0ab7dc"
+        },
+        "thumbnail": {
+          "path": "presentation-metropolis/presentation-metropolis.png",
+          "bytes": 90000,
+          "sha256": "023d88d82be0c2d68391c7ba76e2a83eddb4f14200194ceec805d9b4228a9bd5",
+          "width": 600,
+          "height": 338
+        },
+        "zip": {
+          "path": "presentation-metropolis/presentation-metropolis.zip",
+          "bytes": 4000,
+          "sha256": "4ee06667deae229f2dfd9d73a60ca339a19c51bbba250c06c523e3d8789625f1"
+        }
+      }
+    },
+    {
+      "id": "presentation-sobre",
+      "title": "Présentation sobre",
+      "category": "presentation",
+      "description": "Présentation Beamer en 16:9 au style épuré : une couleur d'accent, plan automatique, colonnes, schéma TikZ, graphique en barres pgfplots et apparitions progressives.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["beamer", "presentation", "diaporama", "sobre", "tikz", "pgfplots"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "presentation-sobre/presentation-sobre.pdf",
+          "bytes": 40000,
+          "sha256": "48e75908d8480e74e8779ae0bea70a91295ad85e92e84d7efa315512b7f4205a"
+        },
+        "thumbnail": {
+          "path": "presentation-sobre/presentation-sobre.png",
+          "bytes": 90000,
+          "sha256": "ba1dfe46349b45ad59911f76825d1b413276a0d7446e5640f0795e6ae75613d3",
+          "width": 600,
+          "height": 338
+        },
+        "zip": {
+          "path": "presentation-sobre/presentation-sobre.zip",
+          "bytes": 4000,
+          "sha256": "77582b52bdf31eca4f7b5f9111dac79be3935682384c598157de8c89890d4b6c"
+        }
+      }
+    },
+    {
+      "id": "rapport-de-stage",
+      "title": "Rapport de stage",
+      "category": "rapport",
+      "description": "Rapport de stage en français : page de garde avec école, entreprise et tuteurs, remerciements, sommaire, organigramme TikZ, planning en diagramme de Gantt, bilan des compétences et webographie.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["rapport", "stage", "etudiant", "gantt", "organigramme", "biblatex"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "rapport-de-stage/rapport-de-stage.pdf",
+          "bytes": 40000,
+          "sha256": "89b71db7ed151fbef6c4de27746ca478adc24e657abac668dc69a570690283c7"
+        },
+        "thumbnail": {
+          "path": "rapport-de-stage/rapport-de-stage.png",
+          "bytes": 90000,
+          "sha256": "dd393dd88c7bc3cb0ef9118587690d5d341ab3477c431eea3bcc179041be91db",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "rapport-de-stage/rapport-de-stage.zip",
+          "bytes": 4000,
+          "sha256": "d6577eb137e5c036443f37029cfd3963d9cae20fc7a394b51dffb45c03d0e015"
+        }
+      }
+    },
+    {
+      "id": "rapport-technique",
+      "title": "Rapport technique",
+      "category": "rapport",
+      "description": "Rapport technique en LuaLaTeX : polices OpenType TeX Gyre, encadré de synthèse, schéma d'architecture TikZ, tableau calculé en Lua, graphique pgfplots, analyse de risques et annexe de code.",
+      "compiler": "lualatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["rapport", "technique", "lualatex", "lua", "tikz", "pgfplots"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "rapport-technique/rapport-technique.pdf",
+          "bytes": 40000,
+          "sha256": "ff92b45c5cc743267273451a053e80f41f109474179e3243c0940ddd8d8cb4cb"
+        },
+        "thumbnail": {
+          "path": "rapport-technique/rapport-technique.png",
+          "bytes": 90000,
+          "sha256": "9c951b1502aa1e2f7bc768a041406194bb94db94c749fce9a4de8663287905f9",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "rapport-technique/rapport-technique.zip",
+          "bytes": 4000,
+          "sha256": "a52756ae085d9c8aaa0ed29dfa410226ba8cb3584f562811bb490d8080bd354a"
+        }
+      }
+    },
+    {
+      "id": "these-doctorat",
+      "title": "Thèse de doctorat",
+      "category": "these",
+      "description": "Manuscrit de thèse (KOMA-Script) : page de titre avec jury, résumé et abstract, table des matières, chapitres dans un sous-dossier, théorèmes, figures TikZ et pgfplots, bibliographie biblatex.",
+      "compiler": "pdflatex",
+      "license": "CC0-1.0",
+      "mainDocument": "main.tex",
+      "tags": ["these", "doctorat", "koma-script", "biblatex", "chapitres", "theoremes"],
+      "language": "fr",
+      "files": {
+        "pdf": {
+          "path": "these-doctorat/these-doctorat.pdf",
+          "bytes": 40000,
+          "sha256": "73246d1ed5070655bffc97a211a94d46608942509c5bd852789e791aba4e5390"
+        },
+        "thumbnail": {
+          "path": "these-doctorat/these-doctorat.png",
+          "bytes": 90000,
+          "sha256": "9d7dd1c18e4f28092e9984c706d5d55b321ebc58cdf84219d59bebd0fc3f60dc",
+          "width": 600,
+          "height": 849
+        },
+        "zip": {
+          "path": "these-doctorat/these-doctorat.zip",
+          "bytes": 4000,
+          "sha256": "6d51257bd76aad15110903900dd7a13f9563441bf69ade66751e9e27d4548c89"
+        }
+      }
+    }
+  ]
+}

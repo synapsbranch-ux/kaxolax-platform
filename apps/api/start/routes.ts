@@ -26,6 +26,7 @@ const SearchController = () => import('#controllers/search_controller')
 const BannersController = () => import('#controllers/banners_controller')
 const SharingController = () => import('#controllers/sharing_controller')
 const JoinController = () => import('#controllers/join_controller')
+const TemplatesController = () => import('#controllers/templates_controller')
 
 router
   .group(() => {
@@ -40,6 +41,9 @@ router
     // Aperçus publics d'une invitation et d'un lien de partage (nom du projet, rôle).
     router.get('invitations/:token', [JoinController, 'invitation'])
     router.get('share/:token', [JoinController, 'shareLink'])
+    // Galerie de templates publique (catalogue kaxolax-templates, packages/contracts templates.ts).
+    router.get('templates', [TemplatesController, 'index'])
+    router.get('templates/:id', [TemplatesController, 'show'])
 
     router
       .group(() => {
@@ -55,6 +59,7 @@ router
 
         router.get('projects', [ProjectsController, 'index'])
         router.post('projects', [ProjectsController, 'store'])
+        router.post('projects/from-template', [TemplatesController, 'store'])
         router.get('projects/:id', [ProjectsController, 'show'])
         router.patch('projects/:id', [ProjectsController, 'update'])
         router.post('projects/:id/archive', [ProjectsController, 'archive'])

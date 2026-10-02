@@ -34,13 +34,14 @@ export default class BuildsController {
   /**
    * Appelée à l'ouverture de l'éditeur : réveille le conteneur du projet pour que la première
    * compilation n'attende pas son démarrage. Sans effet en mode `gateway`. Plafonné par
-   * utilisateur (429 `E_TOO_MANY_COMPILERS`, voir `reserveCompiler`).
+   * utilisateur sans jamais refuser : au plafond (moins un emplacement gardé pour une vraie
+   * compilation), `skipped` et aucun réveil (voir `reserveCompiler`).
    */
   async warm({ params, auth, response }: HttpContext): Promise<WarmCompilerResponse> {
     const user = auth.getUserOrFail()
     const { project } = await projectFor(user, String(params.id), 'viewer')
     if (compileConfig.backend !== 'cloudflare') return { status: 'unsupported' }
-    await reserveCompiler(user.id, project.id)
+    if (!(await reserveCompiler(user.id, project.id, { warm: true }))) return { status: 'skipped' }
     await this.worker.warm(project.id)
     response.status(202)
     return { status: 'warming' }

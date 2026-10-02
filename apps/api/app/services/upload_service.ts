@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDocumentState } from '@kaxolax/collab'
 import {
+  type Compiler,
   DEFAULT_SPELLCHECK_LANGUAGE,
   isValidEntityName,
   MAX_IMPORT_ZIP_BYTES,
@@ -335,6 +336,83 @@ async function insertTree(
   return documentIds
 }
 
+/** Options de `createProjectFromZip`. */
+export interface ZipProjectOptions {
+  name: string
+  /** Workspace dont l'utilisateur est membre ; absent : son workspace personnel. */
+  workspaceId?: string
+  /** Compilateur imposé (template) ; absent : celui détecté dans le document principal. */
+  compiler?: Compiler
+  /** Document principal imposé s'il existe dans le zip ; sinon celui que trouve l'import. */
+  mainDocumentPath?: string
+  /** Écritures supplémentaires dans la transaction de création (statut de l'upload). */
+  inTransaction?: (trx: TransactionClientContract, projectId: string) => Promise<void>
+}
+
+/**
+ * Crée un projet dont l'utilisateur est propriétaire à partir d'un zip local (`importZip` :
+ * arborescence, documents Yjs, binaires sous `projects/{id}/files/`). Le contenu extrait est
+ * compté dans le stockage du plan de l'utilisateur. En cas d'échec, le préfixe S3 du projet est
+ * supprimé.
+ */
+export async function createProjectFromZip(
+  storage: ObjectStorage,
+  user: User,
+  zipPath: string,
+  options: ZipProjectOptions,
+): Promise<Project> {
+  const projectId = randomUUID()
+  try {
+    const plan = await importZip<StoredBinary>(zipPath, async ({ sizeBytes, mimeType, body }) => {
+      const fileId = randomUUID()
+      const key = fileKey(projectId, fileId)
+      await storage.put(key, body, sizeBytes, mimeType)
+      return { fileId, key }
+    }).catch((error: unknown) => {
+      if (error instanceof ZipImportError) {
+        throw new UploadInvalidException(error.message, { code: error.code })
+      }
+      throw error
+    })
+
+    return await db.transaction(async (trx) => {
+      // Le projet importé appartient à l'utilisateur : son stockage reçoit le contenu extrait.
+      const importedBytes =
+        plan.binaries.reduce((sum, binary) => sum + binary.sizeBytes, 0) +
+        plan.documents.reduce(
+          (sum, document) => sum + Buffer.byteLength(document.content, 'utf8'),
+          0,
+        )
+      await assertStorageAvailable(user.id, importedBytes, { requester: user, trx })
+      const workspace = await workspaceForNewProject(user, options.workspaceId, trx)
+      const created = await Project.create(
+        {
+          id: projectId,
+          ownerId: user.id,
+          workspaceId: workspace.id,
+          name: options.name,
+          compiler: options.compiler ?? plan.compiler,
+          spellcheckLanguage: DEFAULT_SPELLCHECK_LANGUAGE,
+        },
+        { client: trx },
+      )
+      await ProjectMember.create({ projectId, userId: user.id, role: 'owner' }, { client: trx })
+      const documentIds = await insertTree(trx, projectId, plan)
+      const mainPath =
+        options.mainDocumentPath !== undefined && documentIds.has(options.mainDocumentPath)
+          ? options.mainDocumentPath
+          : plan.mainDocumentPath
+      created.mainDocumentId = mainPath === null ? null : (documentIds.get(mainPath) ?? null)
+      await created.useTransaction(trx).save()
+      await options.inTransaction?.(trx, projectId)
+      return created
+    })
+  } catch (error) {
+    await storage.deletePrefix(projectPrefix(projectId))
+    throw error
+  }
+}
+
 /**
  * Importe un zip uploadé comme nouveau projet dont l'utilisateur est propriétaire, dans le
  * workspace demandé (dont il doit être membre) ou sinon son workspace personnel. Les binaires
@@ -350,7 +428,6 @@ export async function completeImport(
   // Vérifié avant le travail (refait dans la transaction) : un refus laisse l'upload en attente.
   if (workspaceId !== undefined) await workspaceFor(user, workspaceId)
   const zipPath = join(tmpdir(), `kaxolax-import-${upload.id}.zip`)
-  const projectId = randomUUID()
   try {
     const size = await storage.size(upload.s3Key)
     if (size === null) {
@@ -367,53 +444,18 @@ export async function completeImport(
       })
     }
 
-    const plan = await importZip<StoredBinary>(zipPath, async ({ sizeBytes, mimeType, body }) => {
-      const fileId = randomUUID()
-      const key = fileKey(projectId, fileId)
-      await storage.put(key, body, sizeBytes, mimeType)
-      return { fileId, key }
-    }).catch((error: unknown) => {
-      if (error instanceof ZipImportError) {
-        throw new UploadInvalidException(error.message, { code: error.code })
-      }
-      throw error
-    })
-
-    const project = await db.transaction(async (trx) => {
-      // Le projet importé appartient à l'utilisateur : son stockage reçoit le contenu extrait.
-      const importedBytes =
-        plan.binaries.reduce((sum, binary) => sum + binary.sizeBytes, 0) +
-        plan.documents.reduce(
-          (sum, document) => sum + Buffer.byteLength(document.content, 'utf8'),
-          0,
-        )
-      await assertStorageAvailable(user.id, importedBytes, { requester: user, trx })
-      const workspace = await workspaceForNewProject(user, workspaceId, trx)
-      const created = await Project.create(
-        {
-          id: projectId,
-          ownerId: user.id,
-          workspaceId: workspace.id,
-          name: projectNameFrom(upload.filename),
-          compiler: plan.compiler,
-          spellcheckLanguage: DEFAULT_SPELLCHECK_LANGUAGE,
-        },
-        { client: trx },
-      )
-      await ProjectMember.create({ projectId, userId: user.id, role: 'owner' }, { client: trx })
-      const documentIds = await insertTree(trx, projectId, plan)
-      created.mainDocumentId =
-        plan.mainDocumentPath === null ? null : (documentIds.get(plan.mainDocumentPath) ?? null)
-      await created.useTransaction(trx).save()
-      await Upload.query({ client: trx })
-        .where('id', upload.id)
-        .update({ status: 'completed', projectId })
-      return created
+    const project = await createProjectFromZip(storage, user, zipPath, {
+      name: projectNameFrom(upload.filename),
+      workspaceId,
+      inTransaction: async (trx, projectId) => {
+        await Upload.query({ client: trx })
+          .where('id', upload.id)
+          .update({ status: 'completed', projectId })
+      },
     })
     await storage.delete([upload.s3Key])
     return project
   } catch (error) {
-    await storage.deletePrefix(projectPrefix(projectId))
     await markFailed(storage, upload)
     if (!(error instanceof UploadInvalidException)) {
       logger.error({ err: error, uploadId: upload.id }, 'zip import failed')

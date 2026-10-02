@@ -574,3 +574,30 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 - La modale de partage et les pages d'adhésion affichent un refus `E_PLAN_LIMIT` par `PlanLimitNotice` (`ApiError.planLimit`, lien `upgradeUrl` de l'API) et marquent l'erreur (`markPlanLimitHandled`) : la boîte des limites globale ne s'ouvre pas en plus. `PRICING_URL` disparaît, l'URL des tarifs vient du refus.
 - Le document meta n'est jamais concerné par le stockage du plan (`apps/realtime/src/storage.ts`) : il reste en lecture seule quel que soit l'état du stockage, et ses mises à jour refusées comptent toujours pour la fermeture.
+
+## 2026-10-02 · Galerie : catalogue lu par l'API, mis en cache, avec repli
+
+- L'API lit `templates.json` (contrat v1 de kaxolax-templates) à `TEMPLATES_CATALOG_URL`, le valide par zod (`packages/contracts/src/templates.ts`) : un template invalide fait refuser tout le catalogue, les champs inconnus sont ignorés (règle du contrat). Pas de table : le catalogue publié reste la source.
+- Copie en mémoire servie 60 s (le `max-age` du fichier), puis requête conditionnelle (ETag) ; en cas d'échec, dernière copie valide jusqu'à 24 h, sinon 503 `E_TEMPLATES_UNAVAILABLE`. Plusieurs instances : chacune sa copie, sans état partagé.
+- Sans URL, hors production seulement : catalogue de démonstration (métadonnées réelles des dix templates, fichiers non publiés, URL nulles). Écarté : committer PDF, PNG et zip dans le monorepo.
+
+## 2026-10-02 · Projet depuis un template : zip vérifié, import zip commun
+
+- `POST /projects/from-template` télécharge le zip du catalogue (taille plafonnée à celle annoncée, sha256 comparé), puis passe par `createProjectFromZip`, extrait de l'import zip : mêmes contrôles (chemins, bombes), même comptage du stockage, même nettoyage S3 en cas d'échec.
+- Workspace et stockage du plan (taille du zip) vérifiés avant tout téléchargement ; stockage revérifié sur le contenu extrait dans la transaction.
+- Compilateur et document principal repris du catalogue (le validateur du dépôt garantit qu'ils sont ceux que l'import détecterait) ; nom par défaut : titre du template.
+
+## 2026-10-02 · Galerie web : rendu serveur, fichiers servis par R2
+
+- `/templates` et `/templates/[id]` sont publiques et rendues par le serveur (indexables) ; la recherche se fait dans le navigateur avec `filterTemplates`, la fonction de l'API (catalogue de quelques dizaines d'entrées).
+- Miniatures en `next/image` `unoptimized` : PNG déjà à 600 px, et pas de `remotePatterns` figé au build alors que la même image sert tous les environnements. Aperçu PDF par la visionneuse pdf.js de l'éditeur : exige une règle CORS du bucket public (sinon lien « Ouvrir le PDF »).
+- Aucune CSP n'existe aujourd'hui dans apps/web : si elle est ajoutée, `img-src` et `connect-src` doivent inclure le domaine public du catalogue.
+- Sans session, « Utiliser ce template » passe par la connexion Clerk et revient sur la fiche avec `?use=1`, qui rouvre la boîte de dialogue (aucune création automatique au retour).
+
+## 2026-10-02 · Compilation asynchrone dans le web
+
+- Machine d'état sans React (`apps/web/src/lib/compile-controller.ts`, testée avec une horloge simulée), mode reconnu à la réponse de `POST …/compile` : résultat (`gateway`) ou 202 `{ buildId, status }` (`cloudflare`) suivi par `compile.updated` et un sondage de repli (3 → 10 s, arrêt sur état final).
+- États fusionnés par `buildId` sans retour en arrière (`lib/builds.ts`) : la 202 peut arriver après les événements du même build ; autres builds ignorés ; `resultOmitted` relu par l'API.
+- Une demande pendant une compilation asynchrone (ou 409 `E_COMPILE_IN_PROGRESS`) ne l'arrête pas : une seule relance à sa fin. Arrêter annule la relance ; l'état local se termine dès que l'API confirme.
+- `compiler/warm` sans attente, à l'ouverture seulement et pour owner/editor, au plus une fois par projet et par 10 min ; plus d'appel après `unsupported`. Côté API, le réveil ne refuse jamais et laisse le dernier emplacement du plafond à une vraie compilation (`skipped`).
+- Compilation d'autrui en cours à l'ouverture : la page suit tout `compile.updated` actif quand elle ne suit rien, et affiche un résultat final reçu.

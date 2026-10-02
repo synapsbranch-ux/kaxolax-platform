@@ -36,25 +36,27 @@ le dépôt.
 
 ### api
 
-| Variable                                                                  | Valeur                                                                   |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `KAXOLAX_SERVICE`                                                         | `api`                                                                    |
-| `NODE_ENV`, `HOST`, `PORT`, `LOG_LEVEL`                                   | `production`, `::`, `3333`, `info`                                       |
-| `APP_KEY`                                                                 | secret généré                                                            |
-| `APP_URL`                                                                 | `https://app.<domaine>` (claim `azp` des jetons Clerk)                   |
-| `TRUSTED_PROXY_HOPS`                                                      | `2` (Cloudflare puis le proxy de Railway)                                |
-| `CLERK_JWT_KEY`, `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`       | instance Clerk de production                                             |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_DATABASE`             | `${{Postgres.PGHOST}}`, `${{Postgres.PGPORT}}`… ; `DB_SSL=false` (privé) |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD` | fournisseur SMTP                                                         |
-| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`                                     | `no-reply@<domaine>`, `Kaxolax`                                          |
-| `REALTIME_TOKEN_SECRET`, `INTERNAL_TOKEN`                                 | secrets générés (partagés avec realtime)                                 |
-| `REALTIME_PUBLIC_URL`                                                     | `wss://realtime.<domaine>`                                               |
-| `REALTIME_INTERNAL_URL`                                                   | `http://${{realtime.RAILWAY_PRIVATE_DOMAIN}}:1234`                       |
-| `S3_REGION`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`                          | `auto`, `https://<compte>.eu.r2.cloudflarestorage.com` (les deux)        |
-| `S3_FORCE_PATH_STYLE`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`         | `true`, jeton R2 `app` (sorties Terraform de kaxolax-infra)              |
-| `S3_BUCKET_PROJECT_FILES`, `S3_BUCKET_COMPILE_OUTPUTS`                    | `kaxolax-project-files`, `kaxolax-compile-outputs`                       |
-| `COMPILE_BACKEND`                                                         | `cloudflare`                                                             |
-| `COMPILE_WORKER_URL`, `COMPILE_WORKER_SECRET`                             | `https://compile.<domaine>`, secret généré (même valeur dans le Worker)  |
+| Variable                                                                  | Valeur                                                                     |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `KAXOLAX_SERVICE`                                                         | `api`                                                                      |
+| `NODE_ENV`, `HOST`, `PORT`, `LOG_LEVEL`                                   | `production`, `::`, `3333`, `info`                                         |
+| `APP_KEY`                                                                 | secret généré                                                              |
+| `APP_URL`                                                                 | `https://app.<domaine>` (claim `azp` des jetons Clerk)                     |
+| `TRUSTED_PROXY_HOPS`                                                      | `2` (Cloudflare puis le proxy de Railway)                                  |
+| `CLERK_JWT_KEY`, `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`       | instance Clerk de production                                               |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_DATABASE`             | `${{Postgres.PGHOST}}`, `${{Postgres.PGPORT}}`… ; `DB_SSL=false` (privé)   |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD` | fournisseur SMTP                                                           |
+| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`                                     | `no-reply@<domaine>`, `Kaxolax`                                            |
+| `REALTIME_TOKEN_SECRET`, `INTERNAL_TOKEN`                                 | secrets générés (partagés avec realtime)                                   |
+| `REALTIME_PUBLIC_URL`                                                     | `wss://realtime.<domaine>`                                                 |
+| `REALTIME_INTERNAL_URL`                                                   | `http://${{realtime.RAILWAY_PRIVATE_DOMAIN}}:1234`                         |
+| `S3_REGION`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`                          | `auto`, `https://<compte>.eu.r2.cloudflarestorage.com` (les deux)          |
+| `S3_FORCE_PATH_STYLE`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`         | `true`, jeton R2 `app` (sorties Terraform de kaxolax-infra)                |
+| `S3_BUCKET_PROJECT_FILES`, `S3_BUCKET_COMPILE_OUTPUTS`                    | `kaxolax-project-files`, `kaxolax-compile-outputs`                         |
+| `COMPILE_BACKEND`                                                         | `cloudflare`                                                               |
+| `COMPILE_WORKER_URL`, `COMPILE_WORKER_SECRET`                             | `https://compile.<domaine>`, secret généré (même valeur dans le Worker)    |
+| `TEMPLATES_CATALOG_URL`                                                   | `https://templates.<domaine>/templates.json` (bucket public de la galerie) |
+| `TEMPLATES_PUBLIC_URL`                                                    | facultative : base des fichiers, défaut = dossier du catalogue             |
 
 `COMPILE_GATEWAY_URL` n'est pas posée en production (mode `gateway` seulement).
 
