@@ -4,6 +4,7 @@ import type { AuthClientResponse, GuardContract } from '@adonisjs/auth/types'
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
+import type { DateTime } from 'luxon'
 import User from '#models/user'
 import { profileFromClaims, upsertClerkUser } from '#services/clerk_users'
 
@@ -21,6 +22,65 @@ export class UnauthorizedException extends Exception {
   static override message = 'Unauthorized access'
 }
 
+/** Compte banni (401) : le jeton est valide mais n'ouvre plus rien. */
+export class AccountBannedException extends UnauthorizedException {
+  static override code = 'E_ACCOUNT_BANNED'
+  static override message = 'This account is banned'
+}
+
+/** Claims vérifiés du jeton de session Clerk, exposés à la requête (`getClaimsOrFail()`). */
+export interface ClerkSessionClaims {
+  /** Compte Clerk (`sub`). */
+  readonly userId: string
+  /** Session Clerk (`sid`), null si absente. */
+  readonly sessionId: string | null
+  /** `publicMetadata.role` (claim personnalisé `metadata`), null s'il est absent. */
+  readonly role: string | null
+  /**
+   * Claim `fva` : minutes depuis la vérification du premier et du second facteur (-1 : jamais
+   * vérifié pendant la session) ; null si le claim est absent ou mal formé.
+   */
+  readonly factorVerificationAge: readonly [number, number] | null
+  /** Tous les claims vérifiés, tels quels. */
+  readonly raw: Readonly<Record<string, unknown>>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value)
+}
+
+/**
+ * Vrai si un jeton (claim `iat`, en secondes) a été émis à partir de `cutoff`. Le claim est
+ * arrondi à la seconde inférieure : un jeton émis dans la seconde de la coupure est refusé, et le
+ * suivant accepté.
+ */
+export function issuedAtOrAfter(iat: unknown, cutoff: DateTime): boolean {
+  return typeof iat === 'number' && iat * 1000 >= cutoff.toMillis()
+}
+
+/** Lit les claims utiles d'un jeton déjà vérifié (signature, dates, `azp`). */
+export function sessionClaimsFrom(
+  userId: string,
+  claims: Record<string, unknown>,
+): ClerkSessionClaims {
+  const { sid, metadata, fva } = claims
+  const role = isRecord(metadata) && typeof metadata.role === 'string' ? metadata.role : null
+  const ages: unknown[] = Array.isArray(fva) ? fva : []
+  const [first, second] = ages
+  return {
+    userId,
+    sessionId: typeof sid === 'string' ? sid : null,
+    role,
+    factorVerificationAge:
+      ages.length === 2 && isInteger(first) && isInteger(second) ? [first, second] : null,
+    raw: claims,
+  }
+}
+
 /** Jeton de session de test pour un utilisateur ; fourni seulement par bin/test.ts. */
 export type ClerkTestTokenFactory = (user: User) => Promise<string>
 
@@ -36,6 +96,8 @@ export class ClerkGuard implements GuardContract<User> {
 
   readonly driverName = 'clerk' as const
   user?: User
+  /** Claims du jeton qui a authentifié la requête. */
+  claims?: ClerkSessionClaims
   isAuthenticated = false
   authenticationAttempted = false
 
@@ -52,6 +114,12 @@ export class ClerkGuard implements GuardContract<User> {
   getUserOrFail(): User {
     if (!this.user) return this.unauthorized('not authenticated')
     return this.user
+  }
+
+  /** Claims vérifiés du jeton (rôle, âge des facteurs…), après `authenticate()`. */
+  getClaimsOrFail(): ClerkSessionClaims {
+    if (!this.claims) return this.unauthorized('not authenticated')
+    return this.claims
   }
 
   async authenticate(): Promise<User> {
@@ -87,17 +155,33 @@ export class ClerkGuard implements GuardContract<User> {
       user = await upsertClerkUser(profile)
     }
     if (user.deletedAt) return this.unauthorized('deleted user')
+    // Banni : ses jetons émis avant le bannissement restent valides jusqu'à 60 s chez Clerk.
+    if (user.bannedAt) {
+      logger.debug({ userId: user.id }, 'clerk authentication refused: banned user')
+      throw new AccountBannedException()
+    }
+    // Sessions révoquées par l'admin : un jeton émis avant (`iat`, en secondes) reste valide
+    // jusqu'à 60 s chez Clerk mais n'ouvre plus rien ici.
+    if (user.sessionsRevokedAt && !issuedAtOrAfter(claims.iat, user.sessionsRevokedAt)) {
+      return this.unauthorized('session revoked')
+    }
 
     this.user = user
+    this.claims = sessionClaimsFrom(claims.sub, claims)
     this.isAuthenticated = true
     return user
   }
 
+  /**
+   * Vrai si la requête est authentifiée. Un compte banni n'est pas un simple échec : l'erreur
+   * remonte (401 `E_ACCOUNT_BANNED`) pour que l'interface puisse l'expliquer.
+   */
   async check(): Promise<boolean> {
     try {
       await this.authenticate()
       return true
     } catch (error) {
+      if (error instanceof AccountBannedException) throw error
       if (error instanceof UnauthorizedException) return false
       throw error
     }

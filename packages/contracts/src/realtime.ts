@@ -20,6 +20,12 @@ export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>
 export const closeDocumentResponseSchema = z.object({ closed: z.boolean() })
 export type CloseDocumentResponse = z.infer<typeof closeDocumentResponseSchema>
 
+/** POST /internal/users/:id/disconnect du service temps réel : connexions fermées. */
+export const disconnectUserResponseSchema = z.object({
+  connections: z.number().int().nonnegative(),
+})
+export type DisconnectUserResponse = z.infer<typeof disconnectUserResponseSchema>
+
 /** Rôle d'un membre de projet (table project_members). */
 export const projectRoleSchema = z.enum(['owner', 'editor', 'reviewer', 'viewer'])
 export type ProjectRole = z.infer<typeof projectRoleSchema>
@@ -29,6 +35,11 @@ export const realtimeTokenClaimsSchema = z.object({
   sub: z.uuid(),
   projectId: z.uuid(),
   role: projectRoleSchema,
+  /**
+   * Émission, en secondes depuis l'époque Unix : un jeton émis avant la dernière révocation des
+   * sessions du compte (`users.sessions_revoked_at`) est refusé.
+   */
+  iat: z.number().int().nonnegative(),
   /** Expiration, en secondes depuis l'époque Unix. */
   exp: z.number().int().positive(),
 })

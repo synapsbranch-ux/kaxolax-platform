@@ -1,7 +1,11 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { documentName } from '@kaxolax/collab'
-import { closeDocumentResponseSchema, projectSnapshotSchema } from '@kaxolax/contracts'
+import {
+  closeDocumentResponseSchema,
+  disconnectUserResponseSchema,
+  projectSnapshotSchema,
+} from '@kaxolax/contracts'
 import type pg from 'pg'
 import { WebSocket } from 'ws'
 import * as Y from 'yjs'
@@ -331,5 +335,55 @@ describe('internal routes', () => {
     expect(closeDocumentResponseSchema.parse(await again.json())).toEqual({ closed: false })
     const reopened = track(connect(running.url, seed.projectId, seed.documentId, token))
     await expect(reopened.ready).rejects.toThrow('authentication failed')
+  })
+
+  it('disconnects every connection of a banned user and refuses to reconnect them', async () => {
+    const seed = await seedProject(pool)
+    const secondId = await seed.addDocument('second')
+    const editor = await seed.addMember('editor')
+    const editorToken = tokenFor(editor, seed.projectId, { role: 'editor' })
+    const banned = [seed.documentId, secondId].map((documentId) =>
+      track(connect(running.url, seed.projectId, documentId, editorToken)),
+    )
+    const owner = track(
+      connect(running.url, seed.projectId, seed.documentId, tokenFor(seed.owner, seed.projectId)),
+    )
+    await Promise.all([...banned, owner].map((client) => client.ready))
+    const closed = new Set<number>()
+    banned.forEach((client, index) => {
+      client.provider.on('close', () => {
+        closed.add(index)
+      })
+    })
+    let ownerClosed = false
+    owner.provider.on('close', () => {
+      ownerClosed = true
+    })
+
+    await pool.query('UPDATE users SET banned_at = now() WHERE id = $1', [editor])
+    const response = await internal(`/internal/users/${editor}/disconnect`, { method: 'POST' })
+    expect(response.status).toBe(200)
+    expect(disconnectUserResponseSchema.parse(await response.json())).toEqual({ connections: 2 })
+    await eventually(() => closed.size === 2)
+    expect(ownerClosed).toBe(false)
+
+    const reconnected = track(connect(running.url, seed.projectId, seed.documentId, editorToken))
+    await expect(reconnected.ready).rejects.toThrow('authentication failed')
+    const none = await internal(`/internal/users/${editor}/disconnect`, { method: 'POST' })
+    expect(disconnectUserResponseSchema.parse(await none.json())).toEqual({ connections: 0 })
+  })
+
+  it('refuses tokens issued before the sessions were revoked, not the next ones', async () => {
+    const seed = await seedProject(pool)
+    const editor = await seed.addMember('editor')
+    const before = tokenFor(editor, seed.projectId, { role: 'editor', issuedIn: -10 })
+    await pool.query(
+      "UPDATE users SET sessions_revoked_at = now() - interval '5 seconds' WHERE id = $1",
+      [editor],
+    )
+    const refused = track(connect(running.url, seed.projectId, seed.documentId, before))
+    await expect(refused.ready).rejects.toThrow('authentication failed')
+    const after = tokenFor(editor, seed.projectId, { role: 'editor' })
+    await track(connect(running.url, seed.projectId, seed.documentId, after)).ready
   })
 })

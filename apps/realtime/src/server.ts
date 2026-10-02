@@ -6,6 +6,7 @@ import { documentName, parseDocumentName, textOf } from '@kaxolax/collab'
 import { verifyRealtimeToken } from '@kaxolax/collab/token'
 import {
   type CloseDocumentResponse,
+  type DisconnectUserResponse,
   INTERNAL_TOKEN_HEADER,
   type ProjectRole,
   type ProjectSnapshot,
@@ -20,6 +21,8 @@ export interface ConnectionContext {
   projectId: string
   documentId: string
   role: ProjectRole
+  /** `iat` du jeton (secondes) : la révocation des sessions est revérifiée à l'attache. */
+  issuedAt: number
 }
 
 type ServerOptions = Pick<
@@ -41,6 +44,10 @@ const MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const SNAPSHOT_ROUTE = new RegExp(`^/internal/projects/(${UUID})/snapshot$`)
 const CLOSE_ROUTE = new RegExp(`^/internal/documents/(${UUID})/close$`)
+const DISCONNECT_USER_ROUTE = new RegExp(`^/internal/users/(${UUID})/disconnect$`)
+
+/** Fermeture imposée (compte banni ou supprimé) : même code que Forbidden de Hocuspocus. */
+const FORBIDDEN = { code: 4403, reason: 'Forbidden' }
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')
@@ -106,6 +113,25 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     return { closed }
   }
 
+  /**
+   * Ferme toutes les connexions d'un utilisateur, sur tous les documents ouverts de cette
+   * instance. Sa reconnexion est refusée par onAuthenticate (compte banni ou supprimé).
+   */
+  const disconnectUser = (instance: Hocuspocus, userId: string): DisconnectUserResponse => {
+    let connections = 0
+    for (const document of instance.documents.values()) {
+      for (const connection of document.getConnections()) {
+        const context = connection.context as Partial<ConnectionContext> | undefined
+        if (context?.userId === userId) {
+          connection.close(FORBIDDEN)
+          connections++
+        }
+      }
+    }
+    if (connections > 0) logger.info({ userId, connections }, 'user disconnected')
+    return { connections }
+  }
+
   const handleRequest = async (
     instance: Hocuspocus,
     request: IncomingMessage,
@@ -134,6 +160,11 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
       sendJson(response, 200, closeDocument(instance, closeMatch[1]))
       return
     }
+    const userMatch = request.method === 'POST' ? DISCONNECT_USER_ROUTE.exec(path) : null
+    if (userMatch?.[1]) {
+      sendJson(response, 200, disconnectUser(instance, userMatch[1]))
+      return
+    }
     sendJson(response, 404, { code: 'E_NOT_FOUND' })
   }
 
@@ -155,9 +186,11 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
         if (!target) throw new AccessDenied('malformed document name')
         if (target.projectId !== claims.projectId)
           throw new AccessDenied('token is for another project')
-        // Le rôle est relu en base : un membre retiré ne se reconnecte pas avec un ancien jeton.
-        const role = await store.memberRole(target.projectId, claims.sub)
-        if (!role) throw new AccessDenied('not a member of the project')
+        // Le rôle est relu en base : un membre retiré, un compte banni ou supprimé, ou dont les
+        // sessions ont été révoquées depuis l'émission du jeton, ne se reconnecte pas avec un
+        // ancien jeton.
+        const role = await store.memberRole(target.projectId, claims.sub, claims.iat)
+        if (!role) throw new AccessDenied('not an active member of the project')
         if (!(await store.documentExists(target.projectId, target.documentId))) {
           throw new AccessDenied('unknown document')
         }
@@ -171,12 +204,33 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
           projectId: target.projectId,
           documentId: target.documentId,
           role,
+          issuedAt: claims.iat,
         }
       } catch (error) {
         if (error instanceof AccessDenied) {
           logger.info({ socketId, documentName: name, reason: error.detail }, 'connection refused')
         }
         throw error
+      }
+    },
+
+    /**
+     * Seconde vérification, une fois la connexion attachée au document (après son chargement) :
+     * un bannissement, une suppression ou une révocation validés entre onAuthenticate et l'attache
+     * ont pu manquer `/internal/users/:id/disconnect`, qui ne voit que les connexions attachées.
+     * L'API appelle cette route après avoir validé l'effet : l'une des deux vérifications le voit.
+     */
+    async connected({ context, connection, documentName: name }) {
+      let allowed = false
+      try {
+        allowed =
+          (await store.memberRole(context.projectId, context.userId, context.issuedAt)) !== null
+      } catch (error) {
+        logger.error({ err: error, documentName: name }, 'could not recheck connection')
+      }
+      if (!allowed) {
+        logger.info({ documentName: name, userId: context.userId }, 'connection closed on attach')
+        connection.close(FORBIDDEN)
       }
     },
 

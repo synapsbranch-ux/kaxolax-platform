@@ -63,7 +63,12 @@ export default class ExportsController {
     if (typeof claims?.userId !== 'string' || typeof claims.projectId !== 'string') {
       throw new DownloadLinkExpiredException()
     }
-    const user = await User.query().where('id', claims.userId).whereNull('deletedAt').first()
+    // Compte banni ou supprimé depuis l'émission du lien : refusé comme par le guard.
+    const user = await User.query()
+      .where('id', claims.userId)
+      .whereNull('deletedAt')
+      .whereNull('bannedAt')
+      .first()
     if (!user) throw new DownloadLinkExpiredException()
     await this.stream(user, claims.projectId, response)
   }

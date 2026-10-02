@@ -27,9 +27,16 @@ attente avant de quitter.
 | `GET /health`                         | État du service et nombre de documents ouverts                                    |
 | `GET /internal/projects/:id/snapshot` | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe) |
 | `POST /internal/documents/:id/close`  | Ferme les connexions d'un document supprimé                                       |
+| `POST /internal/users/:id/disconnect` | Ferme toutes les connexions d'un compte (banni, supprimé, sessions révoquées)     |
 
 Les routes `/internal` exigent l'en-tête `X-Internal-Token`. Leurs réponses suivent les schémas
-de `@kaxolax/contracts` (`projectSnapshotSchema`, `closeDocumentResponseSchema`).
+de `@kaxolax/contracts` (`projectSnapshotSchema`, `closeDocumentResponseSchema`,
+`disconnectUserResponseSchema`). Un compte banni ou supprimé (`users.banned_at`, `deleted_at`)
+n'a plus de rôle pour `onAuthenticate` : sa reconnexion est refusée. De même pour un jeton émis
+(`iat`) avant la dernière révocation des sessions par l'admin (`users.sessions_revoked_at`).
+Cette vérification est refaite dans le hook `connected`, une fois la connexion attachée au
+document : une connexion authentifiée juste avant le bannissement, encore en cours de chargement
+du document quand l'API appelle `/internal/users/:id/disconnect`, est fermée à son attache.
 
 ## Développement
 

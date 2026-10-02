@@ -1,3 +1,4 @@
+import { type AdminAuditAction, type AdminAuditTargetType } from '@kaxolax/contracts'
 import { column } from '@adonisjs/lucid/orm'
 import { type DateTime } from 'luxon'
 import UuidModel from '#models/uuid_model'
@@ -10,10 +11,10 @@ export default class AdminAuditLog extends UuidModel {
   declare adminId: string
 
   @column()
-  declare action: string
+  declare action: AdminAuditAction
 
   @column()
-  declare targetType: string
+  declare targetType: AdminAuditTargetType
 
   /** Uuid local ou identifiant Clerk. */
   @column()

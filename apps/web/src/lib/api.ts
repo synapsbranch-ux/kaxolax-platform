@@ -1,4 +1,5 @@
 import type {
+  ActiveBanner,
   CodePosition,
   CompileOptions,
   Compiler,
@@ -167,6 +168,8 @@ function sendOnExit(method: string, path: string, body: unknown): boolean {
 /** Appels de l'API REST (même origine, jeton de session Clerk dans `Authorization`). */
 export const api = {
   me: () => request<{ user: User }>('GET', '/me'),
+  /** Bannières système affichées maintenant (tout compte connecté). */
+  activeBanners: () => request<{ banners: ActiveBanner[] }>('GET', '/banners/active'),
 
   /** Préférences complètes (valeurs par défaut appliquées par l'API). */
   preferences: () => request<PreferencesResponse>('GET', '/me/preferences'),
