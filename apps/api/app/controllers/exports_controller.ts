@@ -42,7 +42,7 @@ export default class ExportsController {
    */
   async downloadUrl({ params, auth }: HttpContext) {
     const user = auth.getUserOrFail()
-    const { project } = await projectFor(user, String(params.id), 'viewer')
+    const { project } = await projectFor(user, String(params.id), 'read')
     const token = encryption.encrypt(
       { userId: user.id, projectId: project.id },
       `${String(DOWNLOAD_TTL_SECONDS)}s`,
@@ -74,7 +74,7 @@ export default class ExportsController {
   }
 
   private async stream(user: User, projectId: string, response: HttpContext['response']) {
-    const { project } = await projectFor(user, projectId, 'viewer')
+    const { project } = await projectFor(user, projectId, 'read')
     const content = await projectContent(this.realtime, project.id)
 
     const zip = new yazl.ZipFile()

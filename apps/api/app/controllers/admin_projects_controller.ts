@@ -39,7 +39,9 @@ export default class AdminProjectsController {
 
   async transfer({ params, request, auth }: HttpContext) {
     const { newOwnerId } = await request.validateUsing(transferProjectValidator)
-    await transferProject(auth.getUserOrFail(), String(params.id), newOwnerId)
+    const transfer = await transferProject(auth.getUserOrFail(), String(params.id), newOwnerId)
+    // Les deux rôles ont changé : le service temps réel les applique aux connexions ouvertes.
+    await this.realtime.membersChanged(String(params.id), [transfer.fromUserId, transfer.toUserId])
     return { project: await projectDetail(String(params.id)) }
   }
 

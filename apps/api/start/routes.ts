@@ -19,6 +19,8 @@ const FilesController = () => import('#controllers/files_controller')
 const CompilesController = () => import('#controllers/compiles_controller')
 const ExportsController = () => import('#controllers/exports_controller')
 const BannersController = () => import('#controllers/banners_controller')
+const SharingController = () => import('#controllers/sharing_controller')
+const JoinController = () => import('#controllers/join_controller')
 
 router
   .group(() => {
@@ -28,6 +30,9 @@ router
     router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
     // Lien chiffré de 60 s, lié à l'utilisateur et au projet (navigation sans en-tête Authorization).
     router.get('downloads/:token', [ExportsController, 'downloadWithLink'])
+    // Aperçus publics d'une invitation et d'un lien de partage (nom du projet, rôle).
+    router.get('invitations/:token', [JoinController, 'invitation'])
+    router.get('share/:token', [JoinController, 'shareLink'])
 
     router
       .group(() => {
@@ -60,6 +65,24 @@ router
         router.post('imports/:uploadId/complete', [ImportsController, 'complete'])
 
         router.post('projects/:id/realtime-token', [RealtimeController, 'token'])
+
+        // Partage (packages/contracts/src/sharing.ts).
+        router.get('projects/:id/members', [SharingController, 'members'])
+        router.patch('projects/:id/members/:userId', [SharingController, 'updateMember'])
+        router.delete('projects/:id/members/:userId', [SharingController, 'removeMember'])
+        router.post('projects/:id/transfer', [SharingController, 'transfer'])
+        router.get('projects/:id/invitations', [SharingController, 'invitations'])
+        router.post('projects/:id/invitations', [SharingController, 'invite'])
+        router.post('projects/:id/invitations/:invitationId/resend', [SharingController, 'resend'])
+        router.delete('projects/:id/invitations/:invitationId', [SharingController, 'cancel'])
+        router.get('projects/:id/share-links', [SharingController, 'shareLinks'])
+        router.put('projects/:id/share-links/:kind', [SharingController, 'updateShareLink'])
+        router.post('projects/:id/share-links/:kind/regenerate', [
+          SharingController,
+          'regenerateShareLink',
+        ])
+        router.post('invitations/:token/accept', [JoinController, 'acceptInvitation'])
+        router.post('share/:token/join', [JoinController, 'joinWithShareLink'])
 
         router.post('projects/:id/compile', [CompilesController, 'compile'])
         router.post('projects/:id/compile/stop', [CompilesController, 'stop'])

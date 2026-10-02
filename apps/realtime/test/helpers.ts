@@ -22,6 +22,7 @@ export type RealtimeServer = ReturnType<typeof createRealtimeServer>
 export async function startServer(
   store: DocumentStore,
   storeDelayMs = 50,
+  roles: { ROLE_RECHECK_MS?: number; ROLE_SWEEP_MS?: number } = {},
 ): Promise<{ server: RealtimeServer; url: string; httpUrl: string }> {
   const server = createRealtimeServer(
     {
@@ -31,6 +32,9 @@ export async function startServer(
       INTERNAL_TOKEN,
       STORE_DEBOUNCE_MS: storeDelayMs,
       STORE_MAX_DEBOUNCE_MS: storeDelayMs * 4,
+      // Filets désactivés par défaut : les tests vérifient d'abord la notification de l'API.
+      ROLE_RECHECK_MS: roles.ROLE_RECHECK_MS ?? 60_000,
+      ROLE_SWEEP_MS: roles.ROLE_SWEEP_MS ?? 0,
     },
     store,
     pino({ level: 'silent' }),

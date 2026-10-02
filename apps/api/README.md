@@ -39,7 +39,94 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   déplacement, suppression récursive. Chemins calculés, jamais stockés. Noms uniques dans un
   dossier, tous types confondus, vérifiés en transaction avec le projet verrouillé.
 - **Accès** : toujours par `project_members`. Un projet dont l'utilisateur n'est pas membre
-  répond 404. Rôles : owner > editor > reviewer > viewer.
+  répond 404 ; un rôle insuffisant, 403 `E_PROJECT_FORBIDDEN`. Chaque route demande une
+  permission de la matrice partagée (`packages/contracts/src/permissions.ts`) à
+  `projectFor(user, projectId, permission)` :
+
+  | Permission          | owner | editor | reviewer | viewer |
+  | ------------------- | :---: | :----: | :------: | :----: |
+  | `read`              |   ✓   |   ✓    |    ✓     |   ✓    |
+  | `compile`           |   ✓   |   ✓    |    ✓     |   ✓    |
+  | `comment`           |   ✓   |   ✓    |    ✓     |        |
+  | `edit`              |   ✓   |   ✓    |          |        |
+  | `manageMembers`     |   ✓   |        |          |        |
+  | `manageShareLinks`  |   ✓   |        |          |        |
+  | `transferOwnership` |   ✓   |        |          |        |
+  | `manageProject`     |   ✓   |        |          |        |
+  | `leave`             |       |   ✓    |    ✓     |   ✓    |
+
+- **Partage** (contrats zod : `packages/contracts/src/sharing.ts` ; erreurs : `SHARING_ERRORS`).
+  Routes connectées sauf mention « public » :
+
+  | Route                                                 | Qui                                          | Corps / réponse                                                                                                                                                                                                                              |
+  | ----------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `GET /projects/:id/members`                           | tout membre                                  | `projectMembersResponseSchema` (invitations, `collaborators` et emails des membres pour le propriétaire seulement ; les autres rôles ne voient que leur propre email, `null` ailleurs)                                                       |
+  | `PATCH /projects/:id/members/:userId`                 | owner                                        | `{ role }` (editor, reviewer, viewer) → `memberResponseSchema` ; 409 `E_OWNER_ROLE_LOCKED` sur le propriétaire                                                                                                                               |
+  | `DELETE /projects/:id/members/:userId`                | owner, ou le membre lui-même (quitter)       | 204 ; 409 `E_OWNER_CANNOT_LEAVE`                                                                                                                                                                                                             |
+  | `POST /projects/:id/transfer`                         | owner                                        | `{ userId }` d'un membre existant → `projectMembersResponseSchema` ; 422 `E_INVALID_NEW_OWNER`, 409 `E_ALREADY_OWNER`                                                                                                                        |
+  | `GET /projects/:id/invitations`                       | owner                                        | `projectInvitationsResponseSchema`                                                                                                                                                                                                           |
+  | `POST /projects/:id/invitations`                      | owner                                        | `{ email, role }` → 201 `invitationResponseSchema` (200 si une invitation en attente pour cet email est mise à jour et renvoyée) ; 403 `E_PLAN_LIMIT`, 409 `E_ALREADY_MEMBER`, 429 `E_TOO_MANY_INVITATIONS`, 502 `E_INVITATION_EMAIL_FAILED` |
+  | `POST /projects/:id/invitations/:invitationId/resend` | owner                                        | `invitationResponseSchema` ; 429 `E_TOO_MANY_INVITATIONS` (`retryAfterSeconds`)                                                                                                                                                              |
+  | `DELETE /projects/:id/invitations/:invitationId`      | owner                                        | 204                                                                                                                                                                                                                                          |
+  | `GET /projects/:id/share-links`                       | owner                                        | `shareLinksResponseSchema` (toujours `view` puis `edit`)                                                                                                                                                                                     |
+  | `PUT /projects/:id/share-links/:kind`                 | owner                                        | `{ enabled }` → `shareLinkResponseSchema`                                                                                                                                                                                                    |
+  | `POST /projects/:id/share-links/:kind/regenerate`     | owner                                        | `shareLinkResponseSchema` (nouveau lien, activé)                                                                                                                                                                                             |
+  | `GET /invitations/:token`                             | public                                       | `invitationPreviewSchema` ; 404 `E_INVITATION_NOT_FOUND`, 410 `E_INVITATION_EXPIRED`                                                                                                                                                         |
+  | `POST /invitations/:token/accept`                     | compte dont l'email vérifié est celui invité | `joinProjectResponseSchema` (idempotent : invitation déjà acceptée par ce compte → 200 `joined: false`) ; 403 `E_INVITATION_EMAIL_MISMATCH` (`invitedEmailHint`), 410 `E_INVITATION_EXPIRED`                                                 |
+  | `GET /share/:token`                                   | public                                       | `shareLinkPreviewSchema` ; 404 `E_SHARE_LINK_NOT_FOUND`                                                                                                                                                                                      |
+  | `POST /share/:token/join`                             | tout compte                                  | `joinProjectResponseSchema` ; 403 `E_PLAN_LIMIT`                                                                                                                                                                                             |
+  - Invitations : jeton aléatoire de 256 bits, seul son sha256 est stocké ; valable 7 jours ;
+    email français par `@adonisjs/mail` (Mailpit en local), lien `${APP_URL}/invitations/<jeton>`
+    (`app/mails/project_invitation_mail.ts`). Une relance remplace le jeton (l'ancien lien cesse
+    de fonctionner) et repousse l'échéance ; au plus un envoi par minute et 10 envois par
+    invitation, 30 créations par heure et par compte, tous projets confondus (`INVITATION_*`
+    dans les contrats ; verrou consultatif par compte). Annuler garde la ligne (`cancelled_at`) :
+    réinviter la même adresse la réactive (201) sans remettre ces compteurs à zéro, et les
+    annulées comptent dans la limite horaire. Si l'email ne part pas (502
+    `E_INVITATION_EMAIL_FAILED`), l'envoi est annulé : invitation nouvelle supprimée, sinon
+    jeton, échéance, rôle et compteurs d'avant (le lien précédent refonctionne).
+  - Sans compte : à la création du miroir Clerk (webhook `user.created` ou création à la volée
+    par le guard), les invitations en attente non expirées pour son email vérifié sont acceptées
+    (`acceptPendingInvitationsFor`), dans la limite du plan, chacune dans un point de
+    sauvegarde : un échec la laisse en attente sans faire échouer la création du compte.
+  - Verrous : toujours le projet d'abord, puis l'invitation, le lien ou le membre visé (les
+    adhésions par jeton lisent la ligne sans verrou, verrouillent le projet, puis la relisent).
+  - Journal : chaque action de partage (rôle changé, retrait, départ, transfert, invitation
+    créée, renvoyée, annulée, acceptée, envoi annulé, lien activé, désactivé, régénéré, adhésion
+    par lien) écrit une ligne dans `project_sharing_events` (dans la transaction de l'action) et
+    une ligne structurée dans le journal applicatif (`app/services/sharing_audit.ts`), jamais de
+    jeton, d'URL de lien ni d'email.
+  - Limite de collaborateurs : celle du plan du propriétaire (`plan_limits.max_collaborators`,
+    abonnement lu dans `subscriptions`, `free` sinon ; `app/services/plans.ts`). Comptent les
+    membres autres que le propriétaire et les invitations en attente non expirées ; appliquée à
+    l'invitation, à la relance d'une invitation expirée, à l'acceptation et à l'adhésion par
+    lien, projet verrouillé. Refus : 403 `planLimitErrorSchema` (`limit.plan`, `limit.max`).
+  - Liens de partage : un lien `view` (viewer) et un lien `edit` (editor) par projet. Jeton =
+    HMAC-SHA256 (`APP_KEY`) de l'identifiant aléatoire du lien : seul son hash est stocké, mais
+    le propriétaire peut réafficher le lien. Désactiver puis réactiver redonne le même lien ;
+    régénérer en crée un nouveau (activé) et l'ancien cesse de fonctionner. Changer `APP_KEY`
+    invalide tous les liens. Un membre qui rejoint garde le plus élevé de ses deux rôles.
+    Une invitation en attente pour l'email du compte qui rejoint par lien est réglée dans la
+    même transaction : valide, elle est acceptée (sa place n'est pas comptée deux fois, son rôle
+    compte s'il est plus élevé) ; expirée, elle est annulée.
+  - Transfert : même logique que l'admin (`app/services/project_ownership.ts`) : l'ancien
+    propriétaire devient éditeur, le projet rejoint le workspace personnel du nouveau.
+  - Temps réel : après un changement de rôle, un retrait, un transfert ou un rôle relevé par
+    un lien ou une invitation, l'API appelle `POST /internal/projects/:id/members/:userId/changed`
+    (`RealtimeClient.membersChanged`) : connexions fermées (retrait) ou passées en lecture seule
+    ou en écriture, en moins de 2 s.
+  - Pour l'interface (après la tâche 3) : pages `/invitations/[token]` (aperçu public, puis
+    acceptation une fois connecté ; afficher `invitedEmailHint` en cas de 403). Après une
+    inscription depuis cette page, l'invitation est souvent déjà acceptée automatiquement :
+    l'aperçu renvoie `accepted: true` et `POST /invitations/:token/accept` répond quand même
+    200 (`joined: false`, `projectId`, rôle actuel) au compte invité ; la page redirige vers
+    `/project/<projectId>`. Pour un autre compte, une invitation acceptée donne 404. Et
+    `/share/[token]` (aperçu, puis `join`) ; modale de partage sur `members`, `invitations` et
+    `share-links`. `E_PLAN_LIMIT` : message avec le maximum et lien vers les tarifs. Message
+    sans état `member.role-changed` (`roleChangedMessageSchema`) sur une connexion temps réel :
+    passer l'éditeur en lecture seule ou en écriture ; au retour en écriture, rouvrir le
+    document (les frappes refusées pendant la lecture seule bloqueraient les suivantes).
+
 - **Temps réel** : `POST /projects/:id/realtime-token` signe un jeton de 5 minutes pour le
   service `apps/realtime` (`REALTIME_TOKEN_SECRET`, `REALTIME_PUBLIC_URL`). À la suppression
   d'un document, d'un dossier ou d'un projet, l'API demande au service de fermer les connexions
@@ -115,7 +202,8 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
 
 Migrations Lucid dans `database/migrations` (jamais de perte de données ; `down` pour chacune).
 L'étape 2 ajoute, en plus des workspaces, les tables des tâches suivantes, avec leurs modèles
-dans `app/models` : `project_invitations`, `share_links`, `project_versions`, `version_files`,
+dans `app/models` : `project_invitations` (+ `last_sent_at`, `send_count`, migration `…0024` ; + `cancelled_at`,
+migration `…0025`), `project_sharing_events` (journal du partage, sans clé étrangère, `…0025`), `share_links`, `project_versions`, `version_files`,
 `comment_threads`, `comments`, `chat_messages`, `chat_reads`, `user_preferences`, `plan_limits`
 (valeurs de départ `free` et `pro`), `subscriptions`, `system_banners`, `admin_audit_log`. Ce
 qui appartient à un projet part avec lui (CASCADE) ; les auteurs sont en RESTRICT, car un compte

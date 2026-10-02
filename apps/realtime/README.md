@@ -10,8 +10,31 @@ contient un seul `Y.Text` nommé `content`, sous le nom `project:{projectId}:doc
    `{ token, url, expiresAt }` (5 minutes).
 2. Il ouvre `url` avec `HocuspocusProvider`, le nom du document et ce jeton.
 3. Le service vérifie la signature et l'expiration, puis que le document appartient au projet
-   du jeton, qu'il existe et que l'utilisateur est membre. Le rôle est relu en base : owner et
-   editor écrivent, viewer et reviewer sont en lecture seule.
+   du jeton, qu'il existe et que l'utilisateur est membre. Le rôle est relu en base (celui du
+   jeton n'est pas cru) : selon la matrice de `@kaxolax/contracts` (`canEdit`), owner et editor
+   écrivent, viewer et reviewer sont en lecture seule (`connection.readOnly`).
+
+## Permissions sur les connexions ouvertes
+
+Toute la logique est dans `src/access.ts` :
+
+- Chaque message de synchronisation porteur de modifications passe par `beforeSync`. Sur une
+  connexion en lecture seule, Hocuspocus rejette la mise à jour ; elle est journalisée et la
+  connexion fermée (code 4403) au bout de `MAX_REJECTED_UPDATES` (5) rejets. Pour un rédacteur,
+  le rôle est relu en base si la dernière lecture date de plus de `ROLE_RECHECK_MS` (5 s) : un
+  rôle abaissé passe la connexion en lecture seule avant que la mise à jour ne s'applique.
+- `POST /internal/projects/:id/members/:userId/changed` (appelée par l'API après un changement
+  de rôle, un retrait ou un transfert) relit le rôle et l'applique aussitôt aux connexions de
+  ce membre sur le projet : fermeture (4403) s'il n'est plus membre, sinon lecture seule ou
+  écriture et message sans état `member.role-changed` (`roleChangedMessageSchema`).
+- Toutes les `ROLE_SWEEP_MS` (30 s), le rôle de toutes les connexions est relu : filet si une
+  notification de l'API s'est perdue ; un balayage ne démarre pas tant que le précédent tourne.
+- Lectures concurrentes du rôle (mise à jour, notification, balayage) : chacune prend un numéro
+  avant sa requête et n'est appliquée que si elle est plus récente que la dernière appliquée à la
+  connexion ; une lecture lancée avant un changement ne peut donc pas rendre l'écriture.
+- Plusieurs instances (tâche 5) : la route applique le changement sur l'instance appelée puis le
+  publie par un `MemberChangeFanout` (aucun relais aujourd'hui) ; l'extension Redis fournira
+  une implémentation pub/sub dont l'abonnement appelle `applyMemberChange` sur chaque instance.
 
 ## Persistance
 
@@ -22,12 +45,13 @@ attente avant de quitter.
 
 ## Routes HTTP
 
-| Route                                 | Rôle                                                                              |
-| ------------------------------------- | --------------------------------------------------------------------------------- |
-| `GET /health`                         | État du service et nombre de documents ouverts                                    |
-| `GET /internal/projects/:id/snapshot` | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe) |
-| `POST /internal/documents/:id/close`  | Ferme les connexions d'un document supprimé                                       |
-| `POST /internal/users/:id/disconnect` | Ferme toutes les connexions d'un compte (banni, supprimé, sessions révoquées)     |
+| Route                                                 | Rôle                                                                                   |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `GET /health`                                         | État du service et nombre de documents ouverts                                         |
+| `GET /internal/projects/:id/snapshot`                 | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe)      |
+| `POST /internal/documents/:id/close`                  | Ferme les connexions d'un document supprimé                                            |
+| `POST /internal/users/:id/disconnect`                 | Ferme toutes les connexions d'un compte (banni, supprimé, sessions révoquées)          |
+| `POST /internal/projects/:id/members/:userId/changed` | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`) |
 
 Les routes `/internal` exigent l'en-tête `X-Internal-Token`. Leurs réponses suivent les schémas
 de `@kaxolax/contracts` (`projectSnapshotSchema`, `closeDocumentResponseSchema`,

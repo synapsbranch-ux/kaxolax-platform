@@ -7,6 +7,7 @@ import ProjectMember from '#models/project_member'
 import User from '#models/user'
 import WorkspaceMember from '#models/workspace_member'
 import { type DeletedProject, deleteProjectRows } from '#services/project_service'
+import { acceptPendingInvitationsFor } from '#services/sharing_service'
 import { ensurePersonalWorkspace } from '#services/workspace_service'
 
 /** Ce que Kaxolax garde d'un compte Clerk (miroir local, jamais de mot de passe ni de jeton). */
@@ -83,7 +84,8 @@ export function profileFromClaims(claims: Record<string, unknown>): ClerkProfile
 
 /**
  * Crée ou met à jour le miroir local d'un compte Clerk, avec son workspace personnel (webhook
- * user.created ou création à la volée par le guard). Un compte supprimé n'est jamais recréé ni
+ * user.created ou création à la volée par le guard). À la création, les invitations en attente
+ * pour son email vérifié sont acceptées. Un compte supprimé n'est jamais recréé ni
  * modifié (événement rejoué ou en retard).
  */
 export async function upsertClerkUser(
@@ -104,6 +106,7 @@ export async function upsertClerkUser(
       .first()
     if (taken) throw new ClerkEmailConflictException()
 
+    const created = user === null
     user ??= new User()
     user.useTransaction(trx)
     user.merge({
@@ -115,6 +118,8 @@ export async function upsertClerkUser(
     await user.save()
     // Idempotent : rattrape aussi un compte resté sans workspace.
     await ensurePersonalWorkspace(user, trx)
+    // Inscription : les invitations en attente pour cet email (vérifié) sont acceptées.
+    if (created) await acceptPendingInvitationsFor(user, trx)
     return user
   }
   return client ? run(client) : db.transaction(run)

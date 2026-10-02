@@ -18,6 +18,10 @@ export const configSchema = z.object({
   /** Écriture en base regroupée : au plus tard STORE_MAX_DEBOUNCE_MS après la première modification. */
   STORE_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(2_000),
   STORE_MAX_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(10_000),
+  /** Une mise à jour d'un rédacteur fait relire son rôle en base si la dernière lecture est plus ancienne. */
+  ROLE_RECHECK_MS: z.coerce.number().int().nonnegative().default(5_000),
+  /** Relecture périodique du rôle de toutes les connexions (0 : désactivée). */
+  ROLE_SWEEP_MS: z.coerce.number().int().nonnegative().default(30_000),
 })
 
 export type RealtimeConfig = z.infer<typeof configSchema>

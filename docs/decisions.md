@@ -309,3 +309,37 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Aucune lecture de base : tout passe par `/api/v1/admin/*` (réécriture `/api`), réponses validées par les schémas zod de `@kaxolax/contracts`.
 - Layout serveur : session, claim `metadata.role` et `fva[1] !== -1`, sinon page « Accès refusé » identique quelle que soit la raison ; l'API reste seule juge (MFA activée vérifiée chez Clerk).
 - Sous-domaine du domaine principal Clerk : session partagée sans instance satellite. Actions irréversibles : confirmation avec texte à recopier.
+
+## 2026-10-01 · Partage : matrice des permissions partagée
+
+- Une seule matrice rôle → permissions dans `packages/contracts/src/permissions.ts` (`read`, `compile`, `comment`, `edit`, `manageMembers`, `manageShareLinks`, `transferOwnership`, `manageProject`, `leave`), fonctions pures testées (`canEdit`, `canManageMembers`…).
+- L'API demande une permission à `projectFor` (plus de rangs dispersés) ; le service temps réel décide la lecture seule par `canEdit` ; le web s'en servira pour l'affichage.
+- Comportements inchangés : viewer et reviewer lisent et compilent, reviewer commente, editor édite, owner gère tout. La compilation garde provisoirement la forme « rôle minimal » (fichiers de la tâche 14).
+
+## 2026-10-01 · Partage : jetons hachés, liens régénérables
+
+- Invitation : jeton aléatoire de 256 bits envoyé une seule fois par email, seul son sha256 est stocké ; 7 jours ; une relance remplace le jeton et repousse l'échéance (1 envoi par minute, 10 par invitation, 30 créations par heure et par compte).
+- Lien de partage : jeton = HMAC-SHA256 (`APP_KEY`) de l'identifiant aléatoire du lien, seul son sha256 est stocké ; le propriétaire peut réafficher son lien sans qu'il soit en base. Changer `APP_KEY` invalide tous les liens.
+- Désactiver puis réactiver redonne le même lien ; régénérer remplace la ligne (nouvel identifiant, donc nouveau jeton) et l'ancien lien cesse aussitôt de fonctionner.
+- Aperçus publics (`GET /invitations/:token`, `GET /share/:token`) : nom du projet, rôle, nom de l'invitant ; jamais d'email ni d'identifiant.
+
+## 2026-10-01 · Partage : acceptation automatique et limite de collaborateurs
+
+- À la création du miroir Clerk (webhook ou création à la volée, email vérifié), les invitations en attente non expirées pour cet email sont acceptées dans la même transaction ; celles que la limite du plan bloque restent en attente.
+- Acceptation manuelle : l'email du compte connecté doit être celui de l'invitation (403 avec indice masqué `a***@domaine`).
+- Limite : celle du plan du propriétaire (`plan_limits`, abonnement lu dans `subscriptions`, pas les claims du jeton : la requête peut venir d'un autre compte). Membres hors propriétaire + invitations en attente non expirées, projet verrouillé ; 403 `E_PLAN_LIMIT` avec la limite. Un membre qui rejoint par lien ou invitation garde son rôle le plus élevé.
+
+## 2026-10-02 · Partage : limites d'envoi durables, emails des membres, journal
+
+- Invitation annulée gardée (`cancelled_at`) : réinviter la réactive avec ses compteurs (1 envoi par minute, 10 en tout) ; la limite de 30 créations par heure compte les annulées, sous verrou consultatif par compte. Un email qui ne part pas annule l'envoi (ancien lien valide, envoi non compté).
+- Acceptation idempotente pour le compte invité (déjà acceptée → 200 `joined: false`) : la page d'invitation retrouve le projet après l'acceptation automatique à l'inscription ; acceptation automatique invitation par invitation, en point de sauvegarde.
+- Verrous toujours dans l'ordre projet puis ligne visée (invitation, lien, membre) : pas d'interblocage entre propriétaire et adhésion par jeton.
+- Emails des membres visibles du seul propriétaire (et de chacun pour le sien) : un lien public ne livre pas les adresses des collaborateurs.
+- Journal `project_sharing_events` (sans clé étrangère, survit au projet) + ligne de journal structurée par action ; jamais de jeton, d'URL de lien ni d'email.
+
+## 2026-10-01 · Partage : retraits et changements de rôle appliqués en temps réel
+
+- L'API appelle `POST /internal/projects/:id/members/:userId/changed` après validation ; le service relit le rôle et ferme (4403) ou passe en lecture seule ou en écriture les connexions concernées, avec un message sans état `member.role-changed`.
+- Filets si la notification se perd : rôle d'un rédacteur relu à sa mise à jour si la dernière lecture date de plus de 5 s, et relecture de toutes les connexions toutes les 30 s.
+- Mise à jour forcée par un lecteur : rejetée et journalisée ; connexion fermée au 5e rejet. Logique isolée dans `apps/realtime/src/access.ts`, avec une interface `MemberChangeFanout` pour l'extension Redis (tâche 5).
+- Transfert de propriété : logique commune avec l'admin (`project_ownership.ts`), qui notifie désormais aussi le service temps réel.

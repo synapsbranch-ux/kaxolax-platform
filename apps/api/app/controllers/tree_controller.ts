@@ -35,14 +35,14 @@ export default class TreeController {
   ) {}
 
   async show({ params, auth }: HttpContext) {
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'read')
     return { mainDocumentId: project.mainDocumentId, ...(await buildTree(project.id)) }
   }
 
   async storeFolder({ request, params, auth, response }: HttpContext) {
     const input = await request.validateUsing(createFolderValidator)
     const folder = await db.transaction(async (trx) => {
-      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'editor', {
+      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'edit', {
         trx,
         lock: true,
       })
@@ -64,7 +64,7 @@ export default class TreeController {
     if (Buffer.byteLength(content, 'utf8') >= MAX_TEXT_DOCUMENT_BYTES)
       throw new DocumentTooLargeException()
     const document = await db.transaction(async (trx) => {
-      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'editor', {
+      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'edit', {
         trx,
         lock: true,
       })
@@ -85,7 +85,7 @@ export default class TreeController {
     const { type } = await entityParamsValidator.validate(params)
     const changes = await request.validateUsing(updateEntityValidator)
     const entity = await db.transaction(async (trx) => {
-      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'editor', {
+      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'edit', {
         trx,
         lock: true,
       })
@@ -99,7 +99,7 @@ export default class TreeController {
   async destroy({ params, auth, response }: HttpContext) {
     const { type } = await entityParamsValidator.validate(params)
     const deleted = await db.transaction(async (trx) => {
-      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'editor', {
+      const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'edit', {
         trx,
         lock: true,
       })

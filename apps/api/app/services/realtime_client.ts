@@ -4,6 +4,7 @@ import {
   closeDocumentResponseSchema,
   disconnectUserResponseSchema,
   INTERNAL_TOKEN_HEADER,
+  memberChangedResponseSchema,
   type ProjectSnapshot,
   projectSnapshotSchema,
   type ProjectRole,
@@ -75,6 +76,34 @@ export default class RealtimeClient {
       logger.warn({ err: error, userId }, 'could not disconnect realtime user')
       return null
     }
+  }
+
+  /**
+   * Le rôle de ces membres a changé, ou ils ont été retirés du projet : le service temps réel relit
+   * leur rôle en base et l'applique à leurs connexions ouvertes (fermeture, lecture seule ou
+   * écriture). À appeler une fois la transaction validée. Au mieux : un échec est journalisé ; le
+   * service relit de toute façon le rôle à la prochaine mise à jour d'un rédacteur et
+   * périodiquement pour toutes les connexions.
+   */
+  async membersChanged(projectId: string, userIds: readonly string[]): Promise<void> {
+    await Promise.all(
+      [...new Set(userIds)].map(async (userId) => {
+        try {
+          const response = await fetch(
+            `${realtimeConfig.internalUrl}/internal/projects/${projectId}/members/${userId}/changed`,
+            {
+              method: 'POST',
+              headers: { [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release() },
+              signal: AbortSignal.timeout(realtimeConfig.internalTimeoutMs),
+            },
+          )
+          if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+          memberChangedResponseSchema.parse(await response.json())
+        } catch (error) {
+          logger.warn({ err: error, projectId, userId }, 'could not notify realtime member change')
+        }
+      }),
+    )
   }
 
   /**

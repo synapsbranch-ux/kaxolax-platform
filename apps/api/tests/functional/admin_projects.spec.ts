@@ -117,6 +117,11 @@ test.group('admin: projects', (group) => {
     assert.equal(entry.action, 'project.transfer')
     assert.equal(entry.adminId, admin.id)
     assert.deepInclude(entry.metadata, { fromUserId: owner.id, toUserId: next.id })
+    // Les deux rôles ont changé : le service temps réel est notifié.
+    assert.sameMembers(adminFakes.realtime.memberChanges, [
+      `${projectId}:${owner.id}`,
+      `${projectId}:${next.id}`,
+    ])
 
     // L'ancien propriétaire, désormais éditeur, ne peut plus supprimer le projet.
     await client.post(`/api/v1/projects/${projectId}/trash`).loginAs(next)

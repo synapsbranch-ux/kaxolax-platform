@@ -18,15 +18,10 @@ import type ClerkBackend from '#services/clerk_backend'
 import { applyBanState, deleteClerkUser } from '#services/clerk_users'
 import { isoString, isoStringOrNull } from '#services/dates'
 import type ObjectStorage from '#services/object_storage'
+import { CURRENT_SUBSCRIPTION_STATUSES, FREE_PLAN_SLUG } from '#services/plans'
 import { isUuid } from '#services/project_access'
 import { releaseDeletedProject } from '#services/project_service'
 import type RealtimeClient from '#services/realtime_client'
-
-/** Plan d'un compte sans abonnement en cours (slug du plan par défaut de Clerk Billing). */
-const FREE_PLAN_SLUG = 'free'
-
-/** Statuts Clerk d'un abonnement qui donne encore accès à son plan. */
-const CURRENT_SUBSCRIPTION_STATUSES = ['active', 'past_due']
 
 export class AdminUserNotFoundException extends Exception {
   static override status = 404
