@@ -3,8 +3,11 @@
 # Images des services de la plateforme, construites depuis la racine du monorepo :
 #   docker build -f docker/Dockerfile --target api .
 # Cibles : web, admin, api, realtime, compile-gateway, compile-agent.
+# Railway ne choisit pas de cible : sans --target, la dernière étape (« service ») reprend celle
+# désignée par l'argument KAXOLAX_SERVICE (variable du service Railway, voir deploy/railway/).
 
 ARG NODE_IMAGE=node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe
+ARG KAXOLAX_SERVICE=api
 
 FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME=/pnpm \
@@ -18,6 +21,10 @@ WORKDIR /repo
 # Dépendances puis build de tout le monorepo (Turborepo ordonne les paquets internes).
 # Derrière un proxy TLS (développement), son certificat peut être fourni par le secret « ca ».
 FROM base AS builder
+# Cible des réécritures /api de Next.js (apps/web/next.config.ts) : figée par `next build` dans
+# routes-manifest.json, elle doit être connue au build. Railway transmet la variable de service du
+# même nom comme argument de build ; la valeur par défaut sert en local et en CI.
+ARG API_INTERNAL_URL=http://127.0.0.1:3333
 COPY . .
 RUN --mount=type=secret,id=ca,required=false \
     --mount=type=cache,id=pnpm-store,target=/pnpm/store \
@@ -80,3 +87,6 @@ COPY --from=builder --chown=node:node /repo/apps/admin/.next/static /app/apps/ad
 ENV HOSTNAME=0.0.0.0 PORT=3001
 EXPOSE 3001
 CMD ["node", "apps/admin/server.js"]
+
+# Étape par défaut (Railway) : l'image du service KAXOLAX_SERVICE (web, admin, api ou realtime).
+FROM ${KAXOLAX_SERVICE} AS service

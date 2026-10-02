@@ -1,4 +1,4 @@
-import { type Compiler, type CompileStatus } from '@kaxolax/contracts'
+import { type BuildStatus, type Compiler } from '@kaxolax/contracts'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { type DateTime } from 'luxon'
 
@@ -18,8 +18,9 @@ export default class Compile extends BaseModel {
   @column()
   declare compiler: Compiler
 
+  /** Statuts finaux de l'étape 1, plus les états de la compilation asynchrone. */
   @column()
-  declare status: CompileStatus
+  declare status: BuildStatus
 
   @column()
   declare durationMs: number
@@ -30,6 +31,23 @@ export default class Compile extends BaseModel {
   @column()
   declare outputPrefix: string
 
+  /** `gateway` (synchrone, étape 1) ou `cloudflare` (asynchrone, Worker + Containers). */
+  @column()
+  declare backend: 'gateway' | 'cloudflare'
+
+  @column()
+  declare timeoutMs: number | null
+
+  /** Numéro du dernier rappel du Worker appliqué (anti-rejeu). */
+  @column()
+  declare lastEventSeq: number
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
+
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime | null
+
+  @column.dateTime()
+  declare finishedAt: DateTime | null
 }

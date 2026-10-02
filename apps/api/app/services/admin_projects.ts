@@ -1,11 +1,9 @@
-import { randomUUID } from 'node:crypto'
 import type {
   AdminProjectDetail,
   AdminProjectSummary,
   AdminProjectsResponse,
   AdminProjectView,
 } from '@kaxolax/contracts'
-import { Exception } from '@adonisjs/core/exceptions'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
@@ -20,22 +18,13 @@ import { likePattern, paginationOf } from '#services/admin_users'
 import { isoString, isoStringOrNull } from '#services/dates'
 import type ObjectStorage from '#services/object_storage'
 import { isUuid, ProjectNotFoundException } from '#services/project_access'
+import {
+  InvalidNewOwnerException,
+  type OwnershipTransfer,
+  transferOwnership,
+} from '#services/project_ownership'
 import { deleteProjectRows, releaseDeletedProject } from '#services/project_service'
 import type RealtimeClient from '#services/realtime_client'
-import { ensurePersonalWorkspace } from '#services/workspace_service'
-
-export class InvalidNewOwnerException extends Exception {
-  static override status = 422
-  static override code = 'E_INVALID_NEW_OWNER'
-  static override message =
-    'The new owner must be an existing account that is neither deleted nor banned'
-}
-
-export class AlreadyOwnerException extends Exception {
-  static override status = 409
-  static override code = 'E_ALREADY_OWNER'
-  static override message = 'This account already owns the project'
-}
 
 const ROLE_ORDER: Record<ProjectRole, number> = { owner: 0, editor: 1, reviewer: 2, viewer: 3 }
 
@@ -285,51 +274,33 @@ export async function deleteProject(
 /**
  * Transfère un projet à un compte existant : il en devient propriétaire (membre ajouté au besoin),
  * l'ancien propriétaire devient éditeur, et le projet rejoint le workspace personnel du nouveau.
- * Projet et membres sont verrouillés le temps de la transaction, journal compris.
+ * Projet et membres sont verrouillés le temps de la transaction, journal compris. Logique commune
+ * avec le transfert par le propriétaire (`transferOwnership`) ; l'appelant notifie ensuite le
+ * service temps réel.
  */
 export async function transferProject(
   admin: User,
   projectId: string,
   newOwnerId: string,
-): Promise<void> {
+): Promise<OwnershipTransfer> {
   const failure = projectFailure(admin, 'project.transfer', projectId)
-  await auditFailures({ ...failure, metadata: { toUserId: newOwnerId } }, () =>
+  return auditFailures({ ...failure, metadata: { toUserId: newOwnerId } }, () =>
     db.transaction(async (trx) => {
       const project = await lockProject(projectId, trx)
       const newOwner = await User.query({ client: trx }).where('id', newOwnerId).first()
-      // Un compte banni ne peut pas devenir propriétaire : le projet n'aurait plus de propriétaire actif.
-      if (!newOwner || newOwner.deletedAt || newOwner.bannedAt) throw new InvalidNewOwnerException()
-      if (newOwner.id === project.ownerId) throw new AlreadyOwnerException()
-
-      const previous = { ownerId: project.ownerId, workspaceId: project.workspaceId }
-      await ProjectMember.query({ client: trx })
-        .where({ projectId: project.id, userId: previous.ownerId })
-        .update({ role: 'editor' })
-      await trx.rawQuery(
-        `INSERT INTO project_members (id, project_id, user_id, role) VALUES (?, ?, ?, 'owner')
-       ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'owner'`,
-        [randomUUID(), project.id, newOwner.id],
-      )
-      const workspace = await ensurePersonalWorkspace(newOwner, trx)
-      project.merge({ ownerId: newOwner.id, workspaceId: workspace.id })
-      await project.useTransaction(trx).save()
-
+      if (!newOwner) throw new InvalidNewOwnerException()
+      const transfer = await transferOwnership(project, newOwner, trx)
       await recordAdminAction(
         {
           admin,
           action: 'project.transfer',
           targetType: 'project',
           targetId: project.id,
-          metadata: {
-            name: project.name,
-            fromUserId: previous.ownerId,
-            toUserId: newOwner.id,
-            fromWorkspaceId: previous.workspaceId,
-            toWorkspaceId: workspace.id,
-          },
+          metadata: { name: project.name, ...transfer },
         },
         trx,
       )
+      return transfer
     }),
   )
 }

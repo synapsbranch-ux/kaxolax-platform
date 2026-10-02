@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import { createDocumentState, documentName } from '@kaxolax/collab'
+import { createDocumentState, documentName, metaDocumentName } from '@kaxolax/collab'
 import { signRealtimeToken } from '@kaxolax/collab/token'
 import { type ProjectRole, REALTIME_TOKEN_TTL_SECONDS } from '@kaxolax/contracts'
 import pg from 'pg'
@@ -22,6 +22,8 @@ export type RealtimeServer = ReturnType<typeof createRealtimeServer>
 export async function startServer(
   store: DocumentStore,
   storeDelayMs = 50,
+  roles: { ROLE_RECHECK_MS?: number; ROLE_SWEEP_MS?: number } = {},
+  redis: { REDIS_URL?: string; REDIS_PREFIX?: string } = {},
 ): Promise<{ server: RealtimeServer; url: string; httpUrl: string }> {
   const server = createRealtimeServer(
     {
@@ -31,6 +33,10 @@ export async function startServer(
       INTERNAL_TOKEN,
       STORE_DEBOUNCE_MS: storeDelayMs,
       STORE_MAX_DEBOUNCE_MS: storeDelayMs * 4,
+      // Filets désactivés par défaut : les tests vérifient d'abord la notification de l'API.
+      ROLE_RECHECK_MS: roles.ROLE_RECHECK_MS ?? 60_000,
+      ROLE_SWEEP_MS: roles.ROLE_SWEEP_MS ?? 0,
+      ...redis,
     },
     store,
     pino({ level: 'silent' }),
@@ -119,7 +125,28 @@ export interface Client {
 }
 
 export function connect(url: string, projectId: string, documentId: string, token: string): Client {
+  return connectTo(url, documentName(projectId, documentId), token)
+}
+
+/** Connexion au document meta du projet (présence et événements). */
+export function connectMeta(
+  url: string,
+  projectId: string,
+  token: string,
+  options: { clientId?: number } = {},
+): Client {
+  return connectTo(url, metaDocumentName(projectId), token, options)
+}
+
+/** `clientId` : clientId Yjs imposé (reconnexion d'un même client sur une autre instance). */
+export function connectTo(
+  url: string,
+  name: string,
+  token: string,
+  options: { clientId?: number } = {},
+): Client {
   const doc = new Y.Doc()
+  if (options.clientId !== undefined) doc.clientID = options.clientId
   // Sous Node, le WebSocket vient de `ws` ; le navigateur utilise le sien.
   const socket = new HocuspocusProviderWebsocket({
     url,
@@ -131,7 +158,7 @@ export function connect(url: string, projectId: string, documentId: string, toke
   const ready = new Promise<void>((resolve, reject) => {
     provider = new HocuspocusProvider({
       websocketProvider: socket,
-      name: documentName(projectId, documentId),
+      name,
       token,
       document: doc,
       onSynced: () => {
@@ -168,3 +195,35 @@ export async function eventually(
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
+
+/** Appel d'une route interne du service (en-tête du secret partagé). */
+export async function internalPost(base: string, path: string, body?: unknown): Promise<Response> {
+  return fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: {
+      'x-internal-token': INTERNAL_TOKEN,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+}
+
+/** Messages sans état reçus par un client, tels quels. */
+export function statelessMessages(client: Client): string[] {
+  const received: string[] = []
+  client.provider.on('stateless', ({ payload }: { payload: string }) => {
+    received.push(payload)
+  })
+  return received
+}
+
+/** Vrai dès que le serveur a fermé la connexion du client au document. */
+export function closedFlag(client: Client): () => boolean {
+  let closed = false
+  client.provider.on('close', () => {
+    closed = true
+  })
+  return () => closed
+}
+
+export const settle = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms))

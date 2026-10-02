@@ -4,7 +4,6 @@ import type { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
 import db from '@adonisjs/lucid/services/db'
 import clerkConfig from '#config/clerk'
-import User from '#models/user'
 import {
   applyBanState,
   banStateFromWebhook,
@@ -13,7 +12,9 @@ import {
   upsertClerkUser,
 } from '#services/clerk_users'
 import ObjectStorage from '#services/object_storage'
+import { announceAutoJoins, announceDepartures } from '#services/project_events'
 import { type DeletedProject, releaseDeletedProject } from '#services/project_service'
+import type { JoinedProject } from '#services/sharing_service'
 import RealtimeClient from '#services/realtime_client'
 
 const SIGNATURE_HEADERS = ['svix-id', 'svix-timestamp', 'svix-signature'] as const
@@ -23,9 +24,13 @@ interface WebhookEffects {
   deleted: DeletedProject[]
   /** Utilisateur local dont il faut fermer les connexions temps réel (banni, supprimé). */
   disconnectUserId: string | null
+  /** Projets rejoints à l'inscription (invitations acceptées d'office), à annoncer. */
+  joined: { userId: string; projects: JoinedProject[] } | null
+  /** Projets partagés quittés par un compte supprimé, à annoncer. */
+  left: { userId: string; projectIds: string[] } | null
 }
 
-const NO_EFFECTS: WebhookEffects = { deleted: [], disconnectUserId: null }
+const NO_EFFECTS: WebhookEffects = { deleted: [], disconnectUserId: null, joined: null, left: null }
 
 /**
  * Webhooks Clerk (user.created, user.updated, user.deleted) : signature vérifiée sur le corps brut,
@@ -81,15 +86,24 @@ export default class ClerkWebhooksController {
         const profile = profileFromWebhook(event.data)
         // Sans email principal vérifié, le compte attend : rien à refléter pour l'instant.
         if (!profile) return NO_EFFECTS
-        const user = await upsertClerkUser(profile, trx)
+        const { user, joined } = await upsertClerkUser(profile, trx)
         const banState = banStateFromWebhook(event.data)
         const banned = banState !== null && (await applyBanState(user, banState, trx))
-        return { deleted: [], disconnectUserId: banned ? user.id : null }
+        return {
+          ...NO_EFFECTS,
+          disconnectUserId: banned ? user.id : null,
+          joined: { userId: user.id, projects: joined },
+        }
       }
       if (event.type === 'user.deleted' && typeof event.data.id === 'string') {
-        const user = await User.query({ client: trx }).where('clerkUserId', event.data.id).first()
-        const deleted = await deleteClerkUser(event.data.id, trx)
-        return { deleted, disconnectUserId: user?.deletedAt === null ? user.id : null }
+        const { userId, deleted, leftProjectIds } = await deleteClerkUser(event.data.id, trx)
+        if (userId === null) return NO_EFFECTS
+        return {
+          ...NO_EFFECTS,
+          deleted,
+          disconnectUserId: userId,
+          left: { userId, projectIds: leftProjectIds },
+        }
       }
       return NO_EFFECTS
     })
@@ -99,6 +113,12 @@ export default class ClerkWebhooksController {
     }
     if (effects.disconnectUserId !== null) {
       await this.realtime.disconnectUser(effects.disconnectUserId)
+    }
+    if (effects.joined) {
+      await announceAutoJoins(this.realtime, effects.joined.userId, effects.joined.projects)
+    }
+    if (effects.left) {
+      await announceDepartures(this.realtime, effects.left.userId, effects.left.projectIds, null)
     }
     response.noContent()
   }

@@ -1,5 +1,16 @@
+import {
+  invitationPreviewSchema,
+  invitationResponseSchema,
+  joinProjectResponseSchema,
+  memberResponseSchema,
+  projectMembersResponseSchema,
+  shareLinkPreviewSchema,
+  shareLinkResponseSchema,
+  shareLinksResponseSchema,
+} from '@kaxolax/contracts'
 import type {
   ActiveBanner,
+  AssignableRole,
   CodePosition,
   CompileOptions,
   Compiler,
@@ -10,6 +21,7 @@ import type {
   ProjectSearchQuery,
   ProjectSearchResponse,
   RealtimeTokenResponse,
+  ShareLinkKind,
   SpellcheckLanguage,
   UserPreferences,
   Workspace,
@@ -24,6 +36,8 @@ export class ApiError extends Error {
     readonly code: string | undefined,
     message: string,
     readonly fieldErrors: { field: string; message: string }[] = [],
+    /** Corps JSON de la réponse (détails d'une erreur : limite du plan, délai d'attente…). */
+    readonly body: unknown = null,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -109,7 +123,7 @@ function errorFrom(status: number, body: unknown): ApiError {
   }
   const fieldErrors = Array.isArray(data.errors) ? data.errors : []
   const message = fieldErrors[0]?.message ?? data.message ?? `Request failed (${String(status)})`
-  return new ApiError(status, data.code, message, fieldErrors)
+  return new ApiError(status, data.code, message, fieldErrors, body)
 }
 
 /**
@@ -254,6 +268,63 @@ export const api = {
 
   downloadUrl: (id: string) =>
     request<{ url: string; expiresAt: string }>('POST', `/projects/${id}/download-url`),
+
+  // Partage : réponses validées par les schémas de `@kaxolax/contracts` (sharing.ts).
+  members: (id: string) =>
+    request<unknown>('GET', `/projects/${id}/members`).then((data) =>
+      projectMembersResponseSchema.parse(data),
+    ),
+  updateMemberRole: (id: string, userId: string, role: AssignableRole) =>
+    request<unknown>('PATCH', `/projects/${id}/members/${userId}`, { role }).then((data) =>
+      memberResponseSchema.parse(data),
+    ),
+  /** Retirer un membre (propriétaire), ou quitter le projet (son propre id). */
+  removeMember: (id: string, userId: string) =>
+    request<null>('DELETE', `/projects/${id}/members/${userId}`),
+  transferOwnership: (id: string, userId: string) =>
+    request<unknown>('POST', `/projects/${id}/transfer`, { userId }).then((data) =>
+      projectMembersResponseSchema.parse(data),
+    ),
+  invite: (id: string, email: string, role: AssignableRole) =>
+    request<unknown>('POST', `/projects/${id}/invitations`, { email, role }).then((data) =>
+      invitationResponseSchema.parse(data),
+    ),
+  resendInvitation: (id: string, invitationId: string) =>
+    request<unknown>('POST', `/projects/${id}/invitations/${invitationId}/resend`).then((data) =>
+      invitationResponseSchema.parse(data),
+    ),
+  cancelInvitation: (id: string, invitationId: string) =>
+    request<null>('DELETE', `/projects/${id}/invitations/${invitationId}`),
+  shareLinks: (id: string) =>
+    request<unknown>('GET', `/projects/${id}/share-links`).then((data) =>
+      shareLinksResponseSchema.parse(data),
+    ),
+  setShareLink: (id: string, kind: ShareLinkKind, enabled: boolean) =>
+    request<unknown>('PUT', `/projects/${id}/share-links/${kind}`, { enabled }).then((data) =>
+      shareLinkResponseSchema.parse(data),
+    ),
+  regenerateShareLink: (id: string, kind: ShareLinkKind) =>
+    request<unknown>('POST', `/projects/${id}/share-links/${kind}/regenerate`).then((data) =>
+      shareLinkResponseSchema.parse(data),
+    ),
+  /** Aperçu public d'une invitation (sans compte). */
+  invitationPreview: (token: string) =>
+    request<unknown>('GET', `/invitations/${encodeURIComponent(token)}`).then((data) =>
+      invitationPreviewSchema.parse(data),
+    ),
+  acceptInvitation: (token: string) =>
+    request<unknown>('POST', `/invitations/${encodeURIComponent(token)}/accept`).then((data) =>
+      joinProjectResponseSchema.parse(data),
+    ),
+  /** Aperçu public d'un lien de partage (sans compte). */
+  shareLinkPreview: (token: string) =>
+    request<unknown>('GET', `/share/${encodeURIComponent(token)}`).then((data) =>
+      shareLinkPreviewSchema.parse(data),
+    ),
+  joinShareLink: (token: string) =>
+    request<unknown>('POST', `/share/${encodeURIComponent(token)}/join`).then((data) =>
+      joinProjectResponseSchema.parse(data),
+    ),
 
   realtimeToken: (id: string) =>
     request<RealtimeTokenResponse>('POST', `/projects/${id}/realtime-token`),

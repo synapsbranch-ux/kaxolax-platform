@@ -13,12 +13,15 @@
   },
   "dependencies": {
     "@hocuspocus/extension-database": "catalog:",
+    "@hocuspocus/extension-redis": "catalog:",
     "@hocuspocus/server": "catalog:",
     "@kaxolax/collab": "workspace:*",
     "@kaxolax/contracts": "workspace:*",
+    "ioredis": "catalog:",
     "pg": "catalog:",
     "pino": "catalog:",
     "ws": "catalog:",
+    "y-protocols": "catalog:",
     "yjs": "catalog:",
     "zod": "catalog:"
   },

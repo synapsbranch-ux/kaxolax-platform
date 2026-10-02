@@ -10,7 +10,7 @@ export default class RealtimeController {
   /** Tout membre obtient un jeton ; le service temps réel relit son rôle (lecture seule ou non). */
   async token({ params, auth }: HttpContext) {
     const user = auth.getUserOrFail()
-    const { project, role } = await projectFor(user, String(params.id), 'viewer')
+    const { project, role } = await projectFor(user, String(params.id), 'read')
     return this.realtime.issueToken(user.id, project.id, role)
   }
 }

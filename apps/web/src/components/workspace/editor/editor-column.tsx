@@ -1,9 +1,9 @@
 'use client'
 
 import type { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import type { Theme } from '@kaxolax/contracts'
+import type { PresenceUser, Theme } from '@kaxolax/contracts'
 import { Button, SimpleTooltip, Spinner, cn } from '@kaxolax/ui'
-import { HistoryIcon, MessageSquareTextIcon, WrenchIcon } from 'lucide-react'
+import { EyeIcon, HistoryIcon, MessageSquareTextIcon, WrenchIcon } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import type { ProjectTree, TreeFile } from '@/lib/api'
 import { AskSlot } from './ask-slot'
@@ -44,6 +44,9 @@ export function EditorColumn({
   syncState,
   leading,
   notice,
+  self,
+  following,
+  onStopFollowing,
   onActivate,
   onClose,
   onToggleTools,
@@ -71,6 +74,12 @@ export function EditorColumn({
   leading?: ReactNode
   /** Message court sous les onglets (actions de la barre Tools). */
   notice?: ReactNode
+  /** Sa propre identité de présence. */
+  self: PresenceUser | null
+  /** Collaborateur suivi (indicateur « Vous suivez … » et défilement jusqu'à son curseur). */
+  following: { userId: string; name: string; color: string } | null
+  /** Fin du suivi : bouton Arrêter, ou frappe dans l'éditeur. */
+  onStopFollowing: () => void
   onActivate: (id: string) => void
   onClose: (id: string) => void
   onToggleTools: () => void
@@ -152,6 +161,28 @@ export function EditorColumn({
         }
       />
       {toolsVisible ? <ToolsBar /> : null}
+      {following ? (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-b-2 px-3 py-1 text-xs"
+          style={{ borderColor: following.color }}
+          data-testid="following-indicator"
+        >
+          <EyeIcon className="size-3.5 shrink-0" style={{ color: following.color }} aria-hidden />
+          <span className="min-w-0 truncate">
+            Vous suivez <strong>{following.name}</strong> jusqu'à votre prochaine frappe.
+          </span>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="ml-auto text-editor-tab-foreground hover:bg-editor-tab-active"
+            onClick={onStopFollowing}
+            data-testid="stop-following"
+          >
+            Arrêter de suivre
+          </Button>
+        </div>
+      ) : null}
       {notice}
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
@@ -176,6 +207,11 @@ export function EditorColumn({
               registry={registry}
               host={host}
               autoCompile={autoCompile}
+              self={self}
+              follow={following?.userId ?? null}
+              onKeystroke={() => {
+                if (following) onStopFollowing()
+              }}
               onCompile={onCompile}
               onReady={onEditorReady}
               onSyncState={onSyncState}

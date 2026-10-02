@@ -32,6 +32,7 @@ export { latexLanguage } from './language.js'
 export * from './theme.js'
 export * from './auto-compile.js'
 export * from './outline.js'
+export * from './presence.js'
 export {
   findPreamble,
   loadedPackages,

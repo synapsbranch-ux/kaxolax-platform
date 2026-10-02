@@ -380,6 +380,136 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Layout serveur : session, claim `metadata.role` et `fva[1] !== -1`, sinon page « Accès refusé » identique quelle que soit la raison ; l'API reste seule juge (MFA activée vérifiée chez Clerk).
 - Sous-domaine du domaine principal Clerk : session partagée sans instance satellite. Actions irréversibles : confirmation avec texte à recopier.
 
+## 2026-10-01 · Partage : matrice des permissions partagée
+
+- Une seule matrice rôle → permissions dans `packages/contracts/src/permissions.ts` (`read`, `compile`, `comment`, `edit`, `manageMembers`, `manageShareLinks`, `transferOwnership`, `manageProject`, `leave`), fonctions pures testées (`canEdit`, `canManageMembers`…).
+- L'API demande une permission à `projectFor` (plus de rangs dispersés) ; le service temps réel décide la lecture seule par `canEdit` ; le web s'en servira pour l'affichage.
+- Comportements inchangés : viewer et reviewer lisent et compilent, reviewer commente, editor édite, owner gère tout. La compilation garde provisoirement la forme « rôle minimal » (fichiers de la tâche 14).
+
+## 2026-10-01 · Partage : jetons hachés, liens régénérables
+
+- Invitation : jeton aléatoire de 256 bits envoyé une seule fois par email, seul son sha256 est stocké ; 7 jours ; une relance remplace le jeton et repousse l'échéance (1 envoi par minute, 10 par invitation, 30 créations par heure et par compte).
+- Lien de partage : jeton = HMAC-SHA256 (`APP_KEY`) de l'identifiant aléatoire du lien, seul son sha256 est stocké ; le propriétaire peut réafficher son lien sans qu'il soit en base. Changer `APP_KEY` invalide tous les liens.
+- Désactiver puis réactiver redonne le même lien ; régénérer remplace la ligne (nouvel identifiant, donc nouveau jeton) et l'ancien lien cesse aussitôt de fonctionner.
+- Aperçus publics (`GET /invitations/:token`, `GET /share/:token`) : nom du projet, rôle, nom de l'invitant ; jamais d'email ni d'identifiant.
+
+## 2026-10-01 · Partage : acceptation automatique et limite de collaborateurs
+
+- À la création du miroir Clerk (webhook ou création à la volée, email vérifié), les invitations en attente non expirées pour cet email sont acceptées dans la même transaction ; celles que la limite du plan bloque restent en attente.
+- Acceptation manuelle : l'email du compte connecté doit être celui de l'invitation (403 avec indice masqué `a***@domaine`).
+- Limite : celle du plan du propriétaire (`plan_limits`, abonnement lu dans `subscriptions`, pas les claims du jeton : la requête peut venir d'un autre compte). Membres hors propriétaire + invitations en attente non expirées, projet verrouillé ; 403 `E_PLAN_LIMIT` avec la limite. Un membre qui rejoint par lien ou invitation garde son rôle le plus élevé.
+
+## 2026-10-02 · Partage : limites d'envoi durables, emails des membres, journal
+
+- Invitation annulée gardée (`cancelled_at`) : réinviter la réactive avec ses compteurs (1 envoi par minute, 10 en tout) ; la limite de 30 créations par heure compte les annulées, sous verrou consultatif par compte. Un email qui ne part pas annule l'envoi (ancien lien valide, envoi non compté).
+- Acceptation idempotente pour le compte invité (déjà acceptée → 200 `joined: false`) : la page d'invitation retrouve le projet après l'acceptation automatique à l'inscription ; acceptation automatique invitation par invitation, en point de sauvegarde.
+- Verrous toujours dans l'ordre projet puis ligne visée (invitation, lien, membre) : pas d'interblocage entre propriétaire et adhésion par jeton.
+- Emails des membres visibles du seul propriétaire (et de chacun pour le sien) : un lien public ne livre pas les adresses des collaborateurs.
+- Journal `project_sharing_events` (sans clé étrangère, survit au projet) + ligne de journal structurée par action ; jamais de jeton, d'URL de lien ni d'email.
+
+## 2026-10-01 · Partage : retraits et changements de rôle appliqués en temps réel
+
+- L'API appelle `POST /internal/projects/:id/members/:userId/changed` après validation ; le service relit le rôle et ferme (4403) ou passe en lecture seule ou en écriture les connexions concernées, avec un message sans état `member.role-changed`.
+- Filets si la notification se perd : rôle d'un rédacteur relu à sa mise à jour si la dernière lecture date de plus de 5 s, et relecture de toutes les connexions toutes les 30 s.
+- Mise à jour forcée par un lecteur : rejetée et journalisée ; connexion fermée au 5e rejet. Logique isolée dans `apps/realtime/src/access.ts`, avec une interface `MemberChangeFanout` pour l'extension Redis (tâche 5).
+- Transfert de propriété : logique commune avec l'admin (`project_ownership.ts`), qui notifie désormais aussi le service temps réel.
+
+## 2026-10-01 · Compilation asynchrone (mode `cloudflare`)
+
+- `COMPILE_BACKEND=cloudflare` : `POST /projects/:id/compile` répond 202 `{ buildId, status: 'queued' | 'preparing' }` (`preparing` : le conteneur se réveille, dit par le Durable Object, qui ne compte comme prêt qu'un conteneur `healthy`) ; `queued` est publié avant l'appel au Worker ; l'état suit `queued → preparing → running → success|failure|timeout|error|cancelled` dans `compiles` (migration …0026 : `backend`, `timeout_ms`, `last_event_seq`, `updated_at`, `finished_at`). `gateway` (défaut local et CI) garde la compilation synchrone de l'étape 1, inchangée pour le web actuel.
+- Une compilation à la fois par projet garantie par la base : index unique partiel sur les états actifs, `INSERT … ON CONFLICT DO NOTHING` (409 `E_COMPILE_IN_PROGRESS` avec le `buildId` en cours). Une compilation sans nouvelles du Worker au-delà de son timeout + 5 min est close en `error` (événement publié) à la demande suivante ou au sondage `GET …/builds/:buildId` : ni le verrou ni le client ne restent bloqués. Côté Worker, toute exception de `run()` se termine par un rappel `error`.
+- Résultat poussé par le service temps réel (`POST /internal/projects/:id/events`, `INTERNAL_TOKEN`, message stateless sur les documents ouverts du projet) ; repli par sondage `GET /projects/:id/builds/:buildId`. Schémas zod dans `packages/contracts/src/builds.ts`.
+- Écarté : garder une requête HTTP ouverte (Cloudflare coupe à 100 s, une compilation Pro dure jusqu'à 4 min).
+
+## 2026-10-01 · API ↔ Worker de compilation : HMAC dans les deux sens
+
+- Secret partagé `COMPILE_WORKER_SECRET` (≥ 32 caractères), WebCrypto seulement (même code dans Node et Workers), domaines de signature distincts par sens.
+- API → Worker : jeton `v1.<charge>.<HMAC>` de 60 s lié au `projectId` de l'URL. Worker → API : `POST /api/v1/internal/compile-callbacks`, HMAC du corps brut + horodatage (± 5 min).
+- Anti-rejeu et idempotence : `seq` croissant par compilation (`last_event_seq`, ligne verrouillée `FOR UPDATE`), état final figé ; un rappel rejoué, en retard ou après annulation est ignoré (200 `applied: false`). `entries.json` est écrit dans R2 avant le statut final (échec → 5xx, le Worker réessaie).
+- Le conteneur n'est pas fiable : le Worker n'écrit dans R2 que `outputs/<projet>/<build>/<nom>` pour les quatre sorties attendues (PDF, log, blg, SyncTeX).
+
+## 2026-10-01 · Cloudflare Containers : un conteneur par projet
+
+- `apps/compile-worker` : Worker + Durable Object `CompileContainer` (classe `Container` de `@cloudflare/containers`) nommé par `projectId`, `enableInternet = false`, `sleepAfter = '15m'`, type `standard-4` (TeX Live complet). File d'une compilation (la plus récente), traitée dans une alarme ; `preparing` pendant le réveil ; `POST /warm` appelé par l'API (`POST /projects/:id/compiler/warm`) à l'ouverture de l'éditeur.
+- Le Worker lit la demande et les binaires dans R2 (bindings), les pousse au conteneur (cache par sha256 vérifié), relit PDF, log et SyncTeX et les écrit dans R2 : le conteneur n'a ni réseau ni identifiants. Jeton interne tiré au hasard par le Durable Object.
+- Agent factorisé, pas dupliqué : `apps/compile-agent` gagne `container-main` (même `Compiler`, même latexmk, même parseur) et une interface `CompileSandbox` (Docker de l'étape 1, ou `ProcessSandbox`).
+- Une compilation par alarme (limite de 15 min d'une alarme) : la suivante est reprogrammée dans une nouvelle alarme. Un rappel final que l'API n'a pas reçu (redéploiement, panne) est gardé dans le stockage du Durable Object et réessayé toutes les 30 s jusqu'au timeout + 5 min. Un événement temps réel de plus de 1 Mo part sans résultat (`resultOmitted`), relu par `GET …/builds/:buildId`.
+
+## 2026-10-01 · Écart de sandbox à valider : VM par projet au lieu de conteneur + gVisor par compilation
+
+- Étape 1 : conteneur Docker neuf par compilation, gVisor, cgroup mémoire/CPU. Cloudflare : VM isolée par projet (réutilisée pendant la session, recyclée après 15 min d'inactivité), sans réseau, pas de Docker dans la VM.
+- Gardé : `latexmk -norc`, texmf.cnf durci (shell-escape refusé, vérifié dans l'image), UID 1000 sans capability ni `no_new_privs` (`setpriv`), `prlimit` (fichier 101 Mo, 256 processus, pas de core), timeout, chien de garde du répertoire, tous les processus de l'UID tués avant et après chaque compilation, `/tmp` vidé.
+- Perdu : isolation entre deux compilations d'un même projet (seul ce projet partage la VM), limites mémoire et CPU par compilation (celles de la VM s'appliquent, `oom_score_adj` protège l'agent). À valider par l'utilisateur avant la mise en production.
+- L'agent (root) partage le système de fichiers de TeX : il ouvre les sorties sans suivre de lien (`O_NOFOLLOW`, `fstat`, lecture et copie par descripteur, `regular-file.ts`) et ignore un répertoire de sortie remplacé par un lien, sinon un lien `output.pdf` → `/proc/1/environ` publierait le jeton interne.
+
+## 2026-10-01 · Compilateurs plafonnés par utilisateur
+
+- `compiler/warm` et la compilation asynchrone réveillent une VM `standard-4` pour 15 min ; `max_instances` (50) vaut pour tout le compte Cloudflare. Sans plafond, un seul compte (une cinquantaine de projets réveillés toutes les 15 min) bloquerait les compilations de tous.
+- Au plus 5 projets distincts par utilisateur sur 15 min (`maxCompilersPerUser`, table `compiler_activations`, verrou consultatif par utilisateur), sinon 429 `E_TOO_MANY_COMPILERS` ; un projet déjà compté reste utilisable.
+- Valeur fixe pour l'instant ; elle pourra rejoindre `plan_limits` (abonnements) si un plan doit en autoriser plus.
+
+## 2026-10-01 · R2 par le SDK S3 existant
+
+- Mêmes clients (API, agent de l'étape 1) : `S3_REGION=auto`, `S3_ENDPOINT=https://<compte>.eu.r2.cloudflarestorage.com` (juridiction UE), `S3_FORCE_PATH_STYLE=true`, checksums `WHEN_REQUIRED`. Aucune ACL, SSE ni classe de stockage dans le code (test unitaire des URL présignées).
+- Les handlers Lambda de `functions/*` ne sont pas déployés : l'API appelle `processUpload` et `importZip` dans son processus, avec son client R2.
+
+## 2026-10-01 · Railway : config as code et étape finale par argument de build
+
+- `deploy/railway/<service>.json` (web, api, realtime, pg-backup, pg-restore-test) : Dockerfile, healthchecks, `preDeployCommand` des migrations (api), réplicas (2 pour web et api, 1 pour realtime), cron. Chemin à déclarer dans les réglages de chaque service ; `kaxolax-infra/railway/provision.sh` pose les mêmes valeurs.
+- Railway ne choisit pas de cible de build : dernière étape `service` de `docker/Dockerfile` = `FROM ${KAXOLAX_SERVICE}` (variable du service, passée en argument de build). `--target` reste valable pour la CI.
+- realtime à plusieurs réplicas suppose l'extension Redis de Hocuspocus (tâche 5) : 1 réplica jusque-là, 2 avec elle.
+- `API_INTERNAL_URL` (cible des réécritures `/api` du web) est figée par `next build` : `ARG` de l'étape `builder`, remplie par Railway depuis la variable du service.
+
+## 2026-10-01 · Sauvegardes PostgreSQL chiffrées vers R2
+
+- `scripts/backup/pg-backup.sh` (cron Railway, 03:17 UTC) : instantané exporté (`pg_export_snapshot`), nombres de lignes des tables clés et `pg_dump --snapshot` sur les mêmes données ; archive vérifiée, chiffrée avec age (clé publique seule dans Railway), manifeste (sha256, comptes) ; rétention 35 jours en gardant les 7 dernières.
+- `pg-restore-test.sh` : restauration dans une base temporaire, égalité exacte des comptes avec le manifeste, échec si la sauvegarde a plus de 26 h ; jeton R2 `backup_read` (lecture seule), puisqu'il détient la clé privée. `test-local.sh` le rejoue en CI sur la pile locale.
+- Image `scripts/backup/Dockerfile` : PostgreSQL 18.6, rclone 1.75.1 et age 1.3.2 épinglés par empreinte (pas d'apk ni d'aws-cli). Remplace l'image `backup/` provisoire de kaxolax-infra.
+
+## 2026-10-02 · Document meta du projet
+
+- `project:{projectId}:meta` (`@kaxolax/collab`) : un document Hocuspocus par projet, sans contenu, jamais enregistré en base ; même autorisation que les documents du projet (tout membre, rôle relu en base).
+- Connexion toujours en lecture seule, quel que soit le rôle : les clients n'y publient que l'awareness, toute mise à jour Yjs est rejetée (fermeture au 5e rejet, comme un lecteur).
+- Présence : format `presenceStateSchema` (`@kaxolax/contracts`) ; le serveur impose l'identité (`user` : id de la connexion, nom complet et photo https lus en base, couleur dérivée de l'id par le même FNV-1a que packages/ui) et ignore un état qui reprend le clientId d'une autre connexion ou d'un autre utilisateur relayé par Redis ; chaque client valide les états reçus.
+- Jamais l'email dans la présence (visible de tous les membres, lien public compris, comme les emails masqués du partage) : sans nom complet, « Collaborateur » (`PRESENCE_FALLBACK_NAME`).
+
+## 2026-10-02 · Événements du projet en messages sans état
+
+- Schémas zod versionnés (`packages/contracts/src/events.ts`, `v: 1`) : `tree.changed` (avec ce qui a changé), `member.added|removed|role-updated`, `chat.message-created`, `comment.created`, `banner.changed`, et `compile.updated` réservé à la tâche 14 (objet ouvert, seul `buildId` fixé).
+- Publiés par l'API après validation de la transaction, au mieux (2 s, échec journalisé), par les routes internes `POST /internal/projects/:id/events` et `POST /internal/events` (bannière seulement) ; une requête refusée ne publie rien.
+- Envoyés connexion par connexion aux documents meta, pas par `broadcastStateless`, que l'extension Redis relaierait en double.
+
+## 2026-10-02 · Plusieurs instances du temps réel avec Redis
+
+- `REDIS_URL` active `@hocuspocus/extension-redis` 4.7.0 (même version que le serveur) : documents, awareness et messages sans état synchronisés, écriture en base verrouillée entre instances.
+- Bus pub/sub à part (`apps/realtime/src/cluster.ts`, ioredis du catalog) pour ce qui ne dépend pas d'un document chargé : changements de membres (`MemberChangeFanout`), fermeture des connexions d'un compte ou d'un document, événements. L'instance appelée applique puis publie ; les autres appliquent à la réception.
+- Départ d'une connexion relayé par le bus (`awareness-departed`) : l'extension ne transmet pas le retrait d'un état d'awareness (aucune publication sans connexion restante, état nul perdu à la réception).
+- Sans `REDIS_URL`, une seule instance (rien à relayer). Test d'intégration à deux instances sur le Redis local, préfixe aléatoire par lancement.
+
+## 2026-10-02 · Web : présence et suivi d'un collaborateur
+
+- Document meta ouvert par la page projet sur le WebSocket partagé ; présence publiée : identité et onglet actif (`documentId`, document ou fichier). États reçus validés (`parsePresenceState`), regroupés par personne (plusieurs onglets), soi-même exclu.
+- Curseurs distants dessinés par y-codemirror.next depuis l'identité imposée par le serveur ; nom toujours visible (`collaboratorCursorTheme` de `@kaxolax/editor`), texte en `--presence-foreground`.
+- Suivre : ouvre le fichier de la personne et la suit de fichier en fichier (changements de présence, pas d'effet React), défilement jusqu'à son curseur sans toucher à la sélection ; fin à la première frappe dans l'éditeur (modificateurs seuls exclus), au bouton d'arrêt ou après 3 s d'absence (une reconnexion efface brièvement la présence des autres).
+
+## 2026-10-02 · Web : événements du projet et changements d'accès
+
+- `tree.changed` : arborescence relue (une requête par rafale de 150 ms) plutôt qu'appliquée : l'événement ne porte ni chemins ni tailles, et la relecture reste juste après un événement perdu.
+- Changement de rôle (message `member.role-changed`) : rôle local mis à jour, lecture seule par reconfiguration ; retour en écriture en rouvrant le document. Retrait : fermeture « Forbidden », `member.removed` sur soi ou 404 sur le projet → page d'accès retiré, puis tableau de bord après 6 s.
+- `banner.changed` relayé par un petit bus en mémoire (`bannerFeed`) vers la bannière du layout ; le sondage de 60 s reste en filet (tableau de bord, connexion coupée).
+
+## 2026-10-02 · Web : modale de partage et pages d'adhésion
+
+- Réponses du partage validées côté navigateur par les schémas zod de `@kaxolax/contracts` ; `ApiError` garde le corps de la réponse (limite du plan, délai de relance, indice d'email).
+- Vue selon la matrice des permissions : complète pour le propriétaire, limitée sinon (membres, quitter). Régénérer un lien, transférer, retirer et quitter demandent une confirmation.
+- `E_PLAN_LIMIT` : limite et lien vers `PRICING_URL` (`/pricing`, page des tarifs de la tâche 12, absente pour l'instant).
+- `/invitations/[token]` et `/share/[token]` publiques, hors du groupe `(app)` ; sans session, connexion ou inscription Clerk avec `redirect_url` vers la page ; une invitation déjà acceptée à l'inscription mène au projet sans clic.
+
+## 2026-10-02 · Un seul système d'événements du projet (fusion des tâches 5 et 14)
+
+- Les deux tâches avaient chacune un `projectEventSchema` ; celui de `events.ts` (tâche 5) reste la seule source. L'événement de compilation y devient `compile.updated` (`buildId`, `status`, `result`, `resultOmitted`), à la place de l'emplacement réservé ; `projectId` n'est plus dans l'événement, il est donné par la route et le document meta comme pour les autres. `fitProjectEvent` et `MAX_PROJECT_EVENT_BYTES` (1 Mio, limite du corps des routes internes) passent dans `events.ts`.
+- Les événements de compilation utilisent l'enveloppe commune (`{ kind: 'project-event', v: 1, sentAt, event }`) : publiés par `RealtimeClient.publishProjectEvent` (la classe `ProjectEvents` disparaît), par la même route `POST /internal/projects/:id/events` (`INTERNAL_TOKEN`), livrés connexion par connexion sur le document meta et relayés aux autres instances par le bus Redis. La diffusion propre à la tâche 14 (`broadcastStateless` sur tous les documents ouverts du projet, `apps/realtime/src/events.ts`) est retirée.
+
 ## 2026-10-02 · Outils d'écriture : logique dans `@kaxolax/editor`, interface dans l'application
 
 - Détection, génération et analyse (formules, symboles, tableaux) sont des fonctions pures de `packages/editor`, sans React ni MathLive : testées sous Node, réutilisables par d'autres interfaces.

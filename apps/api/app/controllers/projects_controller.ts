@@ -40,7 +40,7 @@ export default class ProjectsController {
 
   /** Un projet avec le rôle de l'utilisateur (en-tête de l'éditeur). */
   async show({ params, auth }: HttpContext) {
-    const { project, role } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project, role } = await projectFor(auth.getUserOrFail(), String(params.id), 'read')
     return { project: serializeProject(project, role) }
   }
 
@@ -72,7 +72,7 @@ export default class ProjectsController {
     const { project, role } = await projectFor(
       user,
       String(params.id),
-      changes.name === undefined ? 'editor' : 'owner',
+      changes.name === undefined ? 'edit' : 'manageProject',
     )
     if (changes.mainDocumentId !== undefined) {
       const document = await Document.query()
@@ -87,6 +87,15 @@ export default class ProjectsController {
       project.spellcheckLanguage = changes.spellcheckLanguage
     }
     await project.save()
+    if (changes.mainDocumentId !== undefined) {
+      await this.realtime.publishProjectEvent(project.id, {
+        type: 'tree.changed',
+        reason: 'main-document',
+        actorId: user.id,
+        changes: [],
+        mainDocumentId: project.mainDocumentId,
+      })
+    }
     return { project: serializeProject(project, role) }
   }
 
@@ -95,7 +104,11 @@ export default class ProjectsController {
     change: 'archivedAt' | 'trashedAt',
     value: DateTime | null,
   ) {
-    const { project, role } = await projectFor(auth.getUserOrFail(), String(params.id), 'owner')
+    const { project, role } = await projectFor(
+      auth.getUserOrFail(),
+      String(params.id),
+      'manageProject',
+    )
     project[change] = value
     await project.save()
     return { project: serializeProject(project, role) }
@@ -119,7 +132,7 @@ export default class ProjectsController {
 
   /** Suppression définitive, seulement depuis la corbeille. */
   async destroy({ params, auth, response }: HttpContext) {
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'owner')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'manageProject')
     if (project.trashedAt === null) throw new ProjectNotTrashedException()
     const deleted = await deleteProjectRows(project)
     await releaseDeletedProject(deleted, { realtime: this.realtime, storage: this.storage })

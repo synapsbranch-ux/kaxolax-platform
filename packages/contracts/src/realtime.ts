@@ -54,3 +54,29 @@ export const realtimeTokenResponseSchema = z.object({
 export type RealtimeTokenResponse = z.infer<typeof realtimeTokenResponseSchema>
 
 export const REALTIME_TOKEN_TTL_SECONDS = 300
+
+/**
+ * POST /internal/projects/:id/members/:userId/changed du service temps réel : le rôle du membre a
+ * changé ou il a été retiré. Le service relit le rôle en base et l'applique aux connexions de
+ * cette instance : fermées (`closed`) s'il n'est plus membre, sinon rôle et lecture seule mis à
+ * jour (`updated`).
+ */
+export const memberChangedResponseSchema = z.object({
+  closed: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+})
+export type MemberChangedResponse = z.infer<typeof memberChangedResponseSchema>
+
+/**
+ * Message sans état (stateless Hocuspocus) envoyé à une connexion dont le rôle vient de changer :
+ * l'éditeur passe en lecture seule ou en écriture sans recharger.
+ */
+export const roleChangedMessageSchema = z.object({
+  type: z.literal('member.role-changed'),
+  role: projectRoleSchema,
+  readOnly: z.boolean(),
+})
+export type RoleChangedMessage = z.infer<typeof roleChangedMessageSchema>
+
+/** Code de fermeture d'une connexion retirée ou refusée (Forbidden de Hocuspocus). */
+export const REALTIME_FORBIDDEN_CLOSE_CODE = 4403

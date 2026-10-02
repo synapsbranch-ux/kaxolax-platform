@@ -1,10 +1,10 @@
+import type { AssignableRole } from '@kaxolax/contracts'
 import { column } from '@adonisjs/lucid/orm'
 import { type DateTime } from 'luxon'
-import type { ProjectRole } from '#models/project_member'
 import UuidModel from '#models/uuid_model'
 
 /** Rôles proposés à l'invitation (la propriété passe par un transfert). */
-export type InvitationRole = Exclude<ProjectRole, 'owner'>
+export type InvitationRole = AssignableRole
 
 export default class ProjectInvitation extends UuidModel {
   @column()
@@ -29,6 +29,21 @@ export default class ProjectInvitation extends UuidModel {
 
   @column.dateTime()
   declare acceptedAt: DateTime | null
+
+  /**
+   * Annulation par le propriétaire. La ligne est gardée : inviter à nouveau la même adresse la
+   * réactive, avec son nombre d'envois et la date du dernier envoi (limites d'envoi).
+   */
+  @column.dateTime()
+  declare cancelledAt: DateTime | null
+
+  /** Dernier envoi de l'email (création ou relance). */
+  @column.dateTime()
+  declare lastSentAt: DateTime
+
+  /** Nombre d'envois, création comprise. */
+  @column()
+  declare sendCount: number
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

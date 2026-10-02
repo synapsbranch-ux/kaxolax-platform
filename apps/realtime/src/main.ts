@@ -9,7 +9,10 @@ const store = DocumentStore.connect(config.DATABASE_URL, config.DB_SSL)
 const server = createRealtimeServer(config, store, logger)
 
 await server.listen()
-logger.info({ host: config.HOST, port: server.address.port }, 'realtime service listening')
+logger.info(
+  { host: config.HOST, port: server.address.port, redis: config.REDIS_URL !== undefined },
+  'realtime service listening',
+)
 
 let stopping = false
 async function shutdown(signal: string): Promise<void> {

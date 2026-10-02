@@ -11,3 +11,5 @@ coverage/
 next-env.d.ts
 playwright-report/
 test-results/
+# Généré par wrangler (bundles temporaires).
+.wrangler/

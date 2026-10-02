@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
+import { createWriteStream } from 'node:fs'
 import { copyFile, mkdir, readdir, rename, rm, stat, utimes } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { type AgentConfig } from './config.js'
+import { copyRegularFile, openRegularFile } from './regular-file.js'
 import { type BinarySource } from './workspace.js'
 
 export function createS3Client(config: AgentConfig): S3Client {
@@ -76,6 +77,21 @@ export class BinaryCache implements BinarySource {
     return download
   }
 
+  async has(sha256: string): Promise<boolean> {
+    return stat(this.pathFor(sha256)).then(
+      () => true,
+      () => false,
+    )
+  }
+
+  /**
+   * Ajoute au cache un contenu poussé par l'appelant (conteneur Cloudflare : le Worker lit R2 et
+   * envoie le flux), vérifié contre son sha256 comme un téléchargement.
+   */
+  async store(sha256: string, source: Readable): Promise<void> {
+    await this.ingest(source, sha256, `sha256:${sha256}`, this.pathFor(sha256))
+  }
+
   /** Ajoute un fichier local au cache (utilisé par la ligne de commande). */
   async put(sourcePath: string, sha256: string): Promise<void> {
     const target = this.pathFor(sha256)
@@ -84,6 +100,15 @@ export class BinaryCache implements BinarySource {
   }
 
   private async download(s3Key: string, sha256: string, target: string): Promise<string> {
+    return this.ingest(await this.fetch(s3Key), sha256, s3Key, target)
+  }
+
+  private async ingest(
+    source: Readable,
+    sha256: string,
+    label: string,
+    target: string,
+  ): Promise<string> {
     const temporaryDir = join(this.cacheDir, 'tmp')
     await mkdir(temporaryDir, { recursive: true })
     await mkdir(dirname(target), { recursive: true })
@@ -96,11 +121,11 @@ export class BinaryCache implements BinarySource {
       },
     })
     try {
-      await pipeline(await this.fetch(s3Key), hasher, createWriteStream(temporary, { mode: 0o444 }))
+      await pipeline(source, hasher, createWriteStream(temporary, { mode: 0o444 }))
       const actual = hash.digest('hex')
       if (actual !== sha256) {
         throw new ChecksumMismatchError(
-          `sha256 mismatch for ${s3Key}: expected ${sha256}, got ${actual}`,
+          `sha256 mismatch for ${label}: expected ${sha256}, got ${actual}`,
         )
       }
       await rename(temporary, target)
@@ -142,16 +167,23 @@ export class S3OutputStore implements OutputStore {
   constructor(private readonly client: S3Client) {}
 
   async put(bucket: string, key: string, filePath: string, contentType: string): Promise<void> {
-    const { size } = await stat(filePath)
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: createReadStream(filePath),
-        ContentLength: size,
-        ContentType: contentType,
-      }),
-    )
+    // Sortie de compilation : jamais à travers un lien symbolique (regular-file.ts).
+    const handle = await openRegularFile(filePath)
+    if (handle === null) throw new Error(`Not a regular file: ${filePath}`)
+    try {
+      const { size } = await handle.stat()
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: handle.createReadStream({ autoClose: false }),
+          ContentLength: size,
+          ContentType: contentType,
+        }),
+      )
+    } finally {
+      await handle.close()
+    }
   }
 }
 
@@ -162,6 +194,6 @@ export class LocalOutputStore implements OutputStore {
   async put(bucket: string, key: string, filePath: string): Promise<void> {
     const target = join(this.root, bucket, key)
     await mkdir(dirname(target), { recursive: true })
-    await copyFile(filePath, target)
+    await copyRegularFile(filePath, target)
   }
 }

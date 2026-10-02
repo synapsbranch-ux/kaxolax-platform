@@ -15,7 +15,7 @@ export default class FilesController {
   /** URL présignée de courte durée pour afficher ou télécharger un fichier binaire. */
   async url({ params, request, auth }: HttpContext) {
     const { download } = await request.validateUsing(fileUrlValidator, { data: request.qs() })
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'read')
     const fileId = String(params.fileId)
     const file = isUuid(fileId)
       ? await File.query().where({ id: fileId, projectId: project.id }).first()
