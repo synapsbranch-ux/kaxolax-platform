@@ -12,6 +12,15 @@ l'API).
   GitHub), `/account` (profil, sécurité : MFA, sessions et appareils, suppression), menu du
   compte (`<UserButton />`). Les pages du groupe `(app)` exigent une session ; sans elle, retour
   sur `/sign-in?redirect_url=…`. Les clés Clerk sont lues à l'exécution (voir le README racine).
+- **Abonnements (Clerk Billing)** : `/pricing` (publique) avec `<PricingTable />`, liée depuis le
+  menu du compte (`components/billing/account-menu.tsx`) ; abonnement, factures et moyens de
+  paiement dans l'onglet Billing de `/account`. `has({ plan })` ne sert qu'à l'affichage. Les
+  refus 403 `E_PLAN_LIMIT` de l'API s'expliquent dans `PlanLimitNotice`
+  (`components/billing/plan-limit-notice.tsx`, message, limite, bouton vers les tarifs) : en
+  ligne dans le résultat d'une compilation en délai dépassé, sinon dans une boîte de dialogue
+  commune (`PlanLimitDialog`, layout `(app)`) pour tout appel de l'API ; un écran qui affiche le
+  refus lui-même (modale de partage) appelle `markPlanLimitHandled(error)` dans son `catch` et
+  passe `error.planLimit` au composant.
 - 404, et `/healthz` (sonde publique).
 - **Bannière système** (`components/system-banner.tsx`) : annonces publiées depuis l'admin, sur
   toutes les pages connectées, en bandeau fixe en haut de l'écran (aucune hauteur ajoutée à

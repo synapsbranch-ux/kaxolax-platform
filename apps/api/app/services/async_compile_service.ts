@@ -31,6 +31,7 @@ import {
 import type CompileWorkerClient from '#services/compile_worker'
 import { reserveCompiler } from '#services/compiler_quota'
 import type { CompileOutputStorage } from '#services/object_storage'
+import { compileTimeoutMs, withCompileTimeLimit } from '#services/plan_enforcement'
 import type ProjectEvents from '#services/project_events'
 import type RealtimeClient from '#services/realtime_client'
 
@@ -150,7 +151,15 @@ export async function enqueueCompile(
   options: CompileOptions = {},
 ): Promise<CompileAccepted> {
   await reserveCompiler(user.id, project.id)
-  const request = await buildCompileRequest(deps.realtime, project, deps.outputs.bucket, options)
+  // Durée maximale du plan du propriétaire (claims du jeton s'il compile lui-même).
+  const timeoutMs = await compileTimeoutMs(project.ownerId, user)
+  const request = await buildCompileRequest(
+    deps.realtime,
+    project,
+    deps.outputs.bucket,
+    options,
+    timeoutMs,
+  )
   await expireStaleBuilds(deps, project.id)
   // INSERT … ON CONFLICT sur l'index unique partiel : deux demandes simultanées, une seule passe.
   const inserted = await db.rawQuery<{ rows: unknown[] }>(
@@ -282,13 +291,16 @@ export async function applyWorkerCallback(
       .where('id', compile.projectId)
       .update({ lastCompiledAt: DateTime.utc().toSQL() })
     const names = new Set(callback.outputFiles?.map((file) => file.name) ?? [])
-    result = {
-      buildId: compile.id,
-      status: status.data,
-      durationMs: compile.durationMs,
-      entries,
-      ...(await outputUrls(deps.outputs, compile.outputPrefix, names)),
-    }
+    result = await withCompileTimeLimit(
+      {
+        buildId: compile.id,
+        status: status.data,
+        durationMs: compile.durationMs,
+        entries,
+        ...(await outputUrls(deps.outputs, compile.outputPrefix, names)),
+      },
+      { projectId: compile.projectId, timeoutMs: compile.timeoutMs },
+    )
   }
   // `preparing` déjà annoncé par la réponse du Worker : pas de second événement identique.
   if (previous !== callback.status) {

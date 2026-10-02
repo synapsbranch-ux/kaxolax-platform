@@ -1,6 +1,5 @@
 'use client'
 
-import { UserButton } from '@clerk/nextjs'
 import {
   Alert,
   Badge,
@@ -29,6 +28,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRequiredUser } from '@/components/auth/session'
+import { AccountMenu } from '@/components/billing/account-menu'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DashboardSidebar, PROJECT_VIEWS } from '@/components/dashboard/dashboard-sidebar'
 import { NameDialog } from '@/components/name-dialog'
@@ -217,7 +217,7 @@ export default function DashboardPage() {
           >
             <PlusIcon />
           </Button>
-          <UserButton userProfileUrl="/account" userProfileMode="navigation" />
+          <AccountMenu />
         </header>
 
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 md:px-8">

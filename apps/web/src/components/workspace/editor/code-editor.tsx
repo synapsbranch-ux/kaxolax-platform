@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import { api } from '@/lib/api'
+import { isStorageAvailableMessage, reportRealtimePlanLimit } from '@/lib/plan-limits'
 
 /** Commandes de l'éditeur utilisées par la page (logs, SyncTeX, compilation, barre Tools). */
 export interface EditorHandle {
@@ -101,6 +102,11 @@ export function CodeEditor({
       sessionAwareness: true,
       // Jeton frais (5 minutes) à chaque authentification, reconnexions comprises.
       token: async () => (await api.realtimeToken(projectId)).token,
+      // Stockage du propriétaire plein : éditions refusées, expliqué par la boîte des limites.
+      onStateless: ({ payload }) => {
+        reportRealtimePlanLimit(payload)
+        if (isStorageAvailableMessage(payload)) provider.forceSync()
+      },
     })
     provider.attach()
 

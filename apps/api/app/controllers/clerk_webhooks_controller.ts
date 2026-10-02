@@ -6,6 +6,12 @@ import db from '@adonisjs/lucid/services/db'
 import clerkConfig from '#config/clerk'
 import User from '#models/user'
 import {
+  applyBillingEvent,
+  deliverBillingMails,
+  isBillingEvent,
+  queueBillingMails,
+} from '#services/billing_webhooks'
+import {
   applyBanState,
   banStateFromWebhook,
   deleteClerkUser,
@@ -28,10 +34,14 @@ interface WebhookEffects {
 const NO_EFFECTS: WebhookEffects = { deleted: [], disconnectUserId: null }
 
 /**
- * Webhooks Clerk (user.created, user.updated, user.deleted) : signature vérifiée sur le corps brut,
- * chaque événement traité une seule fois (table clerk_webhook_events, même transaction). Le champ
- * `banned` est reflété dans `users.banned_at` ; un compte banni ou supprimé perd aussitôt ses
- * connexions temps réel.
+ * Webhooks Clerk (user.created, user.updated, user.deleted, et Billing : subscription.*,
+ * subscriptionItem.*) : signature vérifiée sur le corps brut, chaque événement traité une seule
+ * fois (table clerk_webhook_events, même transaction). Le champ `banned` est reflété dans
+ * `users.banned_at` ; un compte banni ou supprimé perd aussitôt ses connexions temps réel. Les
+ * abonnements sont reflétés dans `subscriptions` (#services/billing_webhooks) ; leurs emails sont
+ * inscrits dans `billing_mails` par la même transaction, puis envoyés après validation. Tant qu'un
+ * email de l'événement n'est pas parti, la réponse est 503 : Clerk relivre l'événement, et la
+ * relivraison (déjà traitée) ne fait que renvoyer les emails en attente.
  */
 @inject()
 export default class ClerkWebhooksController {
@@ -84,12 +94,19 @@ export default class ClerkWebhooksController {
         const user = await upsertClerkUser(profile, trx)
         const banState = banStateFromWebhook(event.data)
         const banned = banState !== null && (await applyBanState(user, banState, trx))
-        return { deleted: [], disconnectUserId: banned ? user.id : null }
+        return { ...NO_EFFECTS, disconnectUserId: banned ? user.id : null }
       }
       if (event.type === 'user.deleted' && typeof event.data.id === 'string') {
         const user = await User.query({ client: trx }).where('clerkUserId', event.data.id).first()
         const deleted = await deleteClerkUser(event.data.id, trx)
-        return { deleted, disconnectUserId: user?.deletedAt === null ? user.id : null }
+        return {
+          ...NO_EFFECTS,
+          deleted,
+          disconnectUserId: user?.deletedAt === null ? user.id : null,
+        }
+      }
+      if (isBillingEvent(event.type)) {
+        await queueBillingMails(eventId, await applyBillingEvent(event, trx), trx)
       }
       return NO_EFFECTS
     })
@@ -99,6 +116,13 @@ export default class ClerkWebhooksController {
     }
     if (effects.disconnectUserId !== null) {
       await this.realtime.disconnectUser(effects.disconnectUserId)
+    }
+    if (!(await deliverBillingMails(eventId))) {
+      response.serviceUnavailable({
+        code: 'E_BILLING_MAIL_PENDING',
+        message: 'A billing email could not be sent, retry later',
+      })
+      return
     }
     response.noContent()
   }

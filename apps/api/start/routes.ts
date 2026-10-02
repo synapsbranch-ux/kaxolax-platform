@@ -8,6 +8,7 @@ import { registerAdminRoutes } from '#start/admin_routes'
 import { middleware } from '#start/kernel'
 
 const MeController = () => import('#controllers/me_controller')
+const PlanController = () => import('#controllers/plan_controller')
 const PreferencesController = () => import('#controllers/preferences_controller')
 const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
 const WorkspacesController = () => import('#controllers/workspaces_controller')
@@ -43,6 +44,8 @@ router
     router
       .group(() => {
         router.get('me', [MeController, 'show'])
+        // Plan, features, limites et usage (Clerk Billing ; affichage, limites appliquées par route).
+        router.get('me/plan', [PlanController, 'show'])
         router.get('me/preferences', [PreferencesController, 'show'])
         router.patch('me/preferences', [PreferencesController, 'update'])
         // Bannières système actives (affichées en haut de l'application).

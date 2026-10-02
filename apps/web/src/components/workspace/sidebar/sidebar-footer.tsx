@@ -1,6 +1,5 @@
 'use client'
 
-import { UserButton } from '@clerk/nextjs'
 import { PERSONAL_WORKSPACE_NAME } from '@kaxolax/contracts'
 import {
   DropdownMenu,
@@ -17,6 +16,7 @@ import {
 import { ChevronsUpDownIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { AccountMenu } from '@/components/billing/account-menu'
 import { ThemeToggle } from '@/components/preferences/theme-toggle'
 import { api, type User, type Workspace } from '@/lib/api'
 
@@ -123,8 +123,8 @@ export function SidebarFooter({
         <WorkspaceSwitcher workspaceId={workspaceId} allLabel={allLabel} />
       </div>
       <ThemeToggle />
-      {/* Compte : profil, sécurité (MFA, sessions), facturation (pages de /account), déconnexion. */}
-      <UserButton userProfileUrl="/account" userProfileMode="navigation" />
+      {/* Compte : profil, sécurité (MFA, sessions), facturation (pages de /account), tarifs, déconnexion. */}
+      <AccountMenu />
     </footer>
   )
 }

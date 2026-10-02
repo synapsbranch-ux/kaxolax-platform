@@ -7,6 +7,7 @@ import logger from '@adonisjs/core/services/logger'
 import type { DateTime } from 'luxon'
 import User from '#models/user'
 import { profileFromClaims, upsertClerkUser } from '#services/clerk_users'
+import { recordClaimedEntitlements, rememberSessionClaims } from '#services/entitlements'
 
 export interface ClerkGuardOptions {
   /** Clé publique PEM de l'instance Clerk : vérification sans appel réseau. */
@@ -168,6 +169,15 @@ export class ClerkGuard implements GuardContract<User> {
 
     this.user = user
     this.claims = sessionClaimsFrom(claims.sub, claims)
+    // Plan et features (`pla`, `fea`) : lus par le service des droits pour cet utilisateur.
+    rememberSessionClaims(user, claims)
+    // Relevé de ce plan pour les vérifications faites sans ce jeton (collaborateurs du compte,
+    // service temps réel) ; un échec n'empêche pas l'authentification.
+    try {
+      await recordClaimedEntitlements(user.id, claims)
+    } catch (error) {
+      logger.error({ err: error, userId: user.id }, 'could not record claimed plan')
+    }
     this.isAuthenticated = true
     return user
   }

@@ -22,6 +22,7 @@ import {
 } from './access.js'
 import type { RealtimeConfig } from './config.js'
 import { broadcastProjectEvent, EVENTS_ROUTE, readJsonBody } from './events.js'
+import { createStorageGuard } from './storage.js'
 import type { DocumentStore } from './store.js'
 
 export type { ConnectionContext } from './access.js'
@@ -35,7 +36,7 @@ type ServerOptions = Pick<
   | 'STORE_DEBOUNCE_MS'
   | 'STORE_MAX_DEBOUNCE_MS'
 > &
-  Partial<Pick<RealtimeConfig, 'ROLE_RECHECK_MS' | 'ROLE_SWEEP_MS'>>
+  Partial<Pick<RealtimeConfig, 'ROLE_RECHECK_MS' | 'ROLE_SWEEP_MS' | 'STORAGE_CHECK_MS'>>
 
 /** Un message Yjs peut contenir tout l'état d'un document de 2 Mio, historique compris. */
 const MAX_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -88,6 +89,11 @@ export function createRealtimeServer(
     store,
     logger,
     roleRecheckMs: options.ROLE_RECHECK_MS ?? 5_000,
+  })
+  const storage = createStorageGuard({
+    store,
+    logger,
+    checkMs: options.STORAGE_CHECK_MS ?? 10_000,
   })
   const sweepMs = options.ROLE_SWEEP_MS ?? 30_000
   let sweepTimer: NodeJS.Timeout | undefined
@@ -259,9 +265,13 @@ export function createRealtimeServer(
       await access.recheck(connection)
     },
 
-    /** Rôle vérifié à chaque mise à jour Yjs (voir `createAccessControl`). */
+    /**
+     * Rôle vérifié à chaque mise à jour Yjs (voir `createAccessControl`), puis stockage du plan du
+     * propriétaire (voir `createStorageGuard`).
+     */
     async beforeSync({ connection, document, type, payload }) {
       await access.beforeSync(connection, document, type, payload)
+      await storage.beforeSync(connection, type)
     },
 
     onListen({ instance }) {
@@ -301,6 +311,7 @@ export function createRealtimeServer(
               sha256(textOf(document)),
             )
             logger.debug({ documentName: name, written }, 'document stored')
+            if (written) storage.invalidate(target.projectId)
           } catch (error) {
             logger.error({ err: error, documentName: name }, 'failed to store document')
             throw error

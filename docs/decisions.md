@@ -465,3 +465,22 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `scripts/backup/pg-backup.sh` (cron Railway, 03:17 UTC) : instantané exporté (`pg_export_snapshot`), nombres de lignes des tables clés et `pg_dump --snapshot` sur les mêmes données ; archive vérifiée, chiffrée avec age (clé publique seule dans Railway), manifeste (sha256, comptes) ; rétention 35 jours en gardant les 7 dernières.
 - `pg-restore-test.sh` : restauration dans une base temporaire, égalité exacte des comptes avec le manifeste, échec si la sauvegarde a plus de 26 h ; jeton R2 `backup_read` (lecture seule), puisqu'il détient la clé privée. `test-local.sh` le rejoue en CI sur la pile locale.
 - Image `scripts/backup/Dockerfile` : PostgreSQL 18.6, rclone 1.75.1 et age 1.3.2 épinglés par empreinte (pas d'apk ni d'aws-cli). Remplace l'image `backup/` provisoire de kaxolax-infra.
+
+## 2026-10-02 · Droits Billing : claims du jeton d'abord, miroir des webhooks ensuite
+
+- Plan et features lus dans les claims `pla`/`fea` du jeton Clerk vérifié (lecture de `has()` refaite dans l'API, sans dépendre de @clerk/shared) ; sans ces claims, miroir `subscriptions` des webhooks ; sinon `free`. Valeurs chiffrées dans `plan_limits` (cache 60 s), plan inconnu = limites de Free.
+- Une feature absente ramène sa limite à la valeur de Free (le plan donne les nombres, la feature les débloque) ; sans claims, les features se déduisent des valeurs du plan.
+- Un élément `canceled` garde son plan jusqu'à `period_end` pour les droits ; l'admin (fiche, statistiques) compte toujours `active` et `past_due` seulement.
+
+## 2026-10-02 · Limites d'un projet : celles de son propriétaire
+
+- Compilation, collaborateurs et stockage d'un projet suivent le plan du propriétaire, même quand un collaborateur agit (un collaborateur Pro sur un projet Free compile 20 s). Les claims de la requête ne servent que si le propriétaire la fait lui-même ; sinon la plus récente de deux sources : relevé des claims de son dernier jeton (`users.claimed_plan_*`, écrit par le guard, date = `iat`) ou miroir des webhooks (`subscriptions.updated_at`). Ainsi une invitation envoyée sous des claims Pro est acceptée même si le webhook tarde ou a échoué (payeur inconnu jusqu'à épuisement des réessais) ; un relevé de plus de 35 jours sans nouveau jeton n'est plus utilisé.
+- Stockage = fichiers binaires + états Yjs des projets possédés ; vérifié à la création de document et de projet, au début et à la fin d'un upload et d'un import zip (verrou consultatif par compte), au transfert de propriété, et par le service temps réel : quand l'usage enregistré atteint la limite, les connexions qui éditent passent en lecture seule (message `plan.storage`, boîte des limites dans le web) jusqu'à libération de place. Dépassement borné à ce qui arrive entre deux enregistrements (10 s) et deux lectures de l'usage (10 s).
+- Transfert de propriété (propriétaire et admin, sans exception) : refusé (403 `E_PLAN_LIMIT`) si le stockage du nouveau propriétaire ne peut pas accueillir le projet, ou si les collaborateurs après transfert (ancien propriétaire devenu éditeur compris) dépassent sa limite. L'admin affiche le motif au lieu de « Accès refusé ».
+- Refus homogène 403 `E_PLAN_LIMIT` `{ limit: { name, plan, max }, feature, current?, upgradeUrl }` ; une compilation en délai dépassé sous une limite levable porte `planLimit` dans son résultat.
+
+## 2026-10-02 · Webhooks Billing : ordre par horodatage Clerk, emails par transition
+
+- `subscription.*` et `subscriptionItem.*` sur la même route ; rejeu écarté par `clerk_webhook_events`. Chaque élément est reflété par son id ; `subscriptions.updated_at` = `timestamp` de l'événement : un événement plus ancien n'écrase rien.
+- Payeur sans miroir local (webhook `user.created` pas encore reçu) : 409 et rien d'enregistré, Clerk réessaie. Payeur organisation ignoré (étape 3).
+- Emails après validation, décidés par la transition de statut sous verrou de ligne : bienvenue à l'entrée en `active` d'un plan payant (pas depuis `past_due` ni `canceled`), paiement en retard à l'entrée en `past_due`. Deux événements portant la même transition n'en envoient qu'un.

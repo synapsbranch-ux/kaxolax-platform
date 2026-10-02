@@ -33,16 +33,17 @@ import {
   MemberNotFoundException,
   OwnerCannotLeaveException,
   OwnerRoleLockedException,
-  PlanLimitException,
   ShareLinkNotFoundException,
   TooManyInvitationsException,
 } from '#exceptions/sharing'
+import { PlanLimitException } from '#exceptions/plan_limit'
 import Project from '#models/project'
 import ProjectInvitation from '#models/project_invitation'
 import ProjectMember, { type ProjectRole } from '#models/project_member'
 import ShareLink from '#models/share_link'
 import User from '#models/user'
 import { isoString } from '#services/dates'
+import { projectCollaboratorCount } from '#services/plan_enforcement'
 import { collaboratorLimit } from '#services/plans'
 import { recordSharingEvent } from '#services/sharing_audit'
 import {
@@ -173,26 +174,21 @@ async function invitationEntry(
 // --- Limite de collaborateurs ---------------------------------------------------------------
 
 /**
- * Collaborateurs d'un projet : membres autres que le propriétaire, plus invitations en attente non
- * expirées ni annulées (une place est réservée dès l'invitation). `excludeInvitationId` : invitation qui va
- * être acceptée ou renvoyée, comptée à part.
+ * Collaborateurs d'un projet (`projectCollaboratorCount`) et limite du plan de son propriétaire.
+ * `excludeInvitationId` : invitation qui va être acceptée ou renvoyée, comptée à part.
+ * `requester` : compte qui agit ; s'il est le propriétaire, la limite vient des claims de son
+ * jeton, sinon du dernier plan enregistré pour lui (relevé de ses claims ou miroir des webhooks,
+ * le plus récent), comme à l'invitation.
  */
 async function collaboratorUsage(
   project: Project,
   client: TransactionClientContract | undefined,
   excludeInvitationId?: string,
+  requester?: User,
 ): Promise<CollaboratorUsage> {
-  const result = await (client ?? db).rawQuery<{ rows: { used: number }[] }>(
-    `SELECT
-       (SELECT COUNT(*)::int FROM project_members WHERE project_id = ? AND role <> 'owner')
-       + (SELECT COUNT(*)::int FROM project_invitations
-            WHERE project_id = ? AND accepted_at IS NULL AND cancelled_at IS NULL
-              AND expires_at > now()
-              AND id IS DISTINCT FROM ?::uuid) AS used`,
-    [project.id, project.id, excludeInvitationId ?? null],
-  )
-  const { plan, max } = await collaboratorLimit(project.ownerId, client)
-  return { plan, max, used: result.rows[0]?.used ?? 0 }
+  const used = await projectCollaboratorCount(project.id, client, excludeInvitationId)
+  const { plan, max } = await collaboratorLimit(project.ownerId, client, requester)
+  return { plan, max, used }
 }
 
 /**
@@ -204,10 +200,16 @@ async function assertCollaboratorSlot(
   project: Project,
   trx: TransactionClientContract,
   excludeInvitationId?: string,
+  requester?: User,
 ): Promise<void> {
-  const usage = await collaboratorUsage(project, trx, excludeInvitationId)
+  const usage = await collaboratorUsage(project, trx, excludeInvitationId, requester)
   if (usage.max !== null && usage.used + 1 > usage.max) {
-    throw new PlanLimitException({ plan: usage.plan, max: usage.max })
+    throw new PlanLimitException({
+      name: 'collaborators',
+      plan: usage.plan,
+      max: usage.max,
+      current: usage.used,
+    })
   }
 }
 
@@ -301,7 +303,7 @@ async function joinOrRaise(
     await existing.useTransaction(trx).save()
     return { projectId: project.id, role: best, joined: true, changed: true }
   }
-  await assertCollaboratorSlot(project, trx, excludeInvitationId)
+  await assertCollaboratorSlot(project, trx, excludeInvitationId, user)
   await ProjectMember.create({ projectId: project.id, userId: user.id, role }, { client: trx })
   return { projectId: project.id, role, joined: true, changed: false }
 }
@@ -321,7 +323,7 @@ export async function projectMembers(
   return {
     members: await listMembers(project.id, { userId: user.id, manager }),
     invitations: manager ? await listInvitations(project.id) : [],
-    collaborators: manager ? await collaboratorUsage(project, undefined) : null,
+    collaborators: manager ? await collaboratorUsage(project, undefined, undefined, user) : null,
   }
 }
 
@@ -428,7 +430,7 @@ export async function transferProjectOwnership(
       ? await User.query({ client: trx }).where('id', newOwnerId).first()
       : null
     if (!newOwner) throw new InvalidNewOwnerException()
-    const transfer = await transferOwnership(project, newOwner, trx)
+    const transfer = await transferOwnership(project, newOwner, trx, owner)
     await recordSharingEvent(
       {
         projectId: project.id,
@@ -615,7 +617,7 @@ export async function inviteByEmail(
       .first()
     if (existing) {
       assertCanResend(existing)
-      await assertCollaboratorSlot(project, trx, existing.id)
+      await assertCollaboratorSlot(project, trx, existing.id, owner)
       const previous = snapshot(existing)
       const token = renew(existing)
       existing.merge({
@@ -629,7 +631,7 @@ export async function inviteByEmail(
     }
 
     await assertHourlyInvitationLimit(owner, trx)
-    await assertCollaboratorSlot(project, trx)
+    await assertCollaboratorSlot(project, trx, undefined, owner)
     const invitation = new ProjectInvitation()
     const token = renew(invitation)
     invitation.merge({
@@ -722,7 +724,7 @@ export async function resendInvitation(
     const invitation = await pendingInvitation(project.id, invitationId, trx)
     assertCanResend(invitation)
     if (invitation.expiresAt <= DateTime.utc()) {
-      await assertCollaboratorSlot(project, trx, invitation.id)
+      await assertCollaboratorSlot(project, trx, invitation.id, owner)
     }
     const previous = snapshot(invitation)
     const token = renew(invitation)

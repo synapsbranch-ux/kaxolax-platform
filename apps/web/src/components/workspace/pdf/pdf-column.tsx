@@ -4,6 +4,7 @@ import type { CompileResult, OutputDownload, PdfPosition } from '@kaxolax/contra
 import { Button, Sheet, SheetContent, SheetTitle, SimpleTooltip, cn } from '@kaxolax/ui'
 import { FileWarningIcon, PlayIcon, RotateCwIcon, ScrollTextIcon } from 'lucide-react'
 import { type ReactNode, useCallback, useRef, useState } from 'react'
+import { PlanLimitNotice } from '@/components/billing/plan-limit-notice'
 import { CompileStatus, type CompileSettings } from './compile-status'
 import { LogPanel } from './log-panel'
 import { PdfActions, PdfFloatingBar, ZoomMenu } from './pdf-controls'
@@ -436,6 +437,10 @@ function PdfEmptyState({
           ? 'La compilation a dépassé le temps autorisé.'
           : 'La compilation n’a produit aucun PDF.'}
       </p>
+      {/* Durée maximale du plan du propriétaire atteinte : un plan supérieur la lève. */}
+      {result.planLimit ? (
+        <PlanLimitNotice error={result.planLimit} compact className="max-w-sm text-left" />
+      ) : null}
       <Button size="sm" variant="outline" onClick={onShowLogs}>
         Voir les logs
       </Button>

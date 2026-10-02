@@ -82,7 +82,7 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   | `GET /projects/:id/members`                           | tout membre                                  | `projectMembersResponseSchema` (invitations, `collaborators` et emails des membres pour le propriétaire seulement ; les autres rôles ne voient que leur propre email, `null` ailleurs)                                                       |
   | `PATCH /projects/:id/members/:userId`                 | owner                                        | `{ role }` (editor, reviewer, viewer) → `memberResponseSchema` ; 409 `E_OWNER_ROLE_LOCKED` sur le propriétaire                                                                                                                               |
   | `DELETE /projects/:id/members/:userId`                | owner, ou le membre lui-même (quitter)       | 204 ; 409 `E_OWNER_CANNOT_LEAVE`                                                                                                                                                                                                             |
-  | `POST /projects/:id/transfer`                         | owner                                        | `{ userId }` d'un membre existant → `projectMembersResponseSchema` ; 422 `E_INVALID_NEW_OWNER`, 409 `E_ALREADY_OWNER`                                                                                                                        |
+  | `POST /projects/:id/transfer`                         | owner                                        | `{ userId }` d'un membre existant → `projectMembersResponseSchema` ; 422 `E_INVALID_NEW_OWNER`, 409 `E_ALREADY_OWNER`, 403 `E_PLAN_LIMIT` (plan du nouveau propriétaire)                                                                     |
   | `GET /projects/:id/invitations`                       | owner                                        | `projectInvitationsResponseSchema`                                                                                                                                                                                                           |
   | `POST /projects/:id/invitations`                      | owner                                        | `{ email, role }` → 201 `invitationResponseSchema` (200 si une invitation en attente pour cet email est mise à jour et renvoyée) ; 403 `E_PLAN_LIMIT`, 409 `E_ALREADY_MEMBER`, 429 `E_TOO_MANY_INVITATIONS`, 502 `E_INVITATION_EMAIL_FAILED` |
   | `POST /projects/:id/invitations/:invitationId/resend` | owner                                        | `invitationResponseSchema` ; 429 `E_TOO_MANY_INVITATIONS` (`retryAfterSeconds`)                                                                                                                                                              |
@@ -115,11 +115,11 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     par lien) écrit une ligne dans `project_sharing_events` (dans la transaction de l'action) et
     une ligne structurée dans le journal applicatif (`app/services/sharing_audit.ts`), jamais de
     jeton, d'URL de lien ni d'email.
-  - Limite de collaborateurs : celle du plan du propriétaire (`plan_limits.max_collaborators`,
-    abonnement lu dans `subscriptions`, `free` sinon ; `app/services/plans.ts`). Comptent les
-    membres autres que le propriétaire et les invitations en attente non expirées ; appliquée à
-    l'invitation, à la relance d'une invitation expirée, à l'acceptation et à l'adhésion par
-    lien, projet verrouillé. Refus : 403 `planLimitErrorSchema` (`limit.plan`, `limit.max`).
+  - Limite de collaborateurs : celle du plan du propriétaire (voir **Abonnements** ;
+    `app/services/plans.ts`). Comptent les membres autres que le propriétaire et les invitations
+    en attente non expirées ; appliquée à l'invitation, à la relance d'une invitation expirée, à
+    l'acceptation et à l'adhésion par lien, projet verrouillé. Refus : 403 `E_PLAN_LIMIT`
+    (`limit.name` = `collaborators`, `current` = places occupées).
   - Liens de partage : un lien `view` (viewer) et un lien `edit` (editor) par projet. Jeton =
     HMAC-SHA256 (`APP_KEY`) de l'identifiant aléatoire du lien : seul son hash est stocké, mais
     le propriétaire peut réafficher le lien. Désactiver puis réactiver redonne le même lien ;
@@ -176,6 +176,9 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   réveille le conteneur du projet à l'ouverture de l'éditeur. Une compilation active à la fois
   par projet (409 `E_COMPILE_IN_PROGRESS`) ; au plus 5 projets réveillés par utilisateur sur
   15 min (429 `E_TOO_MANY_COMPILERS`).
+  Chaque demande (synchrone et asynchrone) porte `timeoutMs`, la durée maximale du plan du
+  propriétaire du projet (20 s Free, 240 s Pro) ; un résultat `timeout` sous une limite qu'un
+  plan supérieur lève porte `planLimit` (corps `E_PLAN_LIMIT`, `compile_time`).
 - **SyncTeX** : `GET /projects/:id/synctex/code` (`file`, `line`, `column`) et
   `GET /projects/:id/synctex/pdf` (`page`, `h`, `v`).
 - **Export** : `GET /projects/:id/download.zip`, en streaming, réimportable tel quel ; ou
@@ -186,6 +189,43 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   commencées et pas encore terminées, maintenance d'abord. Le web la relit toutes les 60 s et au
   retour sur l'onglet ; `RealtimeClient.notifyBannerChanged`, appelée à chaque création,
   modification ou suppression, sera branchée sur le document meta des projets (tâche 5).
+- **Abonnements (Clerk Billing)** (contrats : `packages/contracts/src/billing.ts`).
+  - Droits (`app/services/entitlements.ts`) : plan et features lus dans les claims `pla`
+    (`u:pro`) et `fea` (`u:long_compile,…`) du jeton vérifié (`has({ plan })`/`has({ feature })`,
+    même lecture que Clerk, portées `u`/`ou`/`uo`), posés sur l'utilisateur de la requête par le
+    guard ; sinon la plus récente de deux sources enregistrées : relevé des claims du dernier
+    jeton du compte (`users.claimed_plan_slug`, `claimed_plan_features`, `claimed_plan_at` =
+    `iat`, écrit par le guard, ignoré après 35 jours) ou miroir `subscriptions` (élément
+    `active` ou `past_due`, ou `canceled` jusqu'à `period_end` ; plan payant d'abord) ; sinon
+    `free`. Valeurs chiffrées : `plan_limits` par
+    slug (cache de 60 s ; plan inconnu = limites de Free). Une feature absente ramène sa limite
+    à la valeur de Free ; sans claims, les features se déduisent des valeurs du plan.
+  - Les limites d'une action sur un projet sont celles de son propriétaire : claims du jeton
+    s'il agit lui-même, sinon relevé de ses claims ou miroir, le plus récent
+    (`app/services/plan_enforcement.ts`). L'invitation (claims du propriétaire) et son
+    acceptation (par l'invité) lisent donc le même plan, même si un webhook manque.
+  - Limites appliquées : durée de compilation (`timeoutMs` de chaque demande), collaborateurs,
+    stockage (fichiers + états Yjs des projets possédés ; création de document, de projet,
+    début et fin d'upload, début et fin d'import zip ; verrou
+    consultatif par compte ; éditions temps réel : lecture seule tant que le stockage du
+    propriétaire est plein, appliquée par `apps/realtime/src/storage.ts`, dépassement borné à
+    l'intervalle d'enregistrement), transfert de propriété (propriétaire ou admin : le projet
+    doit tenir dans le stockage et la limite de collaborateurs du nouveau propriétaire, ancien
+    propriétaire devenu éditeur compris),
+    historique (`historyRetention(account)` pour la tâche 8, jours ou null). Refus homogène :
+    403 `{ code: 'E_PLAN_LIMIT', message, limit: { name, plan, max }, feature, current?,
+upgradeUrl }` (`app/exceptions/plan_limit.ts`).
+  - `GET /me/plan` : plan, source (`claims`, `subscription`, `default`), features, limites,
+    usage (stockage, plus grand nombre de collaborateurs d'un projet), élément d'abonnement,
+    URL des tarifs. Affichage seulement.
+  - Webhooks `subscription.*` et `subscriptionItem.*` sur `POST /webhooks/clerk`
+    (`app/services/billing_webhooks.ts`) : chaque élément est reflété dans `subscriptions`
+    (plan, statut, `period_end`), `updated_at` = horodatage Clerk de l'événement (enveloppe
+    `timestamp`) : un événement plus ancien n'écrase pas un état plus récent. Payeur pas encore
+    connu : 409 `E_BILLING_PAYER_UNKNOWN` (rien d'enregistré, Clerk réessaie) ; payeur
+    organisation ignoré. Emails (`app/mails/billing_mails.ts`, français) après validation, un
+    par transition : bienvenue quand un plan payant devient `active` (pas après un retard de
+    paiement ni une résiliation annulée), paiement en retard à l'entrée en `past_due`.
 - **Admin** (`/admin/*`, pour `apps/admin`) : middleware `auth` puis `admin`
   (`app/middleware/admin_middleware.ts`) : claim `metadata.role` = `admin` (sinon 403
   `E_ADMIN_REQUIRED`), second facteur vérifié dans la session (claim `fva[1] !== -1`) et MFA
@@ -207,7 +247,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     dossiers, membres, dernière compilation, workspace ; aucun nom de fichier ni contenu),
     `POST …/transfer` (`newOwnerId`, compte ni supprimé ni banni, sinon 422
     `E_INVALID_NEW_OWNER` : l'ancien propriétaire devient éditeur, le projet rejoint le workspace
-    personnel du nouveau), `…/archive`, `…/unarchive`, `…/trash`, `…/restore`,
+    personnel du nouveau ; 403 `E_PLAN_LIMIT` si le projet dépasse le stockage ou la limite de
+    collaborateurs du plan du nouveau propriétaire), `…/archive`, `…/unarchive`, `…/trash`, `…/restore`,
     `DELETE /admin/projects/:id` (depuis la corbeille).
   - Bannières : `GET/POST /admin/banners`, `PATCH/DELETE /admin/banners/:id` (message, `level`
     info|warning|maintenance, `startsAt` par défaut maintenant, `endsAt` facultative et après
@@ -283,6 +324,12 @@ même nom ne réussissent jamais toutes les deux, que des appels simultanés ne 
 workspace personnel, qu'un projet inséré sans `workspace_id` (ancienne API) rejoint le
 workspace personnel de son propriétaire, et que `save()` ou `delete()` sur une ligne
 d'association ne touche qu'elle.
+
+Abonnements (`tests/unit/entitlements.spec.ts`, `tests/functional/billing.spec.ts`) : lecture
+des claims `pla`/`fea`, repli sur le miroir, cache de `plan_limits`, chaque limite Free et Pro
+(durée de compilation envoyée, y compris par un collaborateur, stockage, collaborateurs,
+transfert de propriété, invitation acceptée sous le plan relevé dans les claims du propriétaire),
+webhooks rejoués ou désordonnés sans effet, un email par transition, payeur inconnu.
 
 Admin (`tests/functional/admin_*.spec.ts`, faux Clerk et faux service temps réel dans
 `tests/admin.ts`) : refus sans rôle, sans second facteur, sans MFA activée chez Clerk ; journal

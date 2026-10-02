@@ -38,6 +38,10 @@ const compileConfig = {
    */
   maxCompilersPerUser: 5,
   compilerWindowMs: 15 * 60_000,
+  /**
+   * Repli pour les compilations enregistrées sans durée maximale (anciennes lignes) ; chaque
+   * demande porte celle du plan du propriétaire du projet (#services/plan_enforcement).
+   */
   timeoutMs: DEFAULT_COMPILE_TIMEOUT_MS,
   /** Au-delà du timeout de la compilation : synchronisation, envoi des sorties, arrêt de la précédente. */
   gatewayMarginMs: 90_000,

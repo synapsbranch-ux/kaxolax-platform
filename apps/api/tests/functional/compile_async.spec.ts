@@ -182,6 +182,8 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     )
     assert.equal(request.buildId, buildId)
     assert.equal(request.rootResourcePath, 'main.tex')
+    // Durée maximale du plan du propriétaire (Free : 20 s), calculée par l'API.
+    assert.equal(request.timeoutMs, 20_000)
 
     const compile = await Compile.findOrFail(buildId)
     assert.include(compile.$attributes, {

@@ -4,7 +4,9 @@ import type {
   CompileOptions,
   Compiler,
   CompileResult,
+  MePlanResponse,
   PdfPosition,
+  PlanLimitError,
   PreferencesResponse,
   ProjectRole,
   ProjectSearchQuery,
@@ -15,18 +17,29 @@ import type {
   Workspace,
 } from '@kaxolax/contracts'
 
+import { planLimitOf, reportPlanLimit } from './plan-limits'
+
 export type { Workspace } from '@kaxolax/contracts'
 
-/** Erreur renvoyée par l'API : statut HTTP, code (`E_…`) et erreurs de validation éventuelles. */
+/**
+ * Erreur renvoyée par l'API : statut HTTP, code (`E_…`), erreurs de validation éventuelles et
+ * corps reçu (`planLimit` : refus 403 `E_PLAN_LIMIT` détaillé).
+ */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string | undefined,
     message: string,
     readonly fieldErrors: { field: string; message: string }[] = [],
+    readonly body: unknown = null,
   ) {
     super(message)
     this.name = 'ApiError'
+  }
+
+  /** Limite du plan atteinte (corps `E_PLAN_LIMIT`), sinon null. */
+  get planLimit(): PlanLimitError | null {
+    return this.code === 'E_PLAN_LIMIT' ? planLimitOf(this.body) : null
   }
 }
 
@@ -109,7 +122,11 @@ function errorFrom(status: number, body: unknown): ApiError {
   }
   const fieldErrors = Array.isArray(data.errors) ? data.errors : []
   const message = fieldErrors[0]?.message ?? data.message ?? `Request failed (${String(status)})`
-  return new ApiError(status, data.code, message, fieldErrors)
+  const error = new ApiError(status, data.code, message, fieldErrors, body)
+  // Limite du plan : la boîte de dialogue globale l'explique (sauf si l'appelant l'affiche).
+  const planLimit = error.planLimit
+  if (planLimit !== null) reportPlanLimit(planLimit, error)
+  return error
 }
 
 /**
@@ -168,6 +185,8 @@ function sendOnExit(method: string, path: string, body: unknown): boolean {
 /** Appels de l'API REST (même origine, jeton de session Clerk dans `Authorization`). */
 export const api = {
   me: () => request<{ user: User }>('GET', '/me'),
+  /** Plan, features, limites et usage (affichage ; les limites sont appliquées par l'API). */
+  plan: () => request<MePlanResponse>('GET', '/me/plan'),
   /** Bannières système affichées maintenant (tout compte connecté). */
   activeBanners: () => request<{ banners: ActiveBanner[] }>('GET', '/banners/active'),
 

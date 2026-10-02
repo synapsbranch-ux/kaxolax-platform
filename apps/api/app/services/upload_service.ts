@@ -25,6 +25,7 @@ import Upload from '#models/upload'
 import type User from '#models/user'
 import type ObjectStorage from '#services/object_storage'
 import { fileKey, projectPrefix, uploadKey } from '#services/object_storage'
+import { assertStorageAvailable } from '#services/plan_enforcement'
 import { projectFor } from '#services/project_access'
 import {
   assertFolder,
@@ -118,7 +119,9 @@ export async function startFileUpload(
   input: { filename: string; folderId: string | null; sizeBytes: number },
 ): Promise<StartedUpload> {
   const { project } = await projectFor(user, projectId, 'edit')
-  // Vérification anticipée (refaite à la complétion) : pas d'upload pour un nom déjà pris.
+  // Vérifications anticipées (refaites à la complétion) : pas d'upload pour un nom déjà pris ni
+  // au-delà du stockage du plan du propriétaire.
+  await assertStorageAvailable(project.ownerId, input.sizeBytes, { requester: user })
   await db.transaction(async (trx) => {
     await assertFolder(trx, project.id, input.folderId)
     await assertNameAvailable(trx, project.id, input.folderId, input.filename)
@@ -178,10 +181,21 @@ export async function completeFileUpload(
   let completed: CompletedUpload
   try {
     completed = await db.transaction(async (trx) => {
-      await projectFor(user, project.id, 'edit', { trx, lock: true })
+      // Propriétaire relu sous verrou : un transfert pendant le traitement change le compte débité.
+      const { project: lockedProject } = await projectFor(user, project.id, 'edit', {
+        trx,
+        lock: true,
+      })
       const locked = await pendingUpload(
         { id: upload.id, userId: user.id, purpose: 'file', projectId: project.id },
         trx,
+      )
+      await assertStorageAvailable(
+        lockedProject.ownerId,
+        processed.kind === 'text'
+          ? Buffer.byteLength(processed.content, 'utf8')
+          : processed.sizeBytes,
+        { requester: user, trx },
       )
       const result: CompletedUpload =
         processed.kind === 'text'
@@ -223,6 +237,8 @@ export async function startImport(
   user: User,
   input: { filename: string; sizeBytes: number },
 ): Promise<StartedUpload> {
+  // Vérification anticipée sur la taille du zip ; le contenu extrait est compté à la complétion.
+  await assertStorageAvailable(user.id, input.sizeBytes, { requester: user })
   return startUpload(storage, {
     projectId: null,
     userId: user.id,
@@ -364,6 +380,14 @@ export async function completeImport(
     })
 
     const project = await db.transaction(async (trx) => {
+      // Le projet importé appartient à l'utilisateur : son stockage reçoit le contenu extrait.
+      const importedBytes =
+        plan.binaries.reduce((sum, binary) => sum + binary.sizeBytes, 0) +
+        plan.documents.reduce(
+          (sum, document) => sum + Buffer.byteLength(document.content, 'utf8'),
+          0,
+        )
+      await assertStorageAvailable(user.id, importedBytes, { requester: user, trx })
       const workspace = await workspaceForNewProject(user, workspaceId, trx)
       const created = await Project.create(
         {
