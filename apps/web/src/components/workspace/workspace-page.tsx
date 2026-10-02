@@ -147,9 +147,10 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
       await editor.current?.flush()
     },
     options: preferences.compile,
+    warm: canEdit,
     onError: setError,
   })
-  const { compile } = compileState
+  const { compile, onBuildEvent } = compileState
   const result = compileState.result ?? lastCompile.result
   const resultReceivedAt =
     compileState.result !== null ? compileState.receivedAt : lastCompile.receivedAt
@@ -309,6 +310,11 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         })
         return
       }
+      // Compilation asynchrone : l'état de la compilation suivie avance (pastille, résultat).
+      if (message.event.type === 'compile.updated') {
+        onBuildEvent(message.event)
+        return
+      }
       const effect = eventEffect(message.event, user?.id ?? null)
       switch (effect.kind) {
         case 'refresh-tree':
@@ -331,7 +337,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
           break
       }
     },
-    [user, scheduleTreeRefresh, checkAccess],
+    [user, scheduleTreeRefresh, checkAccess, onBuildEvent],
   )
 
   // Suivi en cours et dernière présence connue, lus quand le délai de grâce expire.
@@ -965,6 +971,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               result={result}
               resultReceivedAt={resultReceivedAt}
               compiling={compileState.compiling}
+              phase={compileState.phase}
               settings={settings}
               canEdit={canEdit}
               fileName={`${project?.name ?? 'output'}.pdf`}

@@ -25,6 +25,7 @@ import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import { api } from '@/lib/api'
 import { settingsChange } from '@/lib/editor-settings'
+import { isStorageAvailableMessage, reportRealtimePlanLimit } from '@/lib/plan-limits'
 import { cursorIndexOf } from '@/lib/presence'
 
 /** Commandes de l'éditeur utilisées par la page (logs, SyncTeX, compilation, barre Tools). */
@@ -165,6 +166,11 @@ export function CodeEditor({
       sessionAwareness: true,
       // Jeton frais (5 minutes) à chaque authentification, reconnexions comprises.
       token: async () => (await api.realtimeToken(projectId)).token,
+      // Stockage du propriétaire plein : éditions refusées, expliqué par la boîte des limites.
+      onStateless: ({ payload }) => {
+        reportRealtimePlanLimit(payload)
+        if (isStorageAvailableMessage(payload)) provider.forceSync()
+      },
     })
     provider.attach()
     // Identité pour l'affichage local ; le service temps réel impose la sienne aux autres.

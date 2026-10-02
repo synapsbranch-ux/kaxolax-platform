@@ -99,6 +99,75 @@ export class DocumentStore {
     }
   }
 
+  /**
+   * Stockage du propriétaire d'un projet : octets utilisés (fichiers et états Yjs enregistrés de
+   * tous ses projets) et limite de son plan. Même règle que l'API (`#services/entitlements`) sans
+   * les claims de la requête : relevé des claims du compte s'il est plus récent que le miroir des
+   * webhooks (et date de moins de 35 jours), sinon plan du miroir, sinon `free` ; valeur de
+   * plan_limits, ramenée à celle de Free si la feature `extra_storage` manque au relevé. Null si
+   * le projet n'existe plus.
+   */
+  async ownerStorage(
+    projectId: string,
+  ): Promise<{ ownerId: string; plan: string; limit: number; used: number } | null> {
+    const result = await this.pool.query<{
+      owner_id: string
+      plan: string
+      limit_bytes: string
+      used: string
+    }>(
+      `WITH owner AS (
+         SELECT u.id, u.claimed_plan_slug, u.claimed_plan_features,
+                (u.claimed_plan_slug IS NOT NULL
+                 AND u.claimed_plan_at > now() - make_interval(days => 35)
+                 AND NOT EXISTS (SELECT 1 FROM subscriptions s
+                                  WHERE s.user_id = u.id AND s.updated_at >= u.claimed_plan_at))
+                  AS use_claims
+           FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id = $1
+       ),
+       mirror AS (
+         SELECT s.plan_slug FROM subscriptions s JOIN owner ON s.user_id = owner.id
+          WHERE s.status IN ('active', 'past_due')
+             OR (s.status = 'canceled' AND s.period_end > now())
+          ORDER BY (s.plan_slug = 'free') ASC, s.updated_at DESC
+          LIMIT 1
+       ),
+       plan AS (
+         SELECT owner.id AS owner_id, owner.use_claims, owner.claimed_plan_features AS features,
+                CASE WHEN owner.use_claims THEN owner.claimed_plan_slug
+                     ELSE COALESCE((SELECT plan_slug FROM mirror), 'free') END AS slug
+           FROM owner
+       ),
+       sizes AS (
+         SELECT plan.*,
+                COALESCE((SELECT storage_bytes FROM plan_limits WHERE plan_slug = 'free'),
+                         524288000) AS free_bytes,
+                (SELECT storage_bytes FROM plan_limits WHERE plan_slug = plan.slug) AS plan_bytes
+           FROM plan
+       )
+       SELECT owner_id, slug AS plan,
+              CASE WHEN NOT use_claims OR 'extra_storage' = ANY(features)
+                   THEN COALESCE(plan_bytes, free_bytes)
+                   ELSE LEAST(COALESCE(plan_bytes, free_bytes), free_bytes) END AS limit_bytes,
+              (SELECT COALESCE(SUM(f.size_bytes), 0) FROM files f
+                 JOIN projects p ON p.id = f.project_id WHERE p.owner_id = sizes.owner_id)
+              + (SELECT COALESCE(SUM(octet_length(d.yjs_state)), 0) FROM documents d
+                 JOIN projects p ON p.id = d.project_id WHERE p.owner_id = sizes.owner_id)
+                AS used
+         FROM sizes`,
+      [projectId],
+    )
+    const row = result.rows[0]
+    if (!row) return null
+    // bigint et numeric : renvoyés en texte par pg.
+    return {
+      ownerId: row.owner_id,
+      plan: row.plan,
+      limit: Number(row.limit_bytes),
+      used: Number(row.used),
+    }
+  }
+
   async documentIds(projectId: string): Promise<string[]> {
     const result = await this.pool.query<{ id: string }>(
       'SELECT id FROM documents WHERE project_id = $1 ORDER BY id',

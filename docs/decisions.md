@@ -466,6 +466,25 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `pg-restore-test.sh` : restauration dans une base temporaire, égalité exacte des comptes avec le manifeste, échec si la sauvegarde a plus de 26 h ; jeton R2 `backup_read` (lecture seule), puisqu'il détient la clé privée. `test-local.sh` le rejoue en CI sur la pile locale.
 - Image `scripts/backup/Dockerfile` : PostgreSQL 18.6, rclone 1.75.1 et age 1.3.2 épinglés par empreinte (pas d'apk ni d'aws-cli). Remplace l'image `backup/` provisoire de kaxolax-infra.
 
+## 2026-10-02 · Droits Billing : claims du jeton d'abord, miroir des webhooks ensuite
+
+- Plan et features lus dans les claims `pla`/`fea` du jeton Clerk vérifié (lecture de `has()` refaite dans l'API, sans dépendre de @clerk/shared) ; sans ces claims, miroir `subscriptions` des webhooks ; sinon `free`. Valeurs chiffrées dans `plan_limits` (cache 60 s), plan inconnu = limites de Free.
+- Une feature absente ramène sa limite à la valeur de Free (le plan donne les nombres, la feature les débloque) ; sans claims, les features se déduisent des valeurs du plan.
+- Un élément `canceled` garde son plan jusqu'à `period_end` pour les droits ; l'admin (fiche, statistiques) compte toujours `active` et `past_due` seulement.
+
+## 2026-10-02 · Limites d'un projet : celles de son propriétaire
+
+- Compilation, collaborateurs et stockage d'un projet suivent le plan du propriétaire, même quand un collaborateur agit (un collaborateur Pro sur un projet Free compile 20 s). Les claims de la requête ne servent que si le propriétaire la fait lui-même ; sinon la plus récente de deux sources : relevé des claims de son dernier jeton (`users.claimed_plan_*`, écrit par le guard, date = `iat`) ou miroir des webhooks (`subscriptions.updated_at`). Ainsi une invitation envoyée sous des claims Pro est acceptée même si le webhook tarde ou a échoué (payeur inconnu jusqu'à épuisement des réessais) ; un relevé de plus de 35 jours sans nouveau jeton n'est plus utilisé.
+- Stockage = fichiers binaires + états Yjs des projets possédés ; vérifié à la création de document et de projet, au début et à la fin d'un upload et d'un import zip (verrou consultatif par compte), au transfert de propriété, et par le service temps réel : quand l'usage enregistré atteint la limite, les connexions qui éditent passent en lecture seule (message `plan.storage`, boîte des limites dans le web) jusqu'à libération de place. Dépassement borné à ce qui arrive entre deux enregistrements (10 s) et deux lectures de l'usage (10 s).
+- Transfert de propriété (propriétaire et admin, sans exception) : refusé (403 `E_PLAN_LIMIT`) si le stockage du nouveau propriétaire ne peut pas accueillir le projet, ou si les collaborateurs après transfert (ancien propriétaire devenu éditeur compris) dépassent sa limite. L'admin affiche le motif au lieu de « Accès refusé ».
+- Refus homogène 403 `E_PLAN_LIMIT` `{ limit: { name, plan, max }, feature, current?, upgradeUrl }` ; une compilation en délai dépassé sous une limite levable porte `planLimit` dans son résultat.
+
+## 2026-10-02 · Webhooks Billing : ordre par horodatage Clerk, emails par transition
+
+- `subscription.*` et `subscriptionItem.*` sur la même route ; rejeu écarté par `clerk_webhook_events`. Chaque élément est reflété par son id ; `subscriptions.updated_at` = `timestamp` de l'événement : un événement plus ancien n'écrase rien.
+- Payeur sans miroir local (webhook `user.created` pas encore reçu) : 409 et rien d'enregistré, Clerk réessaie. Payeur organisation ignoré (étape 3).
+- Emails après validation, décidés par la transition de statut sous verrou de ligne : bienvenue à l'entrée en `active` d'un plan payant (pas depuis `past_due` ni `canceled`), paiement en retard à l'entrée en `past_due`. Deux événements portant la même transition n'en envoient qu'un.
+
 ## 2026-10-02 · Document meta du projet
 
 - `project:{projectId}:meta` (`@kaxolax/collab`) : un document Hocuspocus par projet, sans contenu, jamais enregistré en base ; même autorisation que les documents du projet (tout membre, rôle relu en base).
@@ -551,6 +570,38 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Pas de flottant `table` inséré dans une figure, une minipage ou un argument de commande ; packages ajoutés seulement s'ils manquent (fournisseurs compris).
 - Collage : une colonne de nombres à virgule décimale (`3,5`) n'est jamais coupée sur la virgule ; ambigu (`1,2` sur chaque ligne) : lu comme décimal.
 
+## 2026-10-02 · Fusion des tâches 5 et 12 : limites du plan dans le partage et le temps réel
+
+- La modale de partage et les pages d'adhésion affichent un refus `E_PLAN_LIMIT` par `PlanLimitNotice` (`ApiError.planLimit`, lien `upgradeUrl` de l'API) et marquent l'erreur (`markPlanLimitHandled`) : la boîte des limites globale ne s'ouvre pas en plus. `PRICING_URL` disparaît, l'URL des tarifs vient du refus.
+- Le document meta n'est jamais concerné par le stockage du plan (`apps/realtime/src/storage.ts`) : il reste en lecture seule quel que soit l'état du stockage, et ses mises à jour refusées comptent toujours pour la fermeture.
+
+## 2026-10-02 · Galerie : catalogue lu par l'API, mis en cache, avec repli
+
+- L'API lit `templates.json` (contrat v1 de kaxolax-templates) à `TEMPLATES_CATALOG_URL`, le valide par zod (`packages/contracts/src/templates.ts`) : un template invalide fait refuser tout le catalogue, les champs inconnus sont ignorés (règle du contrat). Pas de table : le catalogue publié reste la source.
+- Copie en mémoire servie 60 s (le `max-age` du fichier), puis requête conditionnelle (ETag) ; en cas d'échec, dernière copie valide jusqu'à 24 h, sinon 503 `E_TEMPLATES_UNAVAILABLE`. Plusieurs instances : chacune sa copie, sans état partagé.
+- Sans URL, hors production seulement : catalogue de démonstration (métadonnées réelles des dix templates, fichiers non publiés, URL nulles). Écarté : committer PDF, PNG et zip dans le monorepo.
+
+## 2026-10-02 · Projet depuis un template : zip vérifié, import zip commun
+
+- `POST /projects/from-template` télécharge le zip du catalogue (taille plafonnée à celle annoncée, sha256 comparé), puis passe par `createProjectFromZip`, extrait de l'import zip : mêmes contrôles (chemins, bombes), même comptage du stockage, même nettoyage S3 en cas d'échec.
+- Workspace et stockage du plan (taille du zip) vérifiés avant tout téléchargement ; stockage revérifié sur le contenu extrait dans la transaction.
+- Compilateur et document principal repris du catalogue (le validateur du dépôt garantit qu'ils sont ceux que l'import détecterait) ; nom par défaut : titre du template.
+
+## 2026-10-02 · Galerie web : rendu serveur, fichiers servis par R2
+
+- `/templates` et `/templates/[id]` sont publiques et rendues par le serveur (indexables) ; la recherche se fait dans le navigateur avec `filterTemplates`, la fonction de l'API (catalogue de quelques dizaines d'entrées).
+- Miniatures en `next/image` `unoptimized` : PNG déjà à 600 px, et pas de `remotePatterns` figé au build alors que la même image sert tous les environnements. Aperçu PDF par la visionneuse pdf.js de l'éditeur : exige une règle CORS du bucket public (sinon lien « Ouvrir le PDF »).
+- Aucune CSP n'existe aujourd'hui dans apps/web : si elle est ajoutée, `img-src` et `connect-src` doivent inclure le domaine public du catalogue.
+- Sans session, « Utiliser ce template » passe par la connexion Clerk et revient sur la fiche avec `?use=1`, qui rouvre la boîte de dialogue (aucune création automatique au retour).
+
+## 2026-10-02 · Compilation asynchrone dans le web
+
+- Machine d'état sans React (`apps/web/src/lib/compile-controller.ts`, testée avec une horloge simulée), mode reconnu à la réponse de `POST …/compile` : résultat (`gateway`) ou 202 `{ buildId, status }` (`cloudflare`) suivi par `compile.updated` et un sondage de repli (3 → 10 s, arrêt sur état final).
+- États fusionnés par `buildId` sans retour en arrière (`lib/builds.ts`) : la 202 peut arriver après les événements du même build ; autres builds ignorés ; `resultOmitted` relu par l'API.
+- Une demande pendant une compilation asynchrone (ou 409 `E_COMPILE_IN_PROGRESS`) ne l'arrête pas : une seule relance à sa fin. Arrêter annule la relance ; l'état local se termine dès que l'API confirme.
+- `compiler/warm` sans attente, à l'ouverture seulement et pour owner/editor, au plus une fois par projet et par 10 min ; plus d'appel après `unsupported`. Côté API, le réveil ne refuse jamais et laisse le dernier emplacement du plafond à une vraie compilation (`skipped`).
+- Compilation d'autrui en cours à l'ouverture : la page suit tout `compile.updated` actif quand elle ne suit rien, et affiche un résultat final reçu.
+
 ## 2026-10-02 · Index des packages TeX Live servi par l'API
 
 - L'API lit l'index publié par kaxolax-texlive-images (`texlive/2026/packages.json`) dans le bucket `TEXLIVE_INDEX_BUCKET` avec ses clés `S3_*`, le garde en mémoire (2 Mo) et le revalide toutes les heures par une lecture conditionnelle sur l'ETag, en arrière-plan ; en cas d'échec, la copie en mémoire sert encore.
@@ -613,3 +664,10 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Dictionnaires servis par une route statique de Next.js (`/dictionaries/fr.dic`…, générée au build depuis `dictionary-fr`/`dictionary-en`, `serverExternalPackages`) : rien à copier dans `public/`, rien à servir depuis un CDN. Worker créé à la première activation du correcteur.
 - Correction d'un package introuvable : remplacement du seul nom fautif dans le `\usepackage` (ou `\documentclass`) de la ligne du log, après ouverture du fichier ; jamais en lecture seule.
 - Paramètres dans une boîte chargée à la demande (pied de sidebar, menu du compte, barre d'état, Fichier) ; seuls les réglages modifiés sont reconfigurés (l'état Vim survit à un changement de police).
+
+## 2026-10-02 · Fusion des tâches 10, 11 et 12 : paramètres, limites du plan, comptage de mots
+
+- Les paramètres de l'éditeur s'ouvrent depuis `AccountMenu` (entrée « Paramètres de l’éditeur » à côté de « Tarifs », prop `onOpenSettings`), dans le pied de sidebar comme dans la barre du tableau de bord sur écran étroit ; le bouton du pied de sidebar reste. `SettingsProvider` englobe aussi `PlanLimitDialog`.
+- Les appels de la tâche 10 (`/texlive/*`, `word-count`) passent par `request` et `errorFrom` : un refus `E_PLAN_LIMIT` atteint la boîte des limites globale.
+- Le comptage de mots garde sa borne fixe (`WORD_COUNT_TIMEOUT_MS`, 20 s) plutôt que la durée de compilation du plan : texcount n'exécute pas TeX, et Free autorise déjà 20 s. En mode `cloudflare`, il occupe un emplacement du plafond de compilateurs (`reserveCompiler`, sans `warm`), comme une compilation.
+- Fixtures du parseur de logs en `-text` (`.gitattributes`) : les logs réels sont gardés octet pour octet (CR recopié par LuaLaTeX).

@@ -39,6 +39,11 @@ export interface ConnectionContext {
   roleCheckedAt: number
   /** Mises à jour refusées à cette connexion en lecture seule. */
   rejectedUpdates: number
+  /**
+   * Stockage du propriétaire plein (`./storage.ts`) : lecture seule tant qu'il le reste, quel que
+   * soit le rôle ; ces refus ne comptent pas dans `rejectedUpdates`.
+   */
+  storageFull?: boolean
 }
 
 /** Fermeture imposée (membre retiré, compte banni ou supprimé) : code Forbidden de Hocuspocus. */
@@ -143,7 +148,7 @@ export function createAccessControl(options: {
       return 'closed'
     }
     // Le document meta reste en lecture seule ; le message décrit les documents du projet.
-    const readOnly = context.meta || !canEdit(role)
+    const readOnly = context.meta || !canEdit(role) || context.storageFull === true
     if (role === context.role && connection.readOnly === readOnly) return 'unchanged'
     context.role = role
     connection.readOnly = readOnly
@@ -233,6 +238,8 @@ export function createAccessControl(options: {
       applyRole(connection, context, entry.role, entry.read)
     }
     if (!connection.readOnly) return
+    // Lecture seule due au stockage plein (rôle qui édite) : refus normal, sans fermeture.
+    if (context.storageFull === true && canEdit(context.role)) return
     // Une étape 2 sans rien de nouveau (client lecteur à jour) est acceptée par Hocuspocus.
     if (type === SYNC_STEP_2 && Y.snapshotContainsUpdate(Y.snapshot(document), payload)) return
     context.rejectedUpdates++

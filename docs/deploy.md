@@ -180,17 +180,21 @@ connexions de l'instance appelée.
 
 1. `https://api.<domaine>/api/v1/health`, `https://compile.<domaine>/health`.
 2. Connexion, création d'un projet, `POST /api/v1/projects/:id/compiler/warm` (appelé par
-   l'éditeur à son ouverture une fois l'interface adaptée ; journal du Worker : réveil du
-   conteneur).
+   l'éditeur à son ouverture ; journal du Worker : réveil du conteneur).
 3. Compilation : 202 puis états `preparing`/`running`/`success` (événement temps réel, ou
    `GET /api/v1/projects/:id/builds/:buildId`), PDF servi depuis R2.
-4. Deux compilations rapprochées : la seconde reçoit 409 `E_COMPILE_IN_PROGRESS`.
+4. Deux compilations rapprochées par l'API : la seconde reçoit 409 `E_COMPILE_IN_PROGRESS`.
 5. Journal du job `backup` le lendemain, puis un test de restauration.
+6. Galerie : `https://app.<domaine>/templates` affiche les miniatures et l'aperçu PDF des
+   templates (bucket R2 public de kaxolax-templates, `TEMPLATES_CATALOG_URL`), puis « Utiliser ce
+   template » crée un projet qui compile.
 
-**Limite actuelle** : l'interface web (apps/web) attend encore la réponse synchrone de
-l'étape 1 ; son passage à la compilation asynchrone (`buildId`, événement `compile.updated`, appel de
-`compiler/warm`) se fait après la nouvelle interface (tâche 3). D'ici là, la production ne peut
-pas basculer en `COMPILE_BACKEND=cloudflare` pour les utilisateurs du web.
+L'interface web suit les deux modes : réponse synchrone (`gateway`), ou 202 `{ buildId, status }`
+suivi par l'événement `compile.updated` du document meta, avec un sondage de repli de
+`GET …/builds/:buildId` (`apps/web/src/lib/compile-controller.ts`) ; la pastille affiche
+« Préparation du compilateur… » pendant le réveil du conteneur et « En attente… » dans la file,
+l'éditeur appelle `compiler/warm` à son ouverture (au plus une fois par période), et un second
+clic pendant une compilation la laisse finir puis relance (pas de 409 visible).
 
 Retour arrière de la compilation : `COMPILE_BACKEND=gateway` exige un compile-gateway et des
 agents Docker (étape 1) qui ne sont pas déployés sur Railway ; en production, corriger plutôt le

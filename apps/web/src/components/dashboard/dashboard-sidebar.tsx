@@ -1,7 +1,15 @@
 'use client'
 
 import { Button, Logo, cn } from '@kaxolax/ui'
-import { ArchiveIcon, FileArchiveIcon, FolderIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  ExternalLinkIcon,
+  FileArchiveIcon,
+  FolderIcon,
+  LayoutTemplateIcon,
+  PlusIcon,
+  Trash2Icon,
+} from 'lucide-react'
 import Link from 'next/link'
 import type { ProjectView, User } from '@/lib/api'
 import { SidebarFooter } from '@/components/workspace/sidebar/sidebar-footer'
@@ -14,7 +22,8 @@ export const PROJECT_VIEWS: { id: ProjectView; label: string; icon: typeof Folde
 
 /**
  * Colonne de gauche du tableau de bord, dans le langage de la page projet (sidebar sombre) :
- * logo, nouveau projet et import, vues (actifs, archivés, corbeille), et pied (utilisateur,
+ * logo, nouveau projet (vide ou depuis un template) et import, vues (actifs, archivés, corbeille),
+ * lien vers la galerie publique `/templates` (pages partageables), et pied (utilisateur,
  * sélecteur de workspace, compte). Masquée sous 768 px (barre du haut à la place).
  */
 export function DashboardSidebar({
@@ -24,6 +33,7 @@ export function DashboardSidebar({
   importing,
   onViewChange,
   onCreate,
+  onCreateFromTemplate,
   onImport,
 }: {
   user: User | null
@@ -32,6 +42,7 @@ export function DashboardSidebar({
   importing: boolean
   onViewChange: (view: ProjectView) => void
   onCreate: () => void
+  onCreateFromTemplate: () => void
   onImport: () => void
 }) {
   return (
@@ -51,6 +62,14 @@ export function DashboardSidebar({
       <div className="grid gap-1.5 px-3 pb-3">
         <Button variant="accent" className="justify-start" onClick={onCreate}>
           <PlusIcon /> Nouveau projet
+        </Button>
+        <Button
+          variant="ghost"
+          className="justify-start text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          onClick={onCreateFromTemplate}
+          data-testid="new-from-template"
+        >
+          <LayoutTemplateIcon /> Depuis un template
         </Button>
         <Button
           variant="ghost"
@@ -82,7 +101,14 @@ export function DashboardSidebar({
           </button>
         ))}
       </nav>
-      <div className="mt-auto">
+      <div className="mt-auto grid gap-1 pt-3">
+        <Link
+          href="/templates"
+          className="mx-2 flex h-8 items-center gap-2 rounded-md px-2.5 text-sm text-sidebar-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50"
+        >
+          <ExternalLinkIcon className="size-4" />
+          Galerie de templates
+        </Link>
         <SidebarFooter user={user} workspaceId={workspaceId} allLabel="Tous les workspaces" />
       </div>
     </aside>

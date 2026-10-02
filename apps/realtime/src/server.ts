@@ -35,6 +35,7 @@ import {
 } from './cluster.js'
 import type { RealtimeConfig } from './config.js'
 import { departedClients, enforcePresenceIdentity, removeRemoteClients } from './presence.js'
+import { createStorageGuard } from './storage.js'
 import type { DocumentStore } from './store.js'
 
 export type { ConnectionContext } from './access.js'
@@ -48,7 +49,12 @@ type ServerOptions = Pick<
   | 'STORE_DEBOUNCE_MS'
   | 'STORE_MAX_DEBOUNCE_MS'
 > &
-  Partial<Pick<RealtimeConfig, 'ROLE_RECHECK_MS' | 'ROLE_SWEEP_MS' | 'REDIS_URL' | 'REDIS_PREFIX'>>
+  Partial<
+    Pick<
+      RealtimeConfig,
+      'ROLE_RECHECK_MS' | 'ROLE_SWEEP_MS' | 'STORAGE_CHECK_MS' | 'REDIS_URL' | 'REDIS_PREFIX'
+    >
+  >
 
 /** Un message Yjs peut contenir tout l'état d'un document de 2 Mio, historique compris. */
 const MAX_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -140,6 +146,11 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     logger,
     roleRecheckMs: options.ROLE_RECHECK_MS ?? 5_000,
   })
+  const storage = createStorageGuard({
+    store,
+    logger,
+    checkMs: options.STORAGE_CHECK_MS ?? 10_000,
+  })
   const sweepMs = options.ROLE_SWEEP_MS ?? 30_000
   let sweepTimer: NodeJS.Timeout | undefined
   const snapshot = async (instance: Hocuspocus, projectId: string): Promise<ProjectSnapshot> => {
@@ -166,13 +177,17 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     return { projectId, documents }
   }
 
+  /**
+   * Ferme les connexions d'un document. `closed` ne compte que les documents qui avaient encore des
+   * connexions : un document dont on vient de fermer les connexions peut rester un instant chargé,
+   * le temps que Hocuspocus le décharge, et ne doit pas être compté une seconde fois.
+   */
   const closeDocument = (instance: Hocuspocus, documentId: string): CloseDocumentResponse => {
     let closed = false
-    for (const name of instance.documents.keys()) {
-      if (parseDocumentName(name)?.documentId === documentId) {
-        instance.closeConnections(name)
-        closed = true
-      }
+    for (const [name, document] of instance.documents) {
+      if (parseDocumentName(name)?.documentId !== documentId) continue
+      if (document.getConnectionsCount() > 0) closed = true
+      instance.closeConnections(name)
     }
     return { closed }
   }
@@ -372,9 +387,13 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
       await access.recheck(connection)
     },
 
-    /** Rôle vérifié à chaque mise à jour Yjs (voir `createAccessControl`). */
+    /**
+     * Rôle vérifié à chaque mise à jour Yjs (voir `createAccessControl`), puis stockage du plan du
+     * propriétaire (voir `createStorageGuard`).
+     */
     async beforeSync({ connection, document, type, payload }) {
       await access.beforeSync(connection, document, type, payload)
+      await storage.beforeSync(connection, type)
     },
 
     /** Identité de la présence imposée par le serveur (voir `presence.ts`). */
@@ -444,6 +463,7 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
               sha256(textOf(document)),
             )
             logger.debug({ documentName: name, written }, 'document stored')
+            if (written) storage.invalidate(target.projectId)
           } catch (error) {
             logger.error({ err: error, documentName: name }, 'failed to store document')
             throw error

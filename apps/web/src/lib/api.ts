@@ -1,4 +1,6 @@
 import {
+  buildStateSchema,
+  compileAcceptedSchema,
   invitationPreviewSchema,
   invitationResponseSchema,
   joinProjectResponseSchema,
@@ -8,6 +10,9 @@ import {
   packageSuggestionsSchema,
   shareLinkResponseSchema,
   shareLinksResponseSchema,
+  templateListResponseSchema,
+  templateResponseSchema,
+  warmCompilerResponseSchema,
   texlivePackageDetailSchema,
   texlivePackageListSchema,
   wordCountResponseSchema,
@@ -15,11 +20,15 @@ import {
 import type {
   ActiveBanner,
   AssignableRole,
+  BuildState,
   CodePosition,
+  CompileAccepted,
   CompileOptions,
   Compiler,
   CompileResult,
+  MePlanResponse,
   PdfPosition,
+  PlanLimitError,
   PreferencesResponse,
   ProjectRole,
   ProjectSearchQuery,
@@ -27,14 +36,22 @@ import type {
   RealtimeTokenResponse,
   ShareLinkKind,
   SpellcheckLanguage,
+  TemplateListQuery,
+  TemplateListResponse,
+  TemplateSummary,
   TexlivePackagesQuery,
   UserPreferences,
   Workspace,
 } from '@kaxolax/contracts'
 
+import { planLimitOf, reportPlanLimit } from './plan-limits'
+
 export type { Workspace } from '@kaxolax/contracts'
 
-/** Erreur renvoyée par l'API : statut HTTP, code (`E_…`) et erreurs de validation éventuelles. */
+/**
+ * Erreur renvoyée par l'API : statut HTTP, code (`E_…`), erreurs de validation éventuelles et
+ * corps reçu (`planLimit` : refus 403 `E_PLAN_LIMIT` détaillé).
+ */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -46,6 +63,11 @@ export class ApiError extends Error {
   ) {
     super(message)
     this.name = 'ApiError'
+  }
+
+  /** Limite du plan atteinte (corps `E_PLAN_LIMIT`), sinon null. */
+  get planLimit(): PlanLimitError | null {
+    return this.code === 'E_PLAN_LIMIT' ? planLimitOf(this.body) : null
   }
 }
 
@@ -128,7 +150,11 @@ function errorFrom(status: number, body: unknown): ApiError {
   }
   const fieldErrors = Array.isArray(data.errors) ? data.errors : []
   const message = fieldErrors[0]?.message ?? data.message ?? `Request failed (${String(status)})`
-  return new ApiError(status, data.code, message, fieldErrors, body)
+  const error = new ApiError(status, data.code, message, fieldErrors, body)
+  // Limite du plan : la boîte de dialogue globale l'explique (sauf si l'appelant l'affiche).
+  const planLimit = error.planLimit
+  if (planLimit !== null) reportPlanLimit(planLimit, error)
+  return error
 }
 
 /**
@@ -187,6 +213,8 @@ function sendOnExit(method: string, path: string, body: unknown): boolean {
 /** Appels de l'API REST (même origine, jeton de session Clerk dans `Authorization`). */
 export const api = {
   me: () => request<{ user: User }>('GET', '/me'),
+  /** Plan, features, limites et usage (affichage ; les limites sont appliquées par l'API). */
+  plan: () => request<MePlanResponse>('GET', '/me/plan'),
   /** Bannières système affichées maintenant (tout compte connecté). */
   activeBanners: () => request<{ banners: ActiveBanner[] }>('GET', '/banners/active'),
 
@@ -331,11 +359,55 @@ export const api = {
       joinProjectResponseSchema.parse(data),
     ),
 
+  // Galerie de templates (publique) et création d'un projet depuis un template.
+  templates: (query: TemplateListQuery = {}): Promise<TemplateListResponse> =>
+    request<unknown>(
+      'GET',
+      `/templates?${new URLSearchParams(
+        Object.entries(query).flatMap(([key, value]) =>
+          typeof value === 'string' && value !== '' ? [[key, value]] : [],
+        ),
+      ).toString()}`,
+    ).then((data) => templateListResponseSchema.parse(data)),
+  template: (templateId: string): Promise<TemplateSummary> =>
+    request<unknown>('GET', `/templates/${encodeURIComponent(templateId)}`).then(
+      (data) => templateResponseSchema.parse(data).template,
+    ),
+  /** Sans `name` : titre du template ; sans `workspaceId` : workspace personnel. */
+  createProjectFromTemplate: (input: { templateId: string; name?: string; workspaceId?: string }) =>
+    request<{ project: Project }>('POST', '/projects/from-template', input),
+
   realtimeToken: (id: string) =>
     request<RealtimeTokenResponse>('POST', `/projects/${id}/realtime-token`),
 
+  /**
+   * Compilation : résultat direct (mode `gateway`, synchrone) ou demande acceptée (202
+   * `{ buildId, status }`, mode `cloudflare`), dont le résultat arrive par l'événement
+   * `compile.updated` du projet ou par `build()`.
+   */
   compile: (id: string, options: CompileOptions = {}) =>
-    request<CompileResult>('POST', `/projects/${id}/compile`, { options }),
+    request<unknown>('POST', `/projects/${id}/compile`, { options }).then(
+      (
+        data,
+      ):
+        | { kind: 'result'; result: CompileResult }
+        | { kind: 'accepted'; accepted: CompileAccepted } => {
+        const accepted = compileAcceptedSchema.safeParse(data)
+        return accepted.success
+          ? { kind: 'accepted', accepted: accepted.data }
+          : { kind: 'result', result: data as CompileResult }
+      },
+    ),
+  /** État d'une compilation asynchrone (repli par sondage des événements `compile.updated`). */
+  build: (id: string, buildId: string): Promise<BuildState> =>
+    request<{ build: unknown }>('GET', `/projects/${id}/builds/${buildId}`).then((data) =>
+      buildStateSchema.parse(data.build),
+    ),
+  /** Réveil anticipé du compilateur du projet (sans effet en mode synchrone). */
+  warmCompiler: (id: string) =>
+    request<unknown>('POST', `/projects/${id}/compiler/warm`).then((data) =>
+      warmCompilerResponseSchema.parse(data),
+    ),
   stopCompile: (id: string) =>
     request<{ stopped: boolean }>('POST', `/projects/${id}/compile/stop`),
   lastCompile: (id: string) =>

@@ -14,6 +14,7 @@ realtime). Chaque service valide avec ces schémas les messages qu'il reçoit.
 | `realtime.ts`   | Snapshot d'un projet et fermeture d'un document (routes internes du service temps réel)      |
 | `projects.ts`   | Langues du correcteur orthographique d'un projet                                             |
 | `workspaces.ts` | Types et rôles de workspace, workspace renvoyé par `GET /workspaces`                         |
+| `templates.ts`  | Catalogue `templates.json` v1, fiches et routes de la galerie, recherche `filterTemplates`   |
 
 Le paquet est compilé vers `dist/` (ESM + déclarations). Commandes :
 

@@ -12,7 +12,32 @@ l'API).
   GitHub), `/account` (profil, sécurité : MFA, sessions et appareils, suppression), menu du
   compte (`<UserButton />`). Les pages du groupe `(app)` exigent une session ; sans elle, retour
   sur `/sign-in?redirect_url=…`. Les clés Clerk sont lues à l'exécution (voir le README racine).
+- **Abonnements (Clerk Billing)** : `/pricing` (publique) avec `<PricingTable />`, liée depuis le
+  menu du compte (`components/billing/account-menu.tsx`) ; abonnement, factures et moyens de
+  paiement dans l'onglet Billing de `/account`. `has({ plan })` ne sert qu'à l'affichage. Les
+  refus 403 `E_PLAN_LIMIT` de l'API s'expliquent dans `PlanLimitNotice`
+  (`components/billing/plan-limit-notice.tsx`, message, limite, bouton vers les tarifs) : en
+  ligne dans le résultat d'une compilation en délai dépassé, sinon dans une boîte de dialogue
+  commune (`PlanLimitDialog`, layout `(app)`) pour tout appel de l'API ; un écran qui affiche le
+  refus lui-même (modale de partage) appelle `markPlanLimitHandled(error)` dans son `catch` et
+  passe `error.planLimit` au composant.
 - 404, et `/healthz` (sonde publique).
+- **Galerie de templates** (`components/templates/`) : `/templates` (publique, rendue par le
+  serveur depuis `GET /api/v1/templates`) avec recherche (sans accents, même fonction
+  `filterTemplates` que l'API, appliquée dans le navigateur), catégories avec compteurs (CV,
+  Thèse, Article, Présentation Beamer, Lettre, Rapport) et cartes avec miniature ; fiche
+  `/templates/[id]` : aperçu PDF (la visionneuse pdf.js de l'éditeur, zone claire), compilateur,
+  langue, licence, mots-clés, et « Utiliser ce template » (nom du projet, titre par défaut, puis
+  `POST /api/v1/projects/from-template` et ouverture de l'éditeur). Sans session : connexion
+  Clerk avec retour sur `/templates/[id]?use=1`, où la boîte de dialogue se rouvre. Tableau de
+  bord : « Depuis un template » (sidebar, barre étroite, tableau de bord vide) ouvre la même
+  galerie dans une boîte de dialogue et crée le projet dans le workspace affiché. Miniatures et
+  PDF viennent directement du domaine public R2 du catalogue (URL fournies par l'API) :
+  miniatures par `next/image` en `unoptimized` (déjà à 600 px, aucun `remotePatterns` à figer au
+  build) ; l'aperçu pdf.js lit le PDF par `fetch`, ce qui exige une règle CORS du bucket
+  (`GET`/`HEAD` depuis l'origine de l'application, en-tête `Range`) ; sinon la fiche garde le
+  message d'erreur et un lien « Ouvrir le PDF ». Le refus `E_PLAN_LIMIT` (stockage) s'affiche
+  dans la boîte de dialogue.
 - **Bannière système** (`components/system-banner.tsx`) : annonces publiées depuis l'admin, sur
   toutes les pages connectées, en bandeau fixe en haut de l'écran (aucune hauteur ajoutée à
   l'éditeur plein écran ; la nouvelle interface de la tâche 3 pourra leur réserver une place),
@@ -98,6 +123,24 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
     nouvel onglet, impression), tiroir des logs (erreurs cliquables, log brut), barre flottante (annuler,
     pages, « Aller au PDF » par SyncTeX) ; un double-clic dans le PDF place le curseur sur la
     ligne source. Le PDF de la dernière compilation s'affiche dès l'ouverture du projet.
+    Compilation asynchrone (API en `COMPILE_BACKEND=cloudflare`) : machine d'état sans React
+    `lib/compile-controller.ts` (testée), enveloppée par `workspace/use-compile.ts`. Le mode est
+    reconnu à la réponse : résultat direct (`gateway`), ou 202 `{ buildId, status }` dont l'état
+    avance par les événements `compile.updated` du document meta (ceux d'un autre `buildId` sont
+    ignorés ; jamais de retour en arrière, `lib/builds.ts`), avec un sondage de repli de
+    `GET …/builds/:buildId` (3 s, puis 5 s et 10 s ; arrêt sur état final, abandon après
+    15 min). La pastille affiche « Préparation du compilateur… » (réveil du conteneur),
+    « En attente… » (file) ou « Compilation… » ; le résultat (PDF, logs, erreurs, SyncTeX,
+    limite du plan) s'affiche comme en mode synchrone, et un résultat retiré de l'événement
+    (`resultOmitted`) est relu par l'API. Double clic : en mode synchrone, la dernière demande
+    remplace la précédente ; en asynchrone (ou tant que le mode est inconnu), une seule relance
+    est mise en attente jusqu'à la fin de la compilation suivie, de même après un 409
+    `E_COMPILE_IN_PROGRESS`. Arrêter annule cette relance et termine l'état local dès que l'API
+    confirme. Une compilation déjà en cours à l'ouverture (autre onglet, autre membre,
+    auto-compilation) est suivie dès son premier événement. Pour qui peut modifier le projet,
+    l'éditeur appelle `compiler/warm` sans attendre sa réponse, à l'ouverture seulement, au plus
+    une fois par projet toutes les 10 min (`WarmSchedule`), et plus du tout si l'API répond
+    `unsupported`.
   - Temps réel du projet (`workspace/use-project-meta.ts`) : à l'ouverture, connexion au
     document meta `project:{id}:meta` sur le WebSocket partagé. La page y publie sa présence
     (identité, fichier de l'onglet actif) et reçoit les événements sans état :
@@ -127,8 +170,9 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
     un rôle (éditeur, relecteur, lecteur ; usage de la limite du plan affiché), membres (changer
     le rôle, retirer, transférer la propriété, avec confirmation), invitations en attente
     (échéance, relancer une fois par minute, annuler), liens de partage lecture seule et édition
-    (activer, désactiver, copier, régénérer avec confirmation). `E_PLAN_LIMIT` : la limite et un
-    lien vers les tarifs (`PRICING_URL`, page de la tâche 12). Autres rôles : vue limitée (membres
+    (activer, désactiver, copier, régénérer avec confirmation). `E_PLAN_LIMIT` : `PlanLimitNotice`
+    dans la modale (limite et lien `upgradeUrl` vers les tarifs), l'erreur marquée
+    (`markPlanLimitHandled`) pour que la boîte des limites globale ne s'ouvre pas aussi. Autres rôles : vue limitée (membres
     et rôles, « Quitter » le projet). Réponses validées par les schémas zod des contrats.
   - États : squelettes pendant le chargement, page d'erreur (nouvel essai) si le projet ne se
     charge pas, « Projet introuvable » (404), message si le service temps réel refuse la

@@ -1,6 +1,5 @@
 'use client'
 
-import { UserButton } from '@clerk/nextjs'
 import { PERSONAL_WORKSPACE_NAME } from '@kaxolax/contracts'
 import {
   DropdownMenu,
@@ -19,6 +18,7 @@ import {
 import { ChevronsUpDownIcon, SettingsIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { AccountMenu } from '@/components/billing/account-menu'
 import { useSettings } from '@/components/preferences/settings-provider'
 import { ThemeToggle } from '@/components/preferences/theme-toggle'
 import { api, type User, type Workspace } from '@/lib/api'
@@ -141,19 +141,13 @@ export function SidebarFooter({
           <SettingsIcon />
         </Button>
       </SimpleTooltip>
-      {/* Compte : profil, sécurité (MFA, sessions), facturation (pages de /account), paramètres
-          de l'éditeur, déconnexion. */}
-      <UserButton userProfileUrl="/account" userProfileMode="navigation">
-        <UserButton.MenuItems>
-          <UserButton.Action
-            label="Paramètres de l’éditeur"
-            labelIcon={<SettingsIcon className="size-4" />}
-            onClick={() => {
-              openSettings()
-            }}
-          />
-        </UserButton.MenuItems>
-      </UserButton>
+      {/* Compte : profil, sécurité (MFA, sessions), facturation (pages de /account), tarifs,
+          paramètres de l'éditeur, déconnexion. */}
+      <AccountMenu
+        onOpenSettings={() => {
+          openSettings()
+        }}
+      />
     </footer>
   )
 }

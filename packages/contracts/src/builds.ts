@@ -65,9 +65,12 @@ export const buildStateSchema = z.object({
 })
 export type BuildState = z.infer<typeof buildStateSchema>
 
-/** `POST /projects/:id/compiler/warm` de l'API (réveil anticipé à l'ouverture de l'éditeur). */
+/**
+ * `POST /projects/:id/compiler/warm` de l'API (réveil anticipé à l'ouverture de l'éditeur) :
+ * `skipped` quand le plafond de compilateurs de l'utilisateur est presque atteint.
+ */
 export const warmCompilerResponseSchema = z.object({
-  status: z.enum(['warming', 'unsupported']),
+  status: z.enum(['warming', 'skipped', 'unsupported']),
 })
 export type WarmCompilerResponse = z.infer<typeof warmCompilerResponseSchema>
 

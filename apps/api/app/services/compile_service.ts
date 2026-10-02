@@ -21,6 +21,7 @@ import type User from '#models/user'
 import type CompileGateway from '#services/compile_gateway'
 import { CompileServiceUnavailableException } from '#services/compile_gateway'
 import type { CompileOutputStorage } from '#services/object_storage'
+import { compileTimeoutMs, withCompileTimeLimit } from '#services/plan_enforcement'
 import { projectContent } from '#services/project_content'
 import type RealtimeClient from '#services/realtime_client'
 
@@ -50,12 +51,16 @@ export function unavailableEntry(): LogEntry {
   }
 }
 
-/** Demande de compilation : instantané temps réel des documents et fichiers binaires, avec leurs chemins. */
+/**
+ * Demande de compilation : instantané temps réel des documents et fichiers binaires, avec leurs
+ * chemins. `timeoutMs` : durée maximale du plan du propriétaire (`compileTimeoutMs`).
+ */
 export async function buildCompileRequest(
   realtime: RealtimeClient,
   project: Project,
   bucket: string,
-  options: CompileOptions = {},
+  options: CompileOptions,
+  timeoutMs: number,
 ): Promise<CompileRequest> {
   const content = await projectContent(realtime, project.id)
   const main = content.documents.find((document) => document.id === project.mainDocumentId)
@@ -66,7 +71,7 @@ export async function buildCompileRequest(
     buildId,
     compiler: project.compiler,
     rootResourcePath: main.path,
-    timeoutMs: compileConfig.timeoutMs,
+    timeoutMs,
     options,
     resources: [
       ...content.documents.map((document) => ({
@@ -130,7 +135,15 @@ export async function compileProject(
   project: Project,
   options: CompileOptions = {},
 ): Promise<CompileResult> {
-  const request = await buildCompileRequest(deps.realtime, project, deps.outputs.bucket, options)
+  // Durée maximale du plan du propriétaire (claims du jeton s'il compile lui-même).
+  const timeoutMs = await compileTimeoutMs(project.ownerId, user)
+  const request = await buildCompileRequest(
+    deps.realtime,
+    project,
+    deps.outputs.bucket,
+    options,
+    timeoutMs,
+  )
   const started = Date.now()
   let response: GatewayCompileResponse | null = null
   try {
@@ -172,7 +185,11 @@ export async function compileProject(
     })
 
   const names = new Set(response?.outputFiles.map((file) => file.name) ?? [])
-  return { ...result, ...(await outputUrls(deps.outputs, request.output.prefix, names)) }
+  return withCompileTimeLimit(
+    { ...result, ...(await outputUrls(deps.outputs, request.output.prefix, names)) },
+    { projectId: project.id, timeoutMs },
+    user,
+  )
 }
 
 /**
@@ -207,11 +224,14 @@ export async function compileResultOf(
     entries = entriesSchema.catch([]).parse(JSON.parse(raw.toString('utf8')))
   }
   const names = new Set(outputNames.filter((_, index) => sizes[index] !== null))
-  return {
-    buildId: compile.id,
-    status: compileStatusSchema.parse(compile.status),
-    durationMs: compile.durationMs,
-    entries,
-    ...(await outputUrls(outputs, prefix, names)),
-  }
+  return withCompileTimeLimit(
+    {
+      buildId: compile.id,
+      status: compileStatusSchema.parse(compile.status),
+      durationMs: compile.durationMs,
+      entries,
+      ...(await outputUrls(outputs, prefix, names)),
+    },
+    { projectId: compile.projectId, timeoutMs: compile.timeoutMs },
+  )
 }

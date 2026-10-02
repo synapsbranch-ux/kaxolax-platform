@@ -275,8 +275,9 @@ export async function deleteProject(
  * Transfère un projet à un compte existant : il en devient propriétaire (membre ajouté au besoin),
  * l'ancien propriétaire devient éditeur, et le projet rejoint le workspace personnel du nouveau.
  * Projet et membres sont verrouillés le temps de la transaction, journal compris. Logique commune
- * avec le transfert par le propriétaire (`transferOwnership`) ; l'appelant notifie ensuite le
- * service temps réel.
+ * avec le transfert par le propriétaire (`transferOwnership`), limites du plan du nouveau
+ * propriétaire comprises (403 `E_PLAN_LIMIT`, pas d'exception pour l'admin) ; l'appelant notifie
+ * ensuite le service temps réel.
  */
 export async function transferProject(
   admin: User,

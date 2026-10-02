@@ -4,6 +4,8 @@ import type { CompileResult, OutputDownload, PdfPosition } from '@kaxolax/contra
 import { Button, Sheet, SheetContent, SheetTitle, SimpleTooltip, cn } from '@kaxolax/ui'
 import { FileWarningIcon, PlayIcon, RotateCwIcon, ScrollTextIcon } from 'lucide-react'
 import { type ReactNode, useCallback, useRef, useState } from 'react'
+import { PlanLimitNotice } from '@/components/billing/plan-limit-notice'
+import { type CompilePhase, phaseLabel } from '@/lib/builds'
 import { CompileStatus, type CompileSettings } from './compile-status'
 import { type FixPackage, LogPanel } from './log-panel'
 import { PdfActions, PdfFloatingBar, ZoomMenu } from './pdf-controls'
@@ -46,6 +48,7 @@ export function PdfColumn({
   result,
   resultReceivedAt,
   compiling,
+  phase = null,
   settings,
   canEdit,
   fileName,
@@ -70,6 +73,8 @@ export function PdfColumn({
   /** Date de réception de `result` : âge de ses liens présignés. */
   resultReceivedAt: number
   compiling: boolean
+  /** Étape de la compilation en cours (compilation asynchrone : préparation, file d'attente). */
+  phase?: CompilePhase | null
   settings: CompileSettings
   canEdit: boolean
   /** Nom du PDF téléchargé. */
@@ -219,6 +224,7 @@ export function PdfColumn({
         <CompileStatus
           result={result}
           compiling={compiling}
+          phase={phase}
           settings={settings}
           canEdit={canEdit}
           onCompile={onCompile}
@@ -342,6 +348,7 @@ export function PdfColumn({
           <PdfEmptyState
             result={result}
             compiling={compiling}
+            phase={phase}
             onCompile={onCompile}
             onShowLogs={showLogs}
           />
@@ -398,18 +405,24 @@ export function PdfColumn({
 function PdfEmptyState({
   result,
   compiling,
+  phase,
   onCompile,
   onShowLogs,
 }: {
   result: CompileResult | null
   compiling: boolean
+  phase: CompilePhase | null
   onCompile: () => void
   onShowLogs: () => void
 }) {
   if (compiling) {
     return (
-      <p className="mt-16 text-center text-sm text-pdf-muted-foreground" data-testid="pdf-viewer">
-        Compilation en cours…
+      <p
+        className="mt-16 text-center text-sm text-pdf-muted-foreground"
+        role="status"
+        data-testid="pdf-viewer"
+      >
+        {phase === 'preparing' || phase === 'queued' ? phaseLabel(phase) : 'Compilation en cours…'}
       </p>
     )
   }
@@ -440,6 +453,10 @@ function PdfEmptyState({
           ? 'La compilation a dépassé le temps autorisé.'
           : 'La compilation n’a produit aucun PDF.'}
       </p>
+      {/* Durée maximale du plan du propriétaire atteinte : un plan supérieur la lève. */}
+      {result.planLimit ? (
+        <PlanLimitNotice error={result.planLimit} compact className="max-w-sm text-left" />
+      ) : null}
       <Button size="sm" variant="outline" onClick={onShowLogs}>
         Voir les logs
       </Button>

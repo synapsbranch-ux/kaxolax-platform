@@ -179,6 +179,8 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     )
     assert.equal(request.buildId, buildId)
     assert.equal(request.rootResourcePath, 'main.tex')
+    // Durée maximale du plan du propriétaire (Free : 20 s), calculée par l'API.
+    assert.equal(request.timeoutMs, 20_000)
 
     const compile = await Compile.findOrFail(buildId)
     assert.include(compile.$attributes, {
@@ -459,15 +461,22 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
     const warm = (projectId: string, as = user) =>
       client.post(`/api/v1/projects/${projectId}/compiler/warm`).loginAs(as)
 
-    for (const projectId of projects.slice(0, limit)) (await warm(projectId)).assertStatus(202)
+    // Le réveil ne prend jamais le dernier emplacement : il reste à une vraie compilation.
+    for (const projectId of projects.slice(0, limit - 1)) (await warm(projectId)).assertStatus(202)
+    const last = projects[limit - 1] ?? ''
+    const skipped = await warm(last)
+    skipped.assertStatus(200)
+    skipped.assertBody({ status: 'skipped' })
+    assert.lengthOf(worker.calledOn('/warm'), limit - 1)
+    ;(await client.post(`/api/v1/projects/${last}/compile`).loginAs(user)).assertStatus(202)
+    // Plafond atteint : le réveil est sans effet, la compilation est refusée.
     const extra = projects[limit] ?? ''
-    const refused = await warm(extra)
-    refused.assertStatus(429)
-    refused.assertBodyContains({ code: 'E_TOO_MANY_COMPILERS' })
+    ;(await warm(extra)).assertBody({ status: 'skipped' })
     const compile = await client.post(`/api/v1/projects/${extra}/compile`).loginAs(user)
     compile.assertStatus(429)
-    assert.lengthOf(worker.calledOn('/warm'), limit)
-    assert.lengthOf(worker.calledOn('/compile'), 0)
+    compile.assertBodyContains({ code: 'E_TOO_MANY_COMPILERS' })
+    assert.lengthOf(worker.calledOn('/warm'), limit - 1)
+    assert.lengthOf(worker.calledOn('/compile'), 1)
 
     // Un projet déjà compté reste utilisable ; le plafond est propre à chaque utilisateur.
     ;(await warm(projects[0] ?? '')).assertStatus(202)

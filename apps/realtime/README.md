@@ -80,6 +80,28 @@ Avec `REDIS_URL` (`redis://` ou `rediss://`), deux mécanismes, sous le préfixe
 Sans `REDIS_URL`, une seule instance : rien n'est relayé. Le nom affiché, la photo et la couleur
 restent imposés par l'instance qui reçoit l'awareness ; un état relayé par Redis n'est pas revérifié.
 
+## Limite de stockage du plan
+
+`src/storage.ts` applique aux éditions la limite de stockage du plan du propriétaire du projet
+(Clerk Billing ; valeurs dans `plan_limits`). Le stockage d'un compte compte les fichiers et les
+états Yjs enregistrés de tous ses projets ; l'API refuse déjà les créations, uploads, imports et
+transferts au-delà. Ici :
+
+- Plan du propriétaire lu en base (`DocumentStore.ownerStorage`), même règle que l'API sans
+  claims de requête : relevé des claims de son dernier jeton (`users.claimed_plan_*`) s'il est
+  plus récent que le miroir `subscriptions` des webhooks, sinon le miroir, sinon `free`.
+- À chaque message de synchronisation d'une connexion qui édite (après le contrôle du rôle) :
+  si l'usage enregistré atteint la limite, la connexion passe en lecture seule (les mises à jour
+  sont refusées, sans compter dans `MAX_REJECTED_UPDATES`) ; quand de la place se libère, elle
+  retrouve l'écriture. Chaque changement envoie le message sans état `plan.storage`
+  (`storageStateMessageSchema` : `full`, `plan`, `max`, `current`).
+- L'état est relu au plus toutes les `STORAGE_CHECK_MS` (10 s) par projet, et après chaque
+  enregistrement d'un de ses documents. Base indisponible : l'édition reste permise (journalisé).
+- Dépassement possible, borné : ce qui arrive entre deux enregistrements (10 s au plus) et deux
+  lectures de l'usage. L'affichage du message `plan.storage` dans l'éditeur reste à brancher avec
+  la connexion du web (tâche 5) ; en attendant, l'éditeur voit ses modifications non
+  synchronisées et les autres actions affichent le refus `E_PLAN_LIMIT` avec le lien des tarifs.
+
 ## Persistance
 
 L'état Yjs complet et le sha256 du texte sont écrits dans `documents` (`yjs_state`,

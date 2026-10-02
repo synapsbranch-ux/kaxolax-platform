@@ -183,11 +183,15 @@ const MESSAGES: Record<string, string> = {
   E_ADMIN_SELF_ACTION: 'Action impossible sur votre propre compte.',
   E_USER_DELETED: 'Ce compte a été supprimé.',
   E_PROJECT_NOT_TRASHED: "Mettez d'abord le projet à la corbeille.",
+  E_PLAN_LIMIT:
+    'Le plan du destinataire ne permet pas ce projet (stockage ou nombre de collaborateurs).',
 }
 
 /** Message affichable d'une erreur ; les refus d'accès restent génériques. */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
+    // Limite de plan (403) : un refus métier, pas un refus d'accès.
+    if (error.code === 'E_PLAN_LIMIT') return MESSAGES.E_PLAN_LIMIT ?? error.message
     if (error.status === 401 || error.status === 403) return 'Accès refusé.'
     const known = error.code === undefined ? undefined : MESSAGES[error.code]
     if (known !== undefined) return known

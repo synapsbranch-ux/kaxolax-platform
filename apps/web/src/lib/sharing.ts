@@ -7,7 +7,6 @@ import {
   type CollaboratorUsage,
   INVITATION_RESEND_INTERVAL_SECONDS,
   invitationEmailMismatchErrorSchema,
-  planLimitErrorSchema,
   type ProjectInvitationEntry,
   type ProjectMemberEntry,
   type ProjectRole,
@@ -21,9 +20,6 @@ import { ApiError, errorMessage } from './api'
  * Logique de la modale de partage et des pages d'invitation, sans React : libellés, actions
  * permises selon le rôle (matrice de `@kaxolax/contracts`), messages d'erreur de l'API.
  */
-
-/** Page des tarifs et de la facturation (Clerk Billing, tâche 12). */
-export const PRICING_URL = '/pricing'
 
 export const ROLE_LABELS: Record<ProjectRole, string> = {
   owner: 'Propriétaire',
@@ -118,9 +114,9 @@ export function formatDate(iso: string): string {
 
 /** Limite atteinte (403 `E_PLAN_LIMIT`) : plan et maximum, à afficher avec le lien des tarifs. */
 export function planLimitOf(error: unknown): { plan: string; max: number } | null {
-  if (!(error instanceof ApiError) || error.code !== SHARING_ERRORS.planLimit) return null
-  const parsed = planLimitErrorSchema.safeParse(error.body)
-  return parsed.success ? { plan: parsed.data.limit.plan, max: parsed.data.limit.max } : null
+  // Corps validé par `planLimitErrorSchema` (`@kaxolax/contracts`, billing.ts) : `ApiError.planLimit`.
+  const limit = error instanceof ApiError ? error.planLimit : null
+  return limit ? { plan: limit.limit.plan, max: limit.limit.max } : null
 }
 
 /** Message d'une limite de plan atteinte. */
