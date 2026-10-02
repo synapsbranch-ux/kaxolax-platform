@@ -9,18 +9,25 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-primary text-primary-foreground shadow-xs hover:bg-primary/90',
-        destructive: 'bg-destructive text-white shadow-xs hover:bg-destructive/90',
-        outline: 'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground',
+        destructive:
+          'bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/40',
+        outline:
+          'border border-input bg-transparent shadow-xs hover:bg-accent hover:text-accent-foreground',
         secondary: 'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
+        /** Accent bleu de la barre Tools. */
+        accent:
+          'bg-tools text-tools-foreground shadow-xs hover:bg-tools/90 focus-visible:ring-tools/50',
       },
       size: {
         default: 'h-9 px-4 py-2',
+        xs: "h-6 gap-1 rounded-sm px-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
         sm: 'h-8 gap-1.5 rounded-md px-3',
         lg: 'h-10 rounded-md px-6',
         icon: 'size-9',
         'icon-sm': 'size-7',
+        'icon-xs': "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3.5",
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

@@ -96,6 +96,33 @@ describe('agent HTTP server', () => {
     expect(other.statusCode).toBe(400)
   })
 
+  it('passes the compile options to the compiler', async () => {
+    const received: unknown[] = []
+    const compiler = fakeCompiler({
+      compile: (compileRequest) => {
+        received.push(compileRequest.options)
+        return fakeCompiler().compile(compileRequest)
+      },
+    })
+    const app = buildServer({ compiler, internalToken: token, logger })
+    const ok = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/compile`,
+      headers,
+      payload: { ...request(), options: { draft: true, haltOnFirstError: true } },
+    })
+    expect(ok.statusCode).toBe(200)
+    expect(received).toEqual([{ draft: true, haltOnFirstError: true }])
+
+    const bad = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/compile`,
+      headers,
+      payload: { ...request(), options: { shellEscape: true } },
+    })
+    expect(bad.statusCode).toBe(400)
+  })
+
   it('maps compiler validation errors to 400', async () => {
     const compiler = fakeCompiler({
       compile: () => Promise.reject(new InvalidRequestError('Unexpected output bucket')),

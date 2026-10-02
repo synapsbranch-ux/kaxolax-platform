@@ -1,3 +1,4 @@
+import { compileProjectBodySchema } from '@kaxolax/contracts'
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import CompileGateway from '#services/compile_gateway'
@@ -7,6 +8,7 @@ import { projectFor } from '#services/project_access'
 import RealtimeClient from '#services/realtime_client'
 import { buildTree } from '#services/tree_service'
 import { synctexCodeValidator, synctexPdfValidator } from '#validators/compile'
+import { validateWithZod } from '#validators/zod'
 
 @inject()
 export default class CompilesController {
@@ -16,14 +18,19 @@ export default class CompilesController {
     private readonly outputs: CompileOutputStorage,
   ) {}
 
-  /** Tout membre du projet peut compiler : la compilation ne modifie pas le contenu. */
-  async compile({ params, auth }: HttpContext) {
+  /**
+   * Tout membre du projet peut compiler : la compilation ne modifie pas le contenu. Corps
+   * facultatif : `{ options: { draft?, haltOnFirstError? } }`.
+   */
+  async compile({ params, auth, request }: HttpContext) {
     const user = auth.getUserOrFail()
     const { project } = await projectFor(user, String(params.id), 'viewer')
+    const body = validateWithZod(compileProjectBodySchema, request.body())
     return compileProject(
       { gateway: this.gateway, realtime: this.realtime, outputs: this.outputs },
       user,
       project,
+      body.options,
     )
   }
 

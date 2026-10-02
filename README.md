@@ -107,7 +107,7 @@ packages/
   collab/             conventions Yjs (nom des documents, champ texte)
   config/             tsconfig, ESLint, Prettier
   contracts/          schémas zod partagés entre services
-  editor/             extensions CodeMirror (langage LaTeX, repli, raccourcis)
+  editor/             CodeMirror : langage LaTeX, thèmes, registre d'actions, outline, auto-compilation
   ui/                 composants shadcn/ui partagés
   latex-log-parser/   parsing des logs LaTeX, BibTeX et Biber
 docs/          décisions d'architecture (decisions.md)

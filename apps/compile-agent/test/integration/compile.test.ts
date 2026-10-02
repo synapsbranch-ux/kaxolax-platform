@@ -37,6 +37,8 @@ describe.skipIf(!available)(`compile agent with real Docker (${RUNTIME})`, () =>
       'output.pdf',
       'output.log',
       'output.blg',
+      'output.bbl',
+      'output.synctex.gz',
     ])
     const pdf = cold.outputFiles[0]
     const pdfBytes = await readFile(join(agent.outputsDir, 'test-outputs', pdf?.s3Key ?? ''))

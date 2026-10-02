@@ -47,6 +47,23 @@ export const compileResourceSchema = z.discriminatedUnion('kind', [
 export type CompileResource = z.infer<typeof compileResourceSchema>
 
 /**
+ * Options de compilation choisies par l'utilisateur. `draft` : graphicx et hyperref reçoivent
+ * l'option draft (images remplacées par des cadres, pas de liens), sans modifier les fichiers du
+ * projet. `haltOnFirstError` : le moteur s'arrête à la première erreur. Absentes = désactivées.
+ */
+export const compileOptionsSchema = z.strictObject({
+  draft: z.boolean().optional(),
+  haltOnFirstError: z.boolean().optional(),
+})
+export type CompileOptions = z.infer<typeof compileOptionsSchema>
+
+/** Corps (facultatif) de `POST /projects/:id/compile`. */
+export const compileProjectBodySchema = z.strictObject({
+  options: compileOptionsSchema.optional(),
+})
+export type CompileProjectBody = z.infer<typeof compileProjectBodySchema>
+
+/**
  * Demande de compilation : API vers le gateway (POST /compile), puis gateway vers l'agent
  * (POST /projects/:projectId/compile), avec le même corps.
  */
@@ -57,6 +74,7 @@ export const compileRequestSchema = z
     compiler: compilerSchema,
     rootResourcePath: relativePathSchema,
     timeoutMs: z.number().int().min(MIN_COMPILE_TIMEOUT_MS).max(MAX_COMPILE_TIMEOUT_MS),
+    options: compileOptionsSchema.optional(),
     resources: z.array(compileResourceSchema).min(1).max(MAX_COMPILE_RESOURCES),
     output: z.object({
       bucket: z.string().min(3).max(63),
@@ -149,9 +167,25 @@ export const gatewayCompileResponseSchema = agentCompileResponseSchema.extend({
 })
 export type GatewayCompileResponse = z.infer<typeof gatewayCompileResponseSchema>
 
+/** Fichiers de sortie téléchargeables (menu ⋯ du PDF), dans cet ordre quand ils existent. */
+export const DOWNLOADABLE_OUTPUTS = [
+  { name: 'output.log', label: 'Log de compilation', contentType: 'text/plain; charset=utf-8' },
+  { name: 'output.synctex.gz', label: 'SyncTeX', contentType: 'application/gzip' },
+  { name: 'output.bbl', label: 'Bibliographie (.bbl)', contentType: 'text/plain; charset=utf-8' },
+  { name: 'output.blg', label: 'Log de BibTeX (.blg)', contentType: 'text/plain; charset=utf-8' },
+] as const
+
+/** Fichier de sortie téléchargeable : nom et lien présigné (téléchargement). */
+export const outputDownloadSchema = z.object({
+  name: z.string().min(1),
+  url: z.url(),
+})
+export type OutputDownload = z.infer<typeof outputDownloadSchema>
+
 /**
  * Réponse de l'API au navigateur. `logUrl` est nul seulement si la compilation a échoué avant
- * de produire un log (statut `error`, par exemple aucun agent disponible).
+ * de produire un log (statut `error`, par exemple aucun agent disponible). `outputFiles` : sorties
+ * téléchargeables disponibles (voir `DOWNLOADABLE_OUTPUTS`), absent dans les anciennes réponses.
  */
 export const compileResultSchema = z.object({
   buildId: z.uuid(),
@@ -159,6 +193,7 @@ export const compileResultSchema = z.object({
   durationMs: z.number().int().nonnegative(),
   pdfUrl: z.url().nullable(),
   logUrl: z.url().nullable(),
+  outputFiles: z.array(outputDownloadSchema).optional(),
   entries: z.array(logEntrySchema),
 })
 export type CompileResult = z.infer<typeof compileResultSchema>

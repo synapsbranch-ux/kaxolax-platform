@@ -18,6 +18,15 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   - Compte supprimé dans Clerk : ligne anonymisée, retrait des projets partagés, suppression de
     ses projets.
   - `GET /me` : l'utilisateur local de la session.
+- **Préférences** : `GET /me/preferences` renvoie les préférences complètes (thème, tailles des
+  colonnes, barre Tools, auto-compilation, options de compilation, onglets ouverts par projet,
+  paramètres de l'éditeur réservés à la tâche 10), valeurs par défaut appliquées
+  (`DEFAULT_PREFERENCES`, @kaxolax/contracts). `PATCH /me/preferences` fusionne une modification
+  partielle (fusion profonde, tableaux remplacés, clé inconnue ou valeur invalide : 422) dans
+  `user_preferences` (`INSERT … ON CONFLICT DO NOTHING` puis `FOR UPDATE` : modifications
+  simultanées sans perte). Seules les clés changées sont stockées ; JSON borné à 32 Kio, onglets
+  mémorisés pour les 20 derniers projets modifiés (numéro d'ordre `usedSeq` posé par l'API). Une
+  clé stockée devenue invalide est écartée seule à la lecture, sans effacer les autres.
 - **Workspaces** : tout projet appartient à un workspace. Chaque compte reçoit un workspace
   personnel (« Personal workspace », un seul par propriétaire, index unique partiel), créé par
   `ensurePersonalWorkspace` (`app/services/workspace_service.ts`, idempotent) à chaque
@@ -33,6 +42,16 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
 - **Arborescence** : dossiers et documents texte (état Yjs dès l'étape 1), renommage,
   déplacement, suppression récursive. Chemins calculés, jamais stockés. Noms uniques dans un
   dossier, tous types confondus, vérifiés en transaction avec le projet verrouillé.
+- **Recherche dans tout le projet** : `GET /projects/:id/search?q=&caseSensitive=&wholeWord=&regex=`
+  (rôle viewer) cherche dans le texte courant de chaque document (instantané temps réel, sinon
+  état enregistré, comme la compilation). Au plus 500 occurrences `{ documentId, path, line,
+column, length, preview, previewStart }` (ligne à partir de 1, colonne en unités UTF-16 à
+  partir de 0), triées par chemin, avec `truncated`. `q` : 200 caractères au plus ; en mode
+  `regex`, expression JavaScript avec le flag `u` (syntaxe invalide : 422
+  `E_INVALID_SEARCH_PATTERN`). La boucle tourne dans `vm` avec un délai de 500 ms, dans un
+  `worker_threads` (4 au plus par processus, sinon 429 `E_TOO_MANY_SEARCHES`) : une expression
+  catastrophique (ReDoS) est interrompue sans bloquer l'API, et la réponse porte `timedOut`. Une
+  nouvelle recherche du même utilisateur annule la précédente (409 `E_SEARCH_SUPERSEDED`).
 - **Accès** : toujours par `project_members`. Un projet dont l'utilisateur n'est pas membre
   répond 404. Rôles : owner > editor > reviewer > viewer.
 - **Temps réel** : `POST /projects/:id/realtime-token` signe un jeton de 5 minutes pour le
@@ -48,7 +67,9 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
   personnel.
 
-- **Compilation** : `POST /projects/:id/compile` (instantané temps réel + table `files`, envoyé
+- **Compilation** : `POST /projects/:id/compile`, corps facultatif
+  `{ options: { draft?, haltOnFirstError? } }` validé par zod (mode brouillon, arrêt à la
+  première erreur, transmis tels quels au gateway puis à l'agent) (instantané temps réel + table `files`, envoyé
   au compile-gateway ; résultat enregistré dans `compiles`, URL présignées du PDF et du log),
   `POST /projects/:id/compile/stop`, `GET /projects/:id/compile/last`,
   `POST /projects/:id/compile/clear-cache`.

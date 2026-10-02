@@ -7,6 +7,7 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
 const MeController = () => import('#controllers/me_controller')
+const PreferencesController = () => import('#controllers/preferences_controller')
 const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
 const WorkspacesController = () => import('#controllers/workspaces_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
@@ -17,6 +18,7 @@ const ImportsController = () => import('#controllers/imports_controller')
 const FilesController = () => import('#controllers/files_controller')
 const CompilesController = () => import('#controllers/compiles_controller')
 const ExportsController = () => import('#controllers/exports_controller')
+const SearchController = () => import('#controllers/search_controller')
 
 router
   .group(() => {
@@ -30,6 +32,8 @@ router
     router
       .group(() => {
         router.get('me', [MeController, 'show'])
+        router.get('me/preferences', [PreferencesController, 'show'])
+        router.patch('me/preferences', [PreferencesController, 'update'])
 
         router.get('workspaces', [WorkspacesController, 'index'])
 
@@ -49,6 +53,7 @@ router
         router.patch('projects/:id/entities/:type/:entityId', [TreeController, 'update'])
         router.delete('projects/:id/entities/:type/:entityId', [TreeController, 'destroy'])
         router.get('projects/:id/files/:fileId/url', [FilesController, 'url'])
+        router.get('projects/:id/search', [SearchController, 'search'])
 
         router.post('projects/:id/uploads', [UploadsController, 'store'])
         router.post('projects/:id/uploads/:uploadId/complete', [UploadsController, 'complete'])

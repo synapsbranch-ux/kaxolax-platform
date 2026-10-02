@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectTree } from './api'
 import { api, ApiError, setTokenGetter } from './api'
 import { groupEntries, locationLabel } from './logs'
-import { documentByPath, isInside, nestTree } from './tree'
+import { documentByPath, isInside, nestTree, treeKeyEffect, visibleRows } from './tree'
 
 const tree: ProjectTree = {
   mainDocumentId: 'd1',
@@ -33,6 +33,23 @@ describe('tree', () => {
     expect(documentByPath(tree, 'chapters/intro.tex')?.id).toBe('d2')
     expect(isInside(tree, 'f2', 'f1')).toBe(true)
     expect(isInside(tree, 'f1', 'f2')).toBe(false)
+  })
+
+  it('moves through visible rows with the keyboard', () => {
+    const nodes = nestTree(tree)
+    const rows = visibleRows(nodes, new Set())
+    expect(rows.map((row) => row.node.entity.id)).toEqual(['f1', 'f2', 'd2', 'b1', 'd1'])
+    expect(treeKeyEffect(rows, 'f1', 'ArrowDown')).toEqual({ kind: 'focus', id: 'f2' })
+    expect(treeKeyEffect(rows, 'f1', 'ArrowUp')).toBeNull()
+    expect(treeKeyEffect(rows, 'd2', 'ArrowLeft')).toEqual({ kind: 'focus', id: 'f1' })
+    expect(treeKeyEffect(rows, 'f1', 'ArrowLeft')).toEqual({ kind: 'toggle', id: 'f1' })
+    expect(treeKeyEffect(rows, 'f1', 'ArrowRight')).toEqual({ kind: 'focus', id: 'f2' })
+    expect(treeKeyEffect(rows, 'd1', 'Enter')).toEqual({ kind: 'open', id: 'd1' })
+    expect(treeKeyEffect(rows, 'b1', 'End')).toEqual({ kind: 'focus', id: 'd1' })
+
+    const folded = visibleRows(nodes, new Set(['f1']))
+    expect(folded.map((row) => row.node.entity.id)).toEqual(['f1', 'b1', 'd1'])
+    expect(treeKeyEffect(folded, 'f1', 'ArrowRight')).toEqual({ kind: 'toggle', id: 'f1' })
   })
 })
 

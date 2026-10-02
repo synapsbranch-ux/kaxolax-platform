@@ -1,0 +1,309 @@
+/*
+ * Jetons de design Kaxolax (couleurs oklch, rayons, tailles), pour Tailwind 4.
+ *
+ * Usage, dans la feuille globale d'une application, après Tailwind :
+ *   @import 'tailwindcss';
+ *   @import '@kaxolax/ui/tokens.css';
+ *
+ * Thème : clair sur :root, sombre sous [data-theme='dark'] ou .dark (posé sur <html> par
+ * themeScript ou applyThemePreference). [data-theme='light'] ou .light rétablit le clair dans un
+ * sous-arbre (colonne PDF). Les jetons pdf-* restent clairs dans les deux thèmes.
+ * Liste et usage : README de packages/ui.
+ */
+
+/* `dark:` suit le thème Kaxolax (et non prefers-color-scheme), sauf dans une zone forcée en clair. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *, .dark, .dark *):not(:where([data-theme='light'], [data-theme='light'] *, .light, .light *)));
+
+/* Jetons indépendants du thème : déclarés une seule fois, pour qu'une valeur posée sur <html>
+   (préférences de l'éditeur) ne soit pas réinitialisée par une zone [data-theme]. */
+:root {
+  --radius: 0.625rem;
+
+  /* Hauteurs des barres et largeurs fixes. */
+  --bar-height: 2.75rem;
+  --toolbar-height: 2.25rem;
+  --tab-height: 2rem;
+  --sidebar-footer-height: 3.5rem;
+  --ask-height: 3.5rem;
+  --rail-width: 3rem;
+  --gutter: 0.75rem;
+
+  /* Éditeur (surchargés par les préférences de l'utilisateur). */
+  --editor-font-family:
+    ui-monospace, 'SFMono-Regular', 'Cascadia Code', Menlo, Consolas, 'Liberation Mono', monospace;
+  --editor-font-size: 14px;
+  --editor-line-height: 1.6;
+
+  /* Zone PDF : toujours claire. */
+  --pdf: oklch(0.94 0.003 250);
+  --pdf-foreground: oklch(0.145 0 0);
+  --pdf-muted-foreground: oklch(0.5 0 0);
+  --pdf-toolbar: oklch(0.985 0 0);
+  --pdf-toolbar-foreground: oklch(0.205 0 0);
+  --pdf-accent: oklch(0.93 0 0);
+  --pdf-border: oklch(0.9 0 0);
+  --pdf-page: oklch(1 0 0);
+  --pdf-floating: oklch(1 0 0);
+  --pdf-floating-foreground: oklch(0.205 0 0);
+  --pdf-highlight: oklch(0.7 0.15 255 / 30%);
+}
+
+:root,
+[data-theme='light'],
+.light {
+  color-scheme: light;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.42 0.12 160);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.95 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.5 0.12 155);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.66 0.15 62);
+  --warning-foreground: oklch(0.25 0.05 60);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.88 0 0);
+  --ring: oklch(0.6 0.1 160);
+
+  /* Accent bleu du bouton Tools et des éléments actifs de la barre d'outils. */
+  --tools: oklch(0.53 0.19 258);
+  --tools-foreground: oklch(0.985 0 0);
+
+  --sidebar: oklch(0.975 0 0);
+  --sidebar-foreground: oklch(0.205 0 0);
+  --sidebar-muted-foreground: oklch(0.5 0 0);
+  --sidebar-primary: oklch(0.42 0.12 160);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.92 0 0);
+  --sidebar-accent-foreground: oklch(0.145 0 0);
+  --sidebar-border: oklch(0.91 0 0);
+  --sidebar-ring: oklch(0.6 0.1 160);
+
+  --editor: oklch(1 0 0);
+  --editor-foreground: oklch(0.2 0 0);
+  --editor-gutter: oklch(1 0 0);
+  --editor-gutter-foreground: oklch(0.6 0 0);
+  --editor-gutter-active-foreground: oklch(0.3 0 0);
+  --editor-active-line: oklch(0.975 0.004 160);
+  --editor-active-line-border: oklch(0.9 0.01 160);
+  --editor-selection: oklch(0.89 0.05 255);
+  --editor-cursor: oklch(0.2 0 0);
+  --editor-match: oklch(0.9 0.07 160);
+  --editor-border: oklch(0.922 0 0);
+  --editor-tabbar: oklch(0.97 0 0);
+  --editor-tab-foreground: oklch(0.45 0 0);
+  --editor-tab-active: oklch(1 0 0);
+  --editor-tab-active-foreground: oklch(0.145 0 0);
+  --editor-tab-active-border: oklch(0.85 0 0);
+  --editor-toolbar: oklch(0.985 0 0);
+  --editor-toolbar-foreground: oklch(0.25 0 0);
+  --editor-syntax-keyword: oklch(0.49 0.24 293);
+  --editor-syntax-tag: oklch(0.48 0.1 240);
+  --editor-syntax-atom: oklch(0.5 0.085 182);
+  --editor-syntax-number: oklch(0.52 0.125 55);
+  --editor-syntax-comment: oklch(0.52 0.02 265);
+  --editor-syntax-string: oklch(0.5 0.13 150);
+  --editor-syntax-bracket: oklch(0.5 0.23 305);
+  --editor-syntax-variable: oklch(0.47 0.21 264);
+  --editor-syntax-invalid: oklch(0.55 0.22 27);
+
+  /* Couleurs des collaborateurs (curseurs, avatars) : même teinte dans les deux thèmes,
+     luminosité adaptée au fond. Texte posé dessus : presence-foreground. */
+  --presence-1: oklch(0.55 0.19 25);
+  --presence-2: oklch(0.55 0.13 55);
+  --presence-3: oklch(0.55 0.11 95);
+  --presence-4: oklch(0.55 0.15 145);
+  --presence-5: oklch(0.55 0.09 200);
+  --presence-6: oklch(0.55 0.19 260);
+  --presence-7: oklch(0.55 0.2 300);
+  --presence-8: oklch(0.55 0.2 350);
+  --presence-foreground: oklch(1 0 0);
+}
+
+[data-theme='dark'],
+.dark {
+  color-scheme: dark;
+
+  --background: oklch(0.19 0 0);
+  --foreground: oklch(0.93 0 0);
+  --card: oklch(0.225 0 0);
+  --card-foreground: oklch(0.93 0 0);
+  --popover: oklch(0.24 0 0);
+  --popover-foreground: oklch(0.93 0 0);
+  --primary: oklch(0.72 0.13 160);
+  --primary-foreground: oklch(0.2 0.03 160);
+  --secondary: oklch(0.29 0 0);
+  --secondary-foreground: oklch(0.93 0 0);
+  --muted: oklch(0.27 0 0);
+  --muted-foreground: oklch(0.7 0 0);
+  --accent: oklch(0.31 0 0);
+  --accent-foreground: oklch(0.96 0 0);
+  --destructive: oklch(0.7 0.17 23);
+  --destructive-foreground: oklch(0.2 0.04 25);
+  --success: oklch(0.74 0.15 155);
+  --success-foreground: oklch(0.2 0.03 155);
+  --warning: oklch(0.8 0.15 75);
+  --warning-foreground: oklch(0.22 0.04 60);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.65 0.11 160);
+
+  --tools: oklch(0.53 0.19 258);
+  --tools-foreground: oklch(0.985 0 0);
+
+  --sidebar: oklch(0.2 0 0);
+  --sidebar-foreground: oklch(0.9 0 0);
+  --sidebar-muted-foreground: oklch(0.68 0 0);
+  --sidebar-primary: oklch(0.72 0.13 160);
+  --sidebar-primary-foreground: oklch(0.2 0.03 160);
+  --sidebar-accent: oklch(0.28 0 0);
+  --sidebar-accent-foreground: oklch(0.97 0 0);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.65 0.11 160);
+
+  --editor: oklch(0.215 0 0);
+  --editor-foreground: oklch(0.88 0 0);
+  --editor-gutter: oklch(0.215 0 0);
+  --editor-gutter-foreground: oklch(0.56 0 0);
+  --editor-gutter-active-foreground: oklch(0.86 0 0);
+  --editor-active-line: oklch(0.245 0 0);
+  --editor-active-line-border: oklch(0.33 0 0);
+  --editor-selection: oklch(0.37 0.06 255);
+  --editor-cursor: oklch(0.93 0 0);
+  --editor-match: oklch(0.39 0.06 160);
+  --editor-border: oklch(1 0 0 / 8%);
+  --editor-tabbar: oklch(0.2 0 0);
+  --editor-tab-foreground: oklch(0.68 0 0);
+  --editor-tab-active: oklch(0.215 0 0);
+  --editor-tab-active-foreground: oklch(0.95 0 0);
+  --editor-tab-active-border: oklch(1 0 0 / 18%);
+  --editor-toolbar: oklch(0.235 0 0);
+  --editor-toolbar-foreground: oklch(0.88 0 0);
+  --editor-syntax-keyword: oklch(0.75 0.14 300);
+  --editor-syntax-tag: oklch(0.76 0.11 230);
+  --editor-syntax-atom: oklch(0.78 0.1 182);
+  --editor-syntax-number: oklch(0.8 0.12 65);
+  --editor-syntax-comment: oklch(0.65 0.02 265);
+  --editor-syntax-string: oklch(0.78 0.13 150);
+  --editor-syntax-bracket: oklch(0.76 0.13 320);
+  --editor-syntax-variable: oklch(0.76 0.12 260);
+  --editor-syntax-invalid: oklch(0.7 0.18 25);
+
+  --presence-1: oklch(0.76 0.14 25);
+  --presence-2: oklch(0.78 0.13 55);
+  --presence-3: oklch(0.82 0.13 95);
+  --presence-4: oklch(0.78 0.15 145);
+  --presence-5: oklch(0.78 0.11 200);
+  --presence-6: oklch(0.74 0.13 260);
+  --presence-7: oklch(0.74 0.15 300);
+  --presence-8: oklch(0.76 0.15 350);
+  --presence-foreground: oklch(0.18 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-tools: var(--tools);
+  --color-tools-foreground: var(--tools-foreground);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-editor: var(--editor);
+  --color-editor-foreground: var(--editor-foreground);
+  --color-editor-gutter: var(--editor-gutter);
+  --color-editor-gutter-foreground: var(--editor-gutter-foreground);
+  --color-editor-gutter-active-foreground: var(--editor-gutter-active-foreground);
+  --color-editor-active-line: var(--editor-active-line);
+  --color-editor-active-line-border: var(--editor-active-line-border);
+  --color-editor-selection: var(--editor-selection);
+  --color-editor-cursor: var(--editor-cursor);
+  --color-editor-match: var(--editor-match);
+  --color-editor-border: var(--editor-border);
+  --color-editor-tabbar: var(--editor-tabbar);
+  --color-editor-tab-foreground: var(--editor-tab-foreground);
+  --color-editor-tab-active: var(--editor-tab-active);
+  --color-editor-tab-active-foreground: var(--editor-tab-active-foreground);
+  --color-editor-tab-active-border: var(--editor-tab-active-border);
+  --color-editor-toolbar: var(--editor-toolbar);
+  --color-editor-toolbar-foreground: var(--editor-toolbar-foreground);
+
+  --color-pdf: var(--pdf);
+  --color-pdf-foreground: var(--pdf-foreground);
+  --color-pdf-muted-foreground: var(--pdf-muted-foreground);
+  --color-pdf-toolbar: var(--pdf-toolbar);
+  --color-pdf-toolbar-foreground: var(--pdf-toolbar-foreground);
+  --color-pdf-accent: var(--pdf-accent);
+  --color-pdf-border: var(--pdf-border);
+  --color-pdf-page: var(--pdf-page);
+  --color-pdf-floating: var(--pdf-floating);
+  --color-pdf-floating-foreground: var(--pdf-floating-foreground);
+  --color-pdf-highlight: var(--pdf-highlight);
+
+  --color-presence-1: var(--presence-1);
+  --color-presence-2: var(--presence-2);
+  --color-presence-3: var(--presence-3);
+  --color-presence-4: var(--presence-4);
+  --color-presence-5: var(--presence-5);
+  --color-presence-6: var(--presence-6);
+  --color-presence-7: var(--presence-7);
+  --color-presence-8: var(--presence-8);
+  --color-presence-foreground: var(--presence-foreground);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --spacing-bar: var(--bar-height);
+  --spacing-toolbar: var(--toolbar-height);
+  --spacing-tab: var(--tab-height);
+  --spacing-sidebar-footer: var(--sidebar-footer-height);
+  --spacing-ask: var(--ask-height);
+  --spacing-rail: var(--rail-width);
+  --spacing-gutter: var(--gutter);
+
+  --font-editor: var(--editor-font-family);
+
+  --shadow-floating: 0 4px 16px oklch(0 0 0 / 12%), 0 1px 3px oklch(0 0 0 / 8%);
+}

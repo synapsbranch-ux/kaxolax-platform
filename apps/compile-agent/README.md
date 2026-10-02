@@ -35,6 +35,10 @@ exigent l'en-tête `X-Internal-Token`.
 - **Commande** : `latexmk -norc -cd -f -jobname=output -synctex=1 -interaction=batchmode -file-line-error -pdf main.tex`
   (`-xelatex` ou `-lualatex` selon le compilateur). `-norc` empêche latexmk d'exécuter le
   `latexmkrc` (du Perl) d'un projet (voir `docs/decisions.md`).
+  Options de la demande (`options`) : `haltOnFirstError` ajoute `-halt-on-error` ; `draft`
+  ajoute `-usepretex=\PassOptionsToPackage{draft}{graphicx}\PassOptionsToPackage{draft}{hyperref}`
+  (texte constant lu avant le document, fichiers du projet intacts). Aucune valeur de la demande
+  n'entre dans la commande, jamais de `-shell-escape`.
 - **Statuts** :
   - `timeout` : le conteneur a été tué au bout de `timeoutMs` ;
   - `error` : arrêt demandé, mémoire épuisée, PDF de plus de 100 Mo, log de plus de 10 Mo, chemin refusé ;

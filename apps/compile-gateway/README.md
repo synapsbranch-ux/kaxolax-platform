@@ -17,14 +17,14 @@ les routes exigent l'en-tête `X-Internal-Token`.
 
 ## Routes
 
-| Route                            | Rôle                                                    |
-| -------------------------------- | ------------------------------------------------------- |
-| `POST /compile`                  | Corps `CompileRequest` ; réponse de l'agent + `agentId` |
-| `POST /projects/:id/stop`        | Arrête la compilation en cours                          |
-| `POST /projects/:id/clear-cache` | Supprime le répertoire du projet sur tous les agents    |
-| `GET /projects/:id/synctex/code` | Du code vers le PDF                                     |
-| `GET /projects/:id/synctex/pdf`  | Du PDF vers le code                                     |
-| `GET /health`                    | Disponibilité et charge de chaque agent                 |
+| Route                            | Rôle                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `POST /compile`                  | Corps `CompileRequest` (avec `options` éventuelles) ; réponse de l'agent + `agentId` |
+| `POST /projects/:id/stop`        | Arrête la compilation en cours                                                       |
+| `POST /projects/:id/clear-cache` | Supprime le répertoire du projet sur tous les agents                                 |
+| `GET /projects/:id/synctex/code` | Du code vers le PDF                                                                  |
+| `GET /projects/:id/synctex/pdf`  | Du PDF vers le code                                                                  |
+| `GET /health`                    | Disponibilité et charge de chaque agent                                              |
 
 Sans agent disponible, `/compile` répond 503 : l'API enregistre alors une compilation en erreur.
 
