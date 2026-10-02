@@ -1,4 +1,4 @@
-import { compileProjectBodySchema } from '@kaxolax/contracts'
+import { canEdit, compileProjectBodySchema } from '@kaxolax/contracts'
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import compileConfig from '#config/compile'
@@ -10,7 +10,8 @@ import {
 import CompileGateway from '#services/compile_gateway'
 import { compileProject, lastCompile } from '#services/compile_service'
 import CompileWorkerClient from '#services/compile_worker'
-import { CompileOutputStorage } from '#services/object_storage'
+import { createVersionSafely } from '#services/history_service'
+import ObjectStorage, { CompileOutputStorage } from '#services/object_storage'
 import { projectFor } from '#services/project_access'
 import RealtimeClient from '#services/realtime_client'
 import { buildTree } from '#services/tree_service'
@@ -24,6 +25,7 @@ export default class CompilesController {
     private readonly realtime: RealtimeClient,
     private readonly outputs: CompileOutputStorage,
     private readonly worker: CompileWorkerClient,
+    private readonly storage: ObjectStorage,
   ) {}
 
   private get async() {
@@ -38,20 +40,32 @@ export default class CompilesController {
    */
   async compile({ params, auth, request, response }: HttpContext) {
     const user = auth.getUserOrFail()
-    const { project } = await projectFor(user, String(params.id), 'viewer')
+    const { project, role } = await projectFor(user, String(params.id), 'viewer')
     const body = validateWithZod(compileProjectBodySchema, request.body())
+    // Compilation manuelle (pas l'auto-compilation) d'un rédacteur : une version de l'historique,
+    // au mieux, une fois la compilation acceptée (un refus ou un lecteur n'en crée pas).
+    const recordVersion = async () => {
+      if (body.trigger === 'auto' || !canEdit(role)) return
+      await createVersionSafely({ storage: this.storage, realtime: this.realtime }, project.id, {
+        kind: 'compile',
+        actorId: user.id,
+      })
+    }
     if (this.async) {
       const deps = { worker: this.worker, realtime: this.realtime, outputs: this.outputs }
       const accepted = await enqueueCompile(deps, user, project, body.options)
+      await recordVersion()
       response.status(202)
       return accepted
     }
-    return compileProject(
+    const result = await compileProject(
       { gateway: this.gateway, realtime: this.realtime, outputs: this.outputs },
       user,
       project,
       body.options,
     )
+    await recordVersion()
+    return result
   }
 
   async stop({ params, auth }: HttpContext) {

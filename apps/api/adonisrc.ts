@@ -20,7 +20,12 @@ export default defineConfig({
     () => import('@adonisjs/mail/mail_provider'),
   ],
 
-  preloads: [() => import('#start/routes'), () => import('#start/kernel')],
+  preloads: [
+    () => import('#start/routes'),
+    () => import('#start/kernel'),
+    // Versions automatiques et purge de l'historique : seulement dans le serveur HTTP.
+    { file: () => import('#start/history'), environment: ['web'] },
+  ],
 
   tests: {
     suites: [

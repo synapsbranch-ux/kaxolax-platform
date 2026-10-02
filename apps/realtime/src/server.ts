@@ -1,13 +1,15 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Database } from '@hocuspocus/extension-database'
 import { Redis as RedisExtension } from '@hocuspocus/extension-redis'
-import { type Extension, type Hocuspocus, Server } from '@hocuspocus/server'
+import { type Extension, type Hocuspocus, isTransactionOrigin, Server } from '@hocuspocus/server'
 import {
   documentName,
   parseDocumentName,
   parseMetaDocumentName,
   parseRealtimeDocumentName,
+  replaceTextMinimally,
+  TEXT_FIELD,
   textOf,
 } from '@kaxolax/collab'
 import { verifyRealtimeToken } from '@kaxolax/collab/token'
@@ -15,6 +17,7 @@ import {
   canEdit,
   type CloseDocumentResponse,
   type DisconnectUserResponse,
+  type FlushUpdatesResponse,
   INTERNAL_TOKEN_HEADER,
   MAX_PROJECT_EVENT_BYTES,
   type ProjectEventMessage,
@@ -23,6 +26,9 @@ import {
   publishBroadcastEventRequestSchema,
   type PublishEventResponse,
   publishProjectEventRequestSchema,
+  type ReplaceDocumentRequest,
+  replaceDocumentRequestSchema,
+  type ReplaceDocumentResponse,
 } from '@kaxolax/contracts'
 import type { Logger } from 'pino'
 import { type ConnectionContext, createAccessControl, FORBIDDEN } from './access.js'
@@ -36,6 +42,7 @@ import {
 import type { RealtimeConfig } from './config.js'
 import { departedClients, enforcePresenceIdentity, removeRemoteClients } from './presence.js'
 import type { DocumentStore } from './store.js'
+import { UpdateRecorder } from './updates.js'
 
 export type { ConnectionContext } from './access.js'
 
@@ -48,7 +55,12 @@ type ServerOptions = Pick<
   | 'STORE_DEBOUNCE_MS'
   | 'STORE_MAX_DEBOUNCE_MS'
 > &
-  Partial<Pick<RealtimeConfig, 'ROLE_RECHECK_MS' | 'ROLE_SWEEP_MS' | 'REDIS_URL' | 'REDIS_PREFIX'>>
+  Partial<
+    Pick<
+      RealtimeConfig,
+      'ROLE_RECHECK_MS' | 'ROLE_SWEEP_MS' | 'REDIS_URL' | 'REDIS_PREFIX' | 'HISTORY_FLUSH_MS'
+    >
+  >
 
 /** Un message Yjs peut contenir tout l'état d'un document de 2 Mio, historique compris. */
 const MAX_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -59,6 +71,21 @@ const CLOSE_ROUTE = new RegExp(`^/internal/documents/(${UUID})/close$`)
 const DISCONNECT_USER_ROUTE = new RegExp(`^/internal/users/(${UUID})/disconnect$`)
 const MEMBER_CHANGED_ROUTE = new RegExp(`^/internal/projects/(${UUID})/members/(${UUID})/changed$`)
 const PROJECT_EVENTS_ROUTE = new RegExp(`^/internal/projects/(${UUID})/events$`)
+const FLUSH_UPDATES_ROUTE = new RegExp(`^/internal/projects/(${UUID})/updates/flush$`)
+const REPLACE_ROUTE = new RegExp(`^/internal/projects/(${UUID})/documents/(${UUID})/replace$`)
+
+/**
+ * Restauration avec plusieurs instances : le document chargé ici peut ne pas encore avoir reçu
+ * les dernières modifications d'une autre instance (extension Redis). Le texte est revérifié après
+ * ce délai et remplacé de nouveau s'il diffère, au plus `REPLACE_ATTEMPTS` fois.
+ */
+const REPLACE_SETTLE_MS = 150
+const REPLACE_ATTEMPTS = 3
+/** Attente maximale des réponses des autres instances à une demande d'écriture du journal. */
+const FLUSH_ACK_TIMEOUT_MS = 2_000
+
+/** Taille maximale du corps d'une restauration de texte (document de 2 Mio, échappé en JSON). */
+const MAX_REPLACE_BYTES = 8 * 1024 * 1024
 const BROADCAST_EVENTS_ROUTE = '/internal/events'
 
 /**
@@ -91,7 +118,10 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 /** Corps JSON trop gros ou mal formé d'une requête interne. */
 class BadRequest extends Error {}
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
+async function readJson(
+  request: IncomingMessage,
+  maxBytes: number = MAX_REQUEST_BYTES,
+): Promise<unknown> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of request as AsyncIterable<unknown>) {
@@ -99,7 +129,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
       ? chunk
       : Buffer.from(typeof chunk === 'string' ? chunk : '')
     size += buffer.length
-    if (size > MAX_REQUEST_BYTES) throw new BadRequest('request body too large')
+    if (size > maxBytes) throw new BadRequest('request body too large')
     chunks.push(buffer)
   }
   try {
@@ -142,7 +172,100 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
   })
   const sweepMs = options.ROLE_SWEEP_MS ?? 30_000
   let sweepTimer: NodeJS.Timeout | undefined
+  const recorder = new UpdateRecorder(store, logger, options.HISTORY_FLUSH_MS ?? 100)
+
+  /** Demandes d'écriture du journal envoyées aux autres instances : réponses attendues. */
+  const flushRequests = new Map<string, { received: number; expected: number; done: () => void }>()
+
+  /**
+   * Journal de l'historique : écrit ce qui attend pour le projet sur cette instance, le demande
+   * aux autres et attend leurs réponses (au plus `FLUSH_ACK_TIMEOUT_MS`) : la version créée
+   * ensuite par l'API contient les dernières frappes reçues par toutes les instances, avec leur
+   * auteur. Après le délai, l'API continue ; l'état enregistré rattrape le texte, sans auteur.
+   */
+  const flushUpdates = async (projectId: string): Promise<FlushUpdatesResponse> => {
+    const requestId = randomUUID()
+    let timer: NodeJS.Timeout | undefined
+    const acknowledged = new Promise<void>((resolve) => {
+      // Inscrite avant l'envoi : une réponse peut arriver avant le nombre de destinataires.
+      flushRequests.set(requestId, {
+        received: 0,
+        expected: Number.POSITIVE_INFINITY,
+        done: resolve,
+      })
+      timer = setTimeout(resolve, FLUSH_ACK_TIMEOUT_MS)
+    })
+    try {
+      const [flushed, peers] = await Promise.all([
+        recorder.flush(projectId),
+        bus.publishCounted({ kind: 'flush-updates', projectId, requestId }),
+      ])
+      const pending = flushRequests.get(requestId)
+      if (pending) {
+        pending.expected = peers
+        if (pending.received >= peers) pending.done()
+      }
+      await acknowledged
+      if ((flushRequests.get(requestId)?.received ?? 0) < peers) {
+        logger.warn({ projectId, peers }, 'history flush not acknowledged by every instance')
+      }
+      return { flushed }
+    } finally {
+      clearTimeout(timer)
+      flushRequests.delete(requestId)
+    }
+  }
+
+  /**
+   * Remplace le texte d'un document (restauration d'une version) par une modification minimale,
+   * faite par une connexion directe au nom du compte qui restaure : les clients connectés la
+   * reçoivent, elle est journalisée avec cet auteur et enregistrée en base. Null : document
+   * inconnu.
+   */
+  const replaceDocument = async (
+    instance: Hocuspocus,
+    projectId: string,
+    documentId: string,
+    request: ReplaceDocumentRequest,
+  ): Promise<ReplaceDocumentResponse | null> => {
+    if (!(await store.documentExists(projectId, documentId))) return null
+    const context: ConnectionContext = {
+      userId: request.userId,
+      userName: null,
+      avatarUrl: null,
+      projectId,
+      documentId,
+      meta: false,
+      role: 'editor',
+      issuedAt: Math.floor(Date.now() / 1000),
+      roleCheckedAt: Date.now(),
+      rejectedUpdates: 0,
+    }
+    const connection = await instance.openDirectConnection(
+      documentName(projectId, documentId),
+      context,
+    )
+    let changed = false
+    try {
+      for (let attempt = 0; attempt < REPLACE_ATTEMPTS; attempt++) {
+        await connection.transact((document) => {
+          if (replaceTextMinimally(document.getText(TEXT_FIELD), request.content)) changed = true
+        })
+        if (!options.REDIS_URL) break
+        await new Promise((resolve) => setTimeout(resolve, REPLACE_SETTLE_MS))
+        if (connection.document && textOf(connection.document) === request.content) break
+      }
+    } finally {
+      await connection.disconnect()
+    }
+    await recorder.flush(projectId)
+    logger.info({ projectId, documentId, userId: request.userId, changed }, 'document replaced')
+    return { changed }
+  }
+
   const snapshot = async (instance: Hocuspocus, projectId: string): Promise<ProjectSnapshot> => {
+    // Le journal de l'historique est à jour pour ce projet avant toute version (compilation).
+    await recorder.flush(projectId)
     const documents = []
     for (const id of await store.documentIds(projectId)) {
       const name = documentName(projectId, id)
@@ -262,6 +385,25 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
       sendJson(response, 200, result)
       return
     }
+    const flushMatch = request.method === 'POST' ? FLUSH_UPDATES_ROUTE.exec(path) : null
+    if (flushMatch?.[1]) {
+      sendJson(response, 200, await flushUpdates(flushMatch[1]))
+      return
+    }
+    const replaceMatch = request.method === 'POST' ? REPLACE_ROUTE.exec(path) : null
+    if (replaceMatch?.[1] && replaceMatch[2]) {
+      const parsed = replaceDocumentRequestSchema.safeParse(
+        await readJson(request, MAX_REPLACE_BYTES),
+      )
+      if (!parsed.success) {
+        sendJson(response, 400, { code: 'E_INVALID_REQUEST' })
+        return
+      }
+      const result = await replaceDocument(instance, replaceMatch[1], replaceMatch[2], parsed.data)
+      if (result) sendJson(response, 200, result)
+      else sendJson(response, 404, { code: 'E_NOT_FOUND' })
+      return
+    }
     const userMatch = request.method === 'POST' ? DISCONNECT_USER_ROUTE.exec(path) : null
     if (userMatch?.[1]) {
       const result = disconnectUser(instance, userMatch[1])
@@ -377,6 +519,25 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
       await access.beforeSync(connection, document, type, payload)
     },
 
+    /**
+     * Origine de chaque mise à jour appliquée (historique) : celles des connexions de cette
+     * instance et des restaurations faites ici. Une mise à jour relayée par Redis a été
+     * journalisée par l'instance qui l'a reçue (voir `updates.ts`).
+     */
+    onChange({ documentName: name, update, transactionOrigin, context }) {
+      const target = parseDocumentName(name)
+      if (!target || !isTransactionOrigin(transactionOrigin)) return Promise.resolve()
+      if (transactionOrigin.source === 'redis') return Promise.resolve()
+      const userId = (context as Partial<ConnectionContext> | undefined)?.userId
+      recorder.record(
+        target.projectId,
+        target.documentId,
+        typeof userId === 'string' ? userId : null,
+        update,
+      )
+      return Promise.resolve()
+    },
+
     /** Identité de la présence imposée par le serveur (voir `presence.ts`). */
     beforeHandleAwareness({ connection, document, states }) {
       enforcePresenceIdentity({ connection, document, states }, logger)
@@ -407,6 +568,16 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
           if (document) removeRemoteClients(document, message.clientIds)
         } else if (message.kind === 'project-event') {
           deliverEvent(instance, message.projectId, message.message)
+        } else if (message.kind === 'flush-updates') {
+          return recorder
+            .flush(message.projectId)
+            .then(() => bus.publish({ kind: 'flush-updates-done', requestId: message.requestId }))
+        } else if (message.kind === 'flush-updates-done') {
+          const pending = flushRequests.get(message.requestId)
+          if (pending) {
+            pending.received++
+            if (pending.received >= pending.expected) pending.done()
+          }
         }
         return Promise.resolve()
       })
@@ -423,6 +594,7 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
 
     async onDestroy() {
       clearInterval(sweepTimer)
+      await recorder.flush()
       await bus.close()
     },
 

@@ -41,6 +41,9 @@ export function WorkspaceLayout({
   onNarrowViewChange,
   revealSidebar = 0,
   dismissDrawer = 0,
+  openSidebarOnMount = false,
+  onSidebarShownChange,
+  sidebarUnread = false,
   sidebar,
   editor,
   pdf,
@@ -53,6 +56,12 @@ export function WorkspaceLayout({
   revealSidebar?: number
   /** Compteur : chaque incrément ferme le tiroir de la sidebar (fichier ouvert depuis celle-ci). */
   dismissDrawer?: number
+  /** Sidebar affichée dès le montage (lien `?panel=chat` de l'email de mention). */
+  openSidebarOnMount?: boolean
+  /** Sidebar réellement visible (dépliée, ou tiroir ouvert sur écran étroit). */
+  onSidebarShownChange?: (shown: boolean) => void
+  /** Pastille de non-lus sur les boutons qui affichent une sidebar masquée. */
+  sidebarUnread?: boolean
   sidebar: (slot: SidebarSlotProps) => ReactNode
   /** `leading` : boutons à placer en tête de la barre d'onglets de l'éditeur. */
   editor: (leading: ReactNode) => ReactNode
@@ -60,7 +69,7 @@ export function WorkspaceLayout({
   pdf: (leading: ReactNode) => ReactNode
 }) {
   const narrow = useIsNarrow()
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(openSidebarOnMount)
   // Poignées impératives gardées en état (et non en ref) : utilisables pendant le rendu.
   const [group, setGroup] = useState<ResizableGroupHandle | null>(null)
   const [sidebarPanel, setSidebarPanel] = useState<ResizablePanelHandle | null>(null)
@@ -68,6 +77,13 @@ export function WorkspaceLayout({
   const [dismissed, setDismissed] = useState(dismissDrawer)
 
   const expanded = useRef(revealSidebar)
+  // Dépliage demandé au montage, appliqué dès que le groupe est prêt.
+  const openOnMount = useRef(openSidebarOnMount)
+
+  const shown = narrow ? drawerOpen : !layout.sidebarCollapsed
+  useEffect(() => {
+    onSidebarShownChange?.(shown)
+  }, [shown, onSidebarShownChange])
 
   // Demande d'affichage de la sidebar : tiroir ouvert sur écran étroit (ajustement d'état pendant
   // le rendu), colonne dépliée sinon (API impérative du groupe, dans un effet).
@@ -80,8 +96,9 @@ export function WorkspaceLayout({
     setDrawerOpen(false)
   }
   useEffect(() => {
-    if (expanded.current === revealSidebar || group === null) return
+    if ((expanded.current === revealSidebar && !openOnMount.current) || group === null) return
     expanded.current = revealSidebar
+    openOnMount.current = false
     if (narrow || !layout.sidebarCollapsed) return
     group.setLayout(columnsLayout({ ...layout, sidebarCollapsed: false }))
     onLayoutChange({ layout: { sidebarCollapsed: false } })
@@ -93,12 +110,18 @@ export function WorkspaceLayout({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="Ouvrir la barre latérale"
+          className="relative"
+          aria-label={
+            sidebarUnread
+              ? 'Ouvrir la barre latérale (messages non lus)'
+              : 'Ouvrir la barre latérale'
+          }
           onClick={() => {
             setDrawerOpen(true)
           }}
         >
           <MenuIcon />
+          {sidebarUnread ? <UnreadDot /> : null}
         </Button>
         <div
           role="tablist"
@@ -211,12 +234,17 @@ export function WorkspaceLayout({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="shrink-0 text-editor-tab-foreground hover:bg-editor-tab-active"
-                aria-label="Déplier la barre latérale"
+                className="relative shrink-0 text-editor-tab-foreground hover:bg-editor-tab-active"
+                aria-label={
+                  sidebarUnread
+                    ? 'Déplier la barre latérale (messages non lus)'
+                    : 'Déplier la barre latérale'
+                }
                 data-testid="sidebar-expand"
                 onClick={expand}
               >
                 <PanelLeftOpenIcon />
+                {sidebarUnread ? <UnreadDot /> : null}
               </Button>
             </SimpleTooltip>
           ) : null,
@@ -227,5 +255,16 @@ export function WorkspaceLayout({
         {pdf(null)}
       </ResizablePanel>
     </ResizablePanelGroup>
+  )
+}
+
+/** Pastille des messages du chat non lus, sur un bouton qui affiche la sidebar. */
+function UnreadDot() {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="sidebar-unread-dot"
+      className="absolute top-0.5 right-0.5 size-2 rounded-full bg-sidebar-primary"
+    />
   )
 }

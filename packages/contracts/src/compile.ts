@@ -60,6 +60,11 @@ export type CompileOptions = z.infer<typeof compileOptionsSchema>
 /** Corps (facultatif) de `POST /projects/:id/compile`. */
 export const compileProjectBodySchema = z.strictObject({
   options: compileOptionsSchema.optional(),
+  /**
+   * Origine de la demande : `manual` (défaut : bouton, raccourci) crée une version dans
+   * l'historique, `auto` (auto-compilation après une frappe) n'en crée pas.
+   */
+  trigger: z.enum(['manual', 'auto']).optional(),
 })
 export type CompileProjectBody = z.infer<typeof compileProjectBodySchema>
 

@@ -3,6 +3,7 @@ import { inject } from '@adonisjs/core'
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
+import { releaseFileObjects } from '#services/history_service'
 import { projectFor } from '#services/project_access'
 import ObjectStorage from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
@@ -93,6 +94,7 @@ export default class TreeController {
         name: input.name,
         folderId: input.folderId ?? null,
         content,
+        authorId: user.id,
       })
       await touchProject(trx, project.id)
       return created
@@ -167,7 +169,8 @@ export default class TreeController {
       actorId: user.id,
       changes: [{ action: 'deleted', entity: type, id: entityId }],
     })
-    await this.storage.delete(deleted.fileKeys)
+    // Un binaire qu'une version référence encore reste dans le stockage (historique).
+    await releaseFileObjects(this.storage, deleted.projectId, deleted.files)
     response.noContent()
   }
 }

@@ -10,8 +10,11 @@ export interface CompileState {
   /** Date de réception de `result` (ses liens présignés expirent une heure après la signature). */
   receivedAt: number
   compiling: boolean
-  /** Lance une compilation ; un nouvel appel remplace la précédente (seule la dernière compte). */
-  compile: () => Promise<void>
+  /**
+   * Lance une compilation ; un nouvel appel remplace la précédente (seule la dernière compte).
+   * `auto` : auto-compilation, sans version dans l'historique.
+   */
+  compile: (trigger?: 'manual' | 'auto') => Promise<void>
   stop: () => Promise<void>
   clearCache: () => Promise<void>
 }
@@ -42,22 +45,25 @@ export function useCompile({
     latest.current = { flush, options, onError }
   })
 
-  const compile = useCallback(async () => {
-    // Un nouveau clic arrête la compilation précédente (côté serveur) ; seule la dernière réponse compte.
-    const current = ++request.current
-    setCompiling(true)
-    latest.current.onError(null)
-    try {
-      await latest.current.flush()
-      const compiled = await api.compile(projectId, latest.current.options)
-      if (current !== request.current) return
-      setReceived({ result: compiled, receivedAt: Date.now() })
-    } catch (caught) {
-      if (current === request.current) latest.current.onError(errorMessage(caught))
-    } finally {
-      if (current === request.current) setCompiling(false)
-    }
-  }, [projectId])
+  const compile = useCallback(
+    async (trigger: 'manual' | 'auto' = 'manual') => {
+      // Un nouveau clic arrête la compilation précédente (côté serveur) ; seule la dernière réponse compte.
+      const current = ++request.current
+      setCompiling(true)
+      latest.current.onError(null)
+      try {
+        await latest.current.flush()
+        const compiled = await api.compile(projectId, latest.current.options, trigger)
+        if (current !== request.current) return
+        setReceived({ result: compiled, receivedAt: Date.now() })
+      } catch (caught) {
+        if (current === request.current) latest.current.onError(errorMessage(caught))
+      } finally {
+        if (current === request.current) setCompiling(false)
+      }
+    },
+    [projectId],
+  )
 
   const stop = useCallback(async () => {
     try {

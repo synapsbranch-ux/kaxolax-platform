@@ -1,6 +1,12 @@
 import { projectEventMessage } from '@kaxolax/contracts'
 import { describe, expect, it, vi } from 'vitest'
-import { bannerFeed, eventEffect, parseRealtimeMessage } from './project-events'
+import {
+  bannerFeed,
+  chatFeed,
+  eventEffect,
+  historyFeed,
+  parseRealtimeMessage,
+} from './project-events'
 
 const SELF = '00000000-0000-4000-8000-000000000001'
 const OTHER = '00000000-0000-4000-8000-000000000002'
@@ -64,6 +70,19 @@ describe('realtime messages', () => {
         SELF,
       ),
     ).toEqual({ kind: 'none' })
+    const chat = { type: 'chat.message-created' as const, messageId: DOC, authorId: OTHER }
+    expect(eventEffect(chat, SELF)).toEqual({ kind: 'chat', event: chat })
+  })
+
+  it('relays chat messages to subscribers until they unsubscribe', () => {
+    const listener = vi.fn()
+    const unsubscribe = chatFeed.subscribe(listener)
+    const event = { type: 'chat.message-created' as const, messageId: DOC, authorId: OTHER }
+    chatFeed.publish(event)
+    unsubscribe()
+    chatFeed.publish(event)
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledWith(event)
   })
 
   it('relays live banners to subscribers until they unsubscribe', () => {
@@ -72,6 +91,22 @@ describe('realtime messages', () => {
     bannerFeed.publish([])
     unsubscribe()
     bannerFeed.publish([])
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('relays new versions to the history drawer', () => {
+    const event = {
+      type: 'version.created' as const,
+      versionId: DOC,
+      kind: 'compile' as const,
+      actorId: OTHER,
+    }
+    expect(eventEffect(event, SELF)).toEqual({ kind: 'history', event })
+    const listener = vi.fn()
+    const unsubscribe = historyFeed.subscribe(listener)
+    historyFeed.publish(event)
+    unsubscribe()
+    historyFeed.publish(event)
     expect(listener).toHaveBeenCalledTimes(1)
   })
 })

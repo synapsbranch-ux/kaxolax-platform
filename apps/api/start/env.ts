@@ -105,4 +105,10 @@ export default await Env.create(new URL('../', import.meta.url), {
   COMPILE_WORKER_URL: optional(urlWith('http', 'https')),
   /** Secret partagé avec le Worker (jetons API → Worker, signature des rappels). */
   COMPILE_WORKER_SECRET: optional(sharedSecret),
+  /** Historique : balayage des versions automatiques, en secondes (0 : désactivé ; défaut 30). */
+  HISTORY_SWEEP_SECONDS: Env.schema.number.optional(),
+  /** Historique : délai avant un nouvel essai de version automatique en échec (défaut 600). */
+  HISTORY_RETRY_SECONDS: Env.schema.number.optional(),
+  /** Historique : purge des versions expirées, en secondes (0 : désactivée ; défaut 3600). */
+  HISTORY_PURGE_SECONDS: Env.schema.number.optional(),
 })

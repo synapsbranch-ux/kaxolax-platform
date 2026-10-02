@@ -1,12 +1,22 @@
 import {
+  chatMessageResponseSchema,
+  chatMessagesResponseSchema,
+  chatUnreadResponseSchema,
+  commentThreadResponseSchema,
+  commentThreadsResponseSchema,
+  documentDiffResponseSchema,
   invitationPreviewSchema,
   invitationResponseSchema,
   joinProjectResponseSchema,
   memberResponseSchema,
   projectMembersResponseSchema,
+  projectVersionSchema,
+  restoreVersionResponseSchema,
   shareLinkPreviewSchema,
   shareLinkResponseSchema,
   shareLinksResponseSchema,
+  versionDetailSchema,
+  versionListResponseSchema,
 } from '@kaxolax/contracts'
 import type {
   ActiveBanner,
@@ -15,12 +25,14 @@ import type {
   CompileOptions,
   Compiler,
   CompileResult,
+  CreateCommentThreadInput,
   PdfPosition,
   PreferencesResponse,
   ProjectRole,
   ProjectSearchQuery,
   ProjectSearchResponse,
   RealtimeTokenResponse,
+  RestoreVersionInput,
   ShareLinkKind,
   SpellcheckLanguage,
   UserPreferences,
@@ -326,11 +338,101 @@ export const api = {
       joinProjectResponseSchema.parse(data),
     ),
 
+  // Chat du projet : réponses validées par les schémas de `@kaxolax/contracts` (chat.ts).
+  /** Historique : les plus récents, ou avant / après un message (un seul curseur). */
+  chatMessages: (id: string, cursor: { before?: string; after?: string } = {}) =>
+    request<unknown>(
+      'GET',
+      `/projects/${id}/chat/messages?${new URLSearchParams({
+        ...(cursor.before === undefined ? {} : { before: cursor.before }),
+        ...(cursor.after === undefined ? {} : { after: cursor.after }),
+      }).toString()}`,
+    ).then((data) => chatMessagesResponseSchema.parse(data)),
+  sendChatMessage: (id: string, body: string) =>
+    request<unknown>('POST', `/projects/${id}/chat/messages`, { body }).then((data) =>
+      chatMessageResponseSchema.parse(data),
+    ),
+  /** Marque comme lu jusqu'au message `upTo` (inclus), ou jusqu'à maintenant. */
+  markChatRead: (id: string, upTo?: string) =>
+    request<unknown>('POST', `/projects/${id}/chat/read`, upTo === undefined ? {} : { upTo }).then(
+      (data) => chatUnreadResponseSchema.parse(data),
+    ),
+
+  // Commentaires ancrés : réponses validées par les schémas de `@kaxolax/contracts` (comments.ts).
+  commentThreads: (id: string) =>
+    request<unknown>('GET', `/projects/${id}/comment-threads`).then(
+      (data) => commentThreadsResponseSchema.parse(data).threads,
+    ),
+  /** Un fil ; null s'il n'existe plus (404). */
+  commentThread: (id: string, threadId: string) =>
+    request<unknown>('GET', `/projects/${id}/comment-threads/${threadId}`).then(
+      (data) => commentThreadResponseSchema.parse(data).thread,
+      (caught: unknown) => {
+        if (caught instanceof ApiError && caught.status === 404) return null
+        throw caught
+      },
+    ),
+  createCommentThread: (id: string, input: CreateCommentThreadInput) =>
+    request<unknown>('POST', `/projects/${id}/comment-threads`, input).then(
+      (data) => commentThreadResponseSchema.parse(data).thread,
+    ),
+  replyToComment: (id: string, threadId: string, body: string) =>
+    request<unknown>('POST', `/projects/${id}/comment-threads/${threadId}/comments`, {
+      body,
+    }).then((data) => commentThreadResponseSchema.parse(data).thread),
+  editComment: (id: string, threadId: string, commentId: string, body: string) =>
+    request<unknown>('PATCH', `/projects/${id}/comment-threads/${threadId}/comments/${commentId}`, {
+      body,
+    }).then((data) => commentThreadResponseSchema.parse(data).thread),
+  /** Supprime son message ; null si le fil a disparu avec lui. */
+  deleteComment: (id: string, threadId: string, commentId: string) =>
+    request<unknown>(
+      'DELETE',
+      `/projects/${id}/comment-threads/${threadId}/comments/${commentId}`,
+    ).then((data) => commentThreadResponseSchema.parse(data).thread),
+  setCommentThreadResolved: (id: string, threadId: string, resolved: boolean) =>
+    request<unknown>(
+      'POST',
+      `/projects/${id}/comment-threads/${threadId}/${resolved ? 'resolve' : 'reopen'}`,
+    ).then((data) => commentThreadResponseSchema.parse(data).thread),
+
   realtimeToken: (id: string) =>
     request<RealtimeTokenResponse>('POST', `/projects/${id}/realtime-token`),
 
-  compile: (id: string, options: CompileOptions = {}) =>
-    request<CompileResult>('POST', `/projects/${id}/compile`, { options }),
+  /** `auto` : auto-compilation (pas de version dans l'historique). */
+  compile: (id: string, options: CompileOptions = {}, trigger: 'manual' | 'auto' = 'manual') =>
+    request<CompileResult>('POST', `/projects/${id}/compile`, { options, trigger }),
+
+  // Historique (packages/contracts/src/history.ts).
+  versions: (id: string, before?: string) =>
+    request<unknown>(
+      'GET',
+      `/projects/${id}/versions${before === undefined ? '' : `?${new URLSearchParams({ before }).toString()}`}`,
+    ).then((data) => versionListResponseSchema.parse(data)),
+  version: (id: string, versionId: string) =>
+    request<unknown>('GET', `/projects/${id}/versions/${versionId}`).then((data) =>
+      versionDetailSchema.parse(data),
+    ),
+  versionDiff: (id: string, versionId: string, documentId: string) =>
+    request<unknown>(
+      'GET',
+      `/projects/${id}/versions/${versionId}/documents/${documentId}/diff`,
+    ).then((data) => documentDiffResponseSchema.parse(data)),
+  versionFileUrl: (id: string, versionId: string, fileId: string) =>
+    request<{ url: string }>('GET', `/projects/${id}/versions/${versionId}/files/${fileId}/url`),
+  labelVersion: (id: string, versionId: string, label: string | null) =>
+    request<{ version: unknown }>('PATCH', `/projects/${id}/versions/${versionId}`, {
+      label,
+    }).then((data) => projectVersionSchema.parse(data.version)),
+  restoreVersion: (id: string, versionId: string, input: RestoreVersionInput) =>
+    request<unknown>('POST', `/projects/${id}/versions/${versionId}/restore`, input).then((data) =>
+      restoreVersionResponseSchema.parse(data),
+    ),
+  versionDownloadUrl: (id: string, versionId: string) =>
+    request<{ url: string; expiresAt: string }>(
+      'POST',
+      `/projects/${id}/versions/${versionId}/download-url`,
+    ),
   stopCompile: (id: string) =>
     request<{ stopped: boolean }>('POST', `/projects/${id}/compile/stop`),
   lastCompile: (id: string) =>
@@ -392,4 +494,24 @@ export function formValue(form: FormData, name: string): string {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Message français d'une erreur de l'API : `messages` par code (`E_…`), sinon selon le statut
+ * HTTP (les messages de l'API sont en anglais). Une autre erreur garde son message.
+ */
+export function localizedErrorMessage(
+  error: unknown,
+  messages: Readonly<Record<string, string>>,
+): string {
+  if (!(error instanceof ApiError)) return errorMessage(error)
+  const known = error.code === undefined ? undefined : messages[error.code]
+  if (known !== undefined) return known
+  if (error.status === 401) return 'Votre session a expiré : reconnectez-vous.'
+  if (error.status === 403) return 'Vous n’avez pas les droits nécessaires pour cette action.'
+  if (error.status === 404) return 'Élément introuvable : il a peut-être été supprimé.'
+  if (error.status === 409) return 'Conflit avec une modification récente : réessayez.'
+  if (error.status === 422 || error.status === 400) return 'Requête invalide.'
+  if (error.status === 429) return 'Trop de demandes : réessayez dans un instant.'
+  return 'Une erreur est survenue. Réessayez dans un instant.'
 }

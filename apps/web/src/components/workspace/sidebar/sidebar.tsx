@@ -25,10 +25,12 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import type { PresenceUser, ProjectSearchMatch } from '@kaxolax/contracts'
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
+import { unreadBadge } from '@/lib/chat'
 import type { Project, ProjectTree, User } from '@/lib/api'
 import type { OnlinePerson } from '@/lib/presence'
 import { useFileActions } from '../file-actions'
+import type { ProjectChat } from '../use-project-chat'
 import { ChatsPanel } from './chats-panel'
 import { FileTree } from './file-tree'
 import { OutlineSection } from './outline-section'
@@ -37,6 +39,9 @@ import { ProjectSearch } from './project-search'
 import { ProjectSwitcher } from './project-switcher'
 import { ShareButton } from './share-dialog'
 import { SidebarFooter } from './sidebar-footer'
+
+/** Onglets de la sidebar. */
+export type SidebarTab = 'files' | 'chats'
 
 const iconButton =
   'text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
@@ -66,6 +71,10 @@ export function Sidebar({
   onFollow,
   membersVersion,
   onAccessChanged,
+  onOpenLocation,
+  tab,
+  onTabChange,
+  chat,
 }: {
   project: Project | null
   tree: ProjectTree | null
@@ -96,9 +105,16 @@ export function Sidebar({
   membersVersion: number
   /** Son propre rôle a changé depuis la modale de partage. */
   onAccessChanged: () => void
+  /** Ouvre un document à une ligne (références `fichier.tex:42` du chat). */
+  onOpenLocation?: (path: string, line: number) => void
+  /** Onglet courant, gardé par la page : le tiroir d'un écran étroit se démonte à la fermeture. */
+  tab: SidebarTab
+  onTabChange: (tab: SidebarTab) => void
+  /** Chat du projet, tenu par la page : non-lus suivis même sidebar repliée ou tiroir fermé. */
+  chat: ProjectChat
 }) {
   const files = useFileActions()
-  const [tab, setTab] = useState<'files' | 'chats'>('files')
+  const badge = unreadBadge(chat.unread)
 
   return (
     <aside
@@ -142,7 +158,7 @@ export function Sidebar({
       <Tabs
         value={tab}
         onValueChange={(value) => {
-          setTab(value === 'chats' ? 'chats' : 'files')
+          onTabChange(value === 'chats' ? 'chats' : 'files')
           onCloseSearch()
         }}
         className="min-h-0 flex-1 gap-0"
@@ -160,6 +176,15 @@ export function Sidebar({
               className="text-sidebar-muted-foreground data-[state=active]:text-sidebar-foreground"
             >
               Chats
+              {badge !== null ? (
+                <span
+                  className="ml-1 min-w-4 rounded-full bg-sidebar-primary px-1 text-center text-[0.625rem] leading-4 font-semibold text-sidebar-primary-foreground tabular-nums"
+                  aria-label={`${badge} ${chat.unread > 1 ? 'messages non lus' : 'message non lu'}`}
+                  data-testid="chat-unread-badge"
+                >
+                  {badge}
+                </span>
+              ) : null}
             </TabsTrigger>
           </TabsList>
           <div className="ml-auto flex items-center">
@@ -255,7 +280,16 @@ export function Sidebar({
           )}
         </TabsContent>
         <TabsContent value="chats" className={cn('min-h-0', search !== null && 'hidden')}>
-          <ChatsPanel />
+          {project ? (
+            <ChatsPanel
+              projectId={project.id}
+              tree={tree}
+              selfId={user?.id ?? null}
+              chat={chat}
+              membersVersion={membersVersion}
+              onOpenLocation={onOpenLocation}
+            />
+          ) : null}
         </TabsContent>
       </Tabs>
 

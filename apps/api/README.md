@@ -146,6 +146,97 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     passer l'éditeur en lecture seule ou en écriture ; au retour en écriture, rouvrir le
     document (les frappes refusées pendant la lecture seule bloqueraient les suivantes).
 
+- **Chat du projet** (contrats zod : `packages/contracts/src/chat.ts` ; `app/services/chat_service.ts`) :
+  tout membre, lecteur compris, lit et écrit (permission `read`).
+  - `GET /projects/:id/chat/messages` : les 50 plus récents (`limit` ≤ 100), ou ceux d'avant
+    `before` / d'après `after` (id d'un message ; un seul curseur, 404 `E_CHAT_MESSAGE_NOT_FOUND`
+    s'il n'est pas dans le projet). Ordre total (date, id), du plus ancien au plus récent,
+    `hasMore`, et les non-lus (`unread.count`, `unread.lastReadAt`).
+  - `POST /projects/:id/chat/messages` (`{ body }`, 1 à 4000 caractères après `trim`, texte brut) :
+    201, puis `chat.message-created` publié sur le document meta. Limite : 20 messages par
+    membre et par projet sur 60 s glissantes, sous verrou consultatif du projet ; 429
+    `E_CHAT_RATE_LIMITED` (`retryAfterSeconds`, en-tête `Retry-After`).
+  - `POST /projects/:id/chat/read` (`{ upTo? }`) : dernière lecture (`chat_reads`) portée au
+    message `upTo`, ou à maintenant ; elle ne recule jamais. Non-lus = messages des autres
+    postérieurs à la dernière lecture, ou à l'arrivée dans le projet si le chat n'a jamais été
+    ouvert.
+  - Mentions : `<@uuid>` dans le texte. Email français (`ChatMentionMail`, lien
+    `/project/<id>?panel=chat`) aux membres actifs mentionnés, sauf l'auteur, seulement pour la
+    première mention non lue depuis leur dernière lecture (au plus un email par visite manquée).
+    Envoi après la validation, au mieux : un échec est journalisé, le message reste envoyé.
+
+- **Commentaires ancrés** (contrats zod : `packages/contracts/src/comments.ts` ;
+  `app/services/comment_service.ts`) : lecture par tout membre (`read`) ; nouveau fil, réponse,
+  résolution et réouverture avec la permission `comment` (owner, editor, reviewer ; 403
+  `E_PROJECT_FORBIDDEN` pour un lecteur) ; modification et suppression de son propre message
+  seulement (403 `E_COMMENT_NOT_AUTHOR`), tant que son rôle commente.
+  - `GET /projects/:id/comment-threads` (`documentId?`, `status` `open` | `resolved` | `all`) et
+    `GET …/:threadId` : fils avec leurs messages (du plus ancien au plus récent), ancre en
+    base64, citation d'origine, résolution (date, auteur). Un message supprimé garde sa place,
+    `body: null`.
+  - `POST /projects/:id/comment-threads` (`{ documentId, anchor, quotedText, body }`) : 201.
+    L'ancre (deux positions relatives Yjs, `@kaxolax/collab` anchors) est stockée telle quelle
+    dans `comment_threads.anchor` après vérification de son format (422
+    `E_COMMENT_INVALID_ANCHOR`) ; le document doit appartenir au projet (404
+    `E_DOCUMENT_NOT_FOUND`). Citation : 1 à 1000 caractères ; message : 1 à 4000.
+  - `POST …/:threadId/comments` (réponse, 201), `PATCH` et `DELETE …/comments/:commentId`
+    (texte effacé en base, `deleted_at` ; le fil disparaît avec son dernier message visible),
+    `POST …/:threadId/resolve` et `…/reopen` (idempotents). Réponse : le fil à jour, ou
+    `{ thread: null }` s'il a été supprimé.
+  - Événements après la validation : `comment.created` (nouveau fil ou réponse) et
+    `comment.thread-updated` (`change` : `comment-edited`, `comment-deleted`, `resolved`,
+    `reopened`, `deleted`). Limite : 30 messages par membre et par projet sur 60 s (429
+    `E_COMMENT_RATE_LIMITED`, `retryAfterSeconds`).
+  - Mentions `<@uuid>` (format du chat) : email français (`CommentMentionMail`, citation,
+    extrait, lien `/project/<id>?comment=<threadId>`) aux membres actifs mentionnés, sauf
+    l'auteur ; au plus un email par personne et par projet toutes les 10 minutes (date du dernier
+    email dans `project_members.comment_mention_emailed_at`, migration `…0029`). Une mention ajoutée en modifiant un message ne notifie
+    pas. Envoi au mieux, après la validation.
+
+- **Historique du projet** (contrats zod : `packages/contracts/src/history.ts` ;
+  `app/services/history_service.ts`, `history_restore.ts`, `history_scheduler.ts`) : lecture par
+  tout membre (`read`) ; label et restauration avec la permission `edit` (owner, editor).
+  - Une version est créée après 2 minutes sans modification du projet (`auto`, balayage du
+    processus web toutes les `HISTORY_SWEEP_SECONDS` ; un projet en échec est retenté après
+    `HISTORY_RETRY_SECONDS` sans bloquer les autres), à chaque compilation manuelle (`compile`,
+    synchrone et asynchrone, d'un owner ou editor, une fois la compilation acceptée ;
+    `trigger: 'auto'` n'en crée pas) et avant chaque restauration
+    (`restore`). Rien n'est créé si rien n'a changé depuis la précédente. Verrou consultatif
+    PostgreSQL par projet et condition revérifiée sous ce verrou : une seule version, quel que
+    soit le nombre d'instances.
+  - Auteurs (`author_ids`) : comptes dont des mises à jour Yjs entrent dans la version, lus dans
+    le journal `document_updates` (migration `…0028`) écrit par le service temps réel ; la
+    création d'un document par l'API (création, upload, import) y entre au nom de son auteur.
+  - Stockage objet : manifeste (`history/versions/<id>/manifest.json.gz` : arborescence, document
+    principal, changements), diff attribué de chaque document modifié (`diffs/<documentId>.json.gz`)
+    et texte compressé adressé par sha256 (`history/texts/<sha256>.gz`, partagé entre versions,
+    référencé par `version_documents`, qui cite aussi le dernier texte des documents qu'une
+    version montre supprimés : leur diff survit à la purge des versions précédentes). Les binaires restent à leur clé, référencés par
+    `version_files` : leur objet n'est supprimé (suppression dans l'arborescence, purge) que si
+    plus aucune version ni l'arborescence n'y fait référence.
+  - `GET /projects/:id/versions` (`before`, `limit`), `GET …/versions/:versionId` (fichiers et
+    changements), `GET …/documents/:documentId/diff` (segments `equal` / `insert` / `delete`
+    avec `authorId`), `GET …/files/:fileId/url` (aperçu d'un binaire), `PATCH …/versions/:versionId`
+    (`{ label }`), `POST …/restore` (`{ scope: 'project' }` ou `{ scope: 'entry', entryId }`),
+    `GET …/download.zip` ou `POST …/download-url` (lien de 60 s, `GET /version-downloads/:token`).
+  - Restauration : version de l'état courant d'abord, puis texte des documents existants remplacé
+    par le service temps réel (modification Yjs minimale reçue par les clients connectés), puis
+    arborescence remise exactement dans l'état de la version (documents et fichiers recréés avec
+    leur identifiant, déplacés ou supprimés, dossiers, document principal) ; événement
+    `tree.changed` (`reason: 'restore'`). Verrou de l'historique pris avant la ligne du projet
+    (même ordre que la création d'une version). Si un remplacement de texte ou la transaction de
+    l'arborescence échoue, les textes déjà remplacés sont remis dans l'état de la version de
+    sauvegarde : 503 `E_HISTORY_REALTIME_UNAVAILABLE`, rien n'est modifié ; si cette remise
+    échoue aussi, 503 `E_HISTORY_RESTORE_INCOMPLETE` (projet partiellement restauré : relancer la
+    restauration). Fichier seul : recréé à son chemin s'il a disparu ; un document ou un fichier
+    qui occupe ce chemin est remplacé (il reste dans la version de sauvegarde), un dossier donne
+    409 `E_RESTORE_PATH_TAKEN`. Les fils de commentaires des documents retirés sont supprimés
+    (ils ne font pas partie des versions) : le dialogue de restauration le signale.
+  - Purge (toutes les `HISTORY_PURGE_SECONDS`) : versions sans label plus anciennes que la
+    conservation du plan du propriétaire (`plan_limits.history_retention_days`, lue par
+    `historyRetentionDays`, `app/services/history_retention.ts`, à remplacer par la fonction de
+    la tâche 12), jamais la plus récente.
+
 - **Temps réel** : `POST /projects/:id/realtime-token` signe un jeton de 5 minutes pour le
   service `apps/realtime` (`REALTIME_TOKEN_SECRET`, `REALTIME_PUBLIC_URL`), valable pour les
   documents du projet et pour son document meta (`project:{id}:meta`). À la suppression
@@ -167,8 +258,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   - `banner.changed` à tous les clients connectés (`RealtimeClient.broadcastEvent`, route
     `POST /internal/events`), depuis `notifyBannerChanged`.
     Une requête refusée ne publie rien. Les helpers des membres sont dans
-    `app/services/project_events.ts`. `chat.message-created` et `comment.created` sont définis pour
-    les tâches 6 et 7 ;
+    `app/services/project_events.ts`. `chat.message-created` (chat), `comment.created` et
+    `comment.thread-updated` (commentaires) sont publiés par leurs contrôleurs ;
   - `compile.updated` (`buildId`, `status`, `result` une fois terminée) à chaque étape d'une
     compilation asynchrone (voir **Compilation**). `RealtimeClient` passe chaque événement par
     `fitProjectEvent` : un résultat qui ferait dépasser 1 Mio au corps de la requête est retiré
@@ -262,6 +353,7 @@ L'étape 2 ajoute, en plus des workspaces, les tables des tâches suivantes, ave
 dans `app/models` : `project_invitations` (+ `last_sent_at`, `send_count`, migration `…0024` ; + `cancelled_at`,
 migration `…0025`), `project_sharing_events` (journal du partage, sans clé étrangère, `…0025`), `share_links`, `project_versions`, `version_files`,
 `comment_threads`, `comments`, `chat_messages`, `chat_reads`, `user_preferences`, `plan_limits`
+(historique : + `document_updates`, `version_documents`, `projects.history_synced_at`, migration `…0028`)
 (valeurs de départ `free` et `pro`), `subscriptions`, `system_banners`, `admin_audit_log`. Ce
 qui appartient à un projet part avec lui (CASCADE) ; les auteurs sont en RESTRICT, car un compte
 est anonymisé et jamais supprimé (voir `docs/decisions.md`). Les tables d'association

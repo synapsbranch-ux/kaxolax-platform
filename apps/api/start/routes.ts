@@ -25,6 +25,9 @@ const SearchController = () => import('#controllers/search_controller')
 const BannersController = () => import('#controllers/banners_controller')
 const SharingController = () => import('#controllers/sharing_controller')
 const JoinController = () => import('#controllers/join_controller')
+const ChatController = () => import('#controllers/chat_controller')
+const CommentsController = () => import('#controllers/comments_controller')
+const HistoryController = () => import('#controllers/history_controller')
 
 router
   .group(() => {
@@ -34,6 +37,7 @@ router
     router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
     // Lien chiffré de 60 s, lié à l'utilisateur et au projet (navigation sans en-tête Authorization).
     router.get('downloads/:token', [ExportsController, 'downloadWithLink'])
+    router.get('version-downloads/:token', [HistoryController, 'downloadWithLink'])
     // Rappels du Worker de compilation Cloudflare : corps signé (HMAC), ni session ni jeton.
     router.post('internal/compile-callbacks', [CompileCallbacksController, 'handle'])
     // Aperçus publics d'une invitation et d'un lien de partage (nom du projet, rôle).
@@ -92,6 +96,54 @@ router
         ])
         router.post('invitations/:token/accept', [JoinController, 'acceptInvitation'])
         router.post('share/:token/join', [JoinController, 'joinWithShareLink'])
+
+        // Chat du projet (packages/contracts/src/chat.ts) : tout membre.
+        router.get('projects/:id/chat/messages', [ChatController, 'index'])
+        router.post('projects/:id/chat/messages', [ChatController, 'store'])
+        router.post('projects/:id/chat/read', [ChatController, 'read'])
+
+        // Commentaires ancrés et panneau Review (packages/contracts/src/comments.ts) : lecture par
+        // tout membre, écriture avec la permission `comment`, modification par l'auteur.
+        router.get('projects/:id/comment-threads', [CommentsController, 'index'])
+        router.post('projects/:id/comment-threads', [CommentsController, 'store'])
+        router.get('projects/:id/comment-threads/:threadId', [CommentsController, 'show'])
+        router.post('projects/:id/comment-threads/:threadId/comments', [
+          CommentsController,
+          'reply',
+        ])
+        router.patch('projects/:id/comment-threads/:threadId/comments/:commentId', [
+          CommentsController,
+          'update',
+        ])
+        router.delete('projects/:id/comment-threads/:threadId/comments/:commentId', [
+          CommentsController,
+          'destroy',
+        ])
+        router.post('projects/:id/comment-threads/:threadId/resolve', [
+          CommentsController,
+          'resolve',
+        ])
+        router.post('projects/:id/comment-threads/:threadId/reopen', [CommentsController, 'reopen'])
+
+        // Historique (packages/contracts/src/history.ts) : lecture par tout membre, label et
+        // restauration avec la permission `edit`.
+        router.get('projects/:id/versions', [HistoryController, 'index'])
+        router.get('projects/:id/versions/:versionId', [HistoryController, 'show'])
+        router.patch('projects/:id/versions/:versionId', [HistoryController, 'update'])
+        router.get('projects/:id/versions/:versionId/documents/:documentId/diff', [
+          HistoryController,
+          'diff',
+        ])
+        router.get('projects/:id/versions/:versionId/files/:fileId/url', [
+          HistoryController,
+          'fileUrl',
+        ])
+        router.post('projects/:id/versions/:versionId/restore', [HistoryController, 'restore'])
+        router.get('projects/:id/versions/:versionId/download.zip', [HistoryController, 'download'])
+        router.post('projects/:id/versions/:versionId/download-url', [
+          HistoryController,
+          'downloadUrl',
+        ])
 
         router.post('projects/:id/compile', [CompilesController, 'compile'])
         router.post('projects/:id/compile/stop', [CompilesController, 'stop'])

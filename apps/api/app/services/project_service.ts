@@ -67,6 +67,7 @@ export async function createProject(
       name: 'main.tex',
       folderId: null,
       content: starterDocument(name, user.fullName),
+      authorId: user.id,
     })
     project.mainDocumentId = main.id
     await project.useTransaction(trx).save()

@@ -80,23 +80,56 @@ export async function createFolder(
   return Folder.create({ projectId, parentId: input.parentId, name: input.name }, { client: trx })
 }
 
+/**
+ * Crée un document texte. `authorId` : compte à qui l'historique attribue le contenu initial
+ * (première ligne du journal des mises à jour du document).
+ */
 export async function createDocument(
   trx: TransactionClientContract,
   projectId: string,
-  input: { name: string; folderId: string | null; content: string },
+  input: { name: string; folderId: string | null; content: string; authorId?: string | null },
 ): Promise<Document> {
   await assertFolder(trx, projectId, input.folderId)
   await assertNameAvailable(trx, projectId, input.folderId, input.name)
-  return Document.create(
+  const state = Buffer.from(createDocumentState(input.content))
+  const document = await Document.create(
     {
       projectId,
       folderId: input.folderId,
       name: input.name,
-      yjsState: Buffer.from(createDocumentState(input.content)),
+      yjsState: state,
       contentSha256: sha256(input.content),
     },
     { client: trx },
   )
+  await recordInitialStates(trx, [
+    { projectId, documentId: document.id, userId: input.authorId ?? null, state },
+  ])
+  return document
+}
+
+/**
+ * Journal de l'historique : état initial de documents créés par l'API (création, upload, import,
+ * restauration), attribué à leur auteur.
+ */
+export async function recordInitialStates(
+  trx: TransactionClientContract,
+  rows: readonly { projectId: string; documentId: string; userId: string | null; state: Buffer }[],
+): Promise<void> {
+  // Par lots : un import peut compter des milliers de documents.
+  for (let index = 0; index < rows.length; index += 500) {
+    await trx
+      .insertQuery()
+      .table('document_updates')
+      .multiInsert(
+        rows.slice(index, index + 500).map((row) => ({
+          project_id: row.projectId,
+          document_id: row.documentId,
+          user_id: row.userId,
+          yjs_update: row.state,
+        })),
+      )
+  }
 }
 
 /** Fichier binaire dont le contenu est déjà dans S3 (clé `s3Key`). */
@@ -181,6 +214,8 @@ export async function updateEntity(
 export interface DeletedEntities {
   documentIds: string[]
   fileKeys: string[]
+  /** Fichiers binaires supprimés : leur objet reste tant qu'une version y fait référence. */
+  files: { id: string; s3Key: string }[]
 }
 
 /**
@@ -194,11 +229,12 @@ export async function deleteEntity(
   id: string,
 ): Promise<DeletedEntities> {
   const entity = await findEntity(trx, projectId, type, id)
-  const deleted: DeletedEntities = { documentIds: [], fileKeys: [] }
+  const deleted: DeletedEntities = { documentIds: [], fileKeys: [], files: [] }
   if (entity instanceof Document) {
     deleted.documentIds.push(entity.id)
   } else if (entity instanceof File) {
     deleted.fileKeys.push(entity.s3Key)
+    deleted.files.push({ id: entity.id, s3Key: entity.s3Key })
   } else {
     const folders = await trx.rawQuery<{ rows: { id: string }[] }>(
       `WITH RECURSIVE tree AS (
@@ -212,9 +248,12 @@ export async function deleteEntity(
     const documents = await Document.query({ client: trx })
       .whereIn('folderId', folderIds)
       .select('id')
-    const files = await File.query({ client: trx }).whereIn('folderId', folderIds).select('s3Key')
+    const files = await File.query({ client: trx })
+      .whereIn('folderId', folderIds)
+      .select('id', 's3Key')
     deleted.documentIds.push(...documents.map((document) => document.id))
     deleted.fileKeys.push(...files.map((file) => file.s3Key))
+    deleted.files.push(...files.map((file) => ({ id: file.id, s3Key: file.s3Key })))
   }
   // Les sous-dossiers, documents et fichiers suivent par ON DELETE CASCADE.
   await entity.useTransaction(trx).delete()

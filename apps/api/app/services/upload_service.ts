@@ -31,6 +31,7 @@ import {
   assertNameAvailable,
   createDocument,
   createFile,
+  recordInitialStates,
   touchProject,
 } from '#services/tree_service'
 import { workspaceFor, workspaceForNewProject } from '#services/workspace_service'
@@ -191,6 +192,7 @@ export async function completeFileUpload(
                 name: locked.filename,
                 folderId: locked.folderId,
                 content: processed.content,
+                authorId: user.id,
               }),
             }
           : {
@@ -263,6 +265,7 @@ async function insertTree(
   trx: TransactionClientContract,
   projectId: string,
   plan: ImportResult<StoredBinary>,
+  authorId: string,
 ): Promise<Map<string, string>> {
   const folderIds = new Map<string, string>()
   const split = (path: string) => {
@@ -282,22 +285,29 @@ async function insertTree(
   await insertRows(trx, 'folders', folders)
 
   const documentIds = new Map<string, string>()
-  await insertRows(
+  const documents = plan.documents.map((document) => {
+    const { folderId, name } = split(document.path)
+    const id = randomUUID()
+    documentIds.set(document.path, id)
+    return {
+      id,
+      project_id: projectId,
+      folder_id: folderId,
+      name,
+      yjs_state: Buffer.from(createDocumentState(document.content)),
+      content_sha256: document.sha256,
+    }
+  })
+  await insertRows(trx, 'documents', documents)
+  // Historique : le contenu importé est attribué à la personne qui importe.
+  await recordInitialStates(
     trx,
-    'documents',
-    plan.documents.map((document) => {
-      const { folderId, name } = split(document.path)
-      const id = randomUUID()
-      documentIds.set(document.path, id)
-      return {
-        id,
-        project_id: projectId,
-        folder_id: folderId,
-        name,
-        yjs_state: Buffer.from(createDocumentState(document.content)),
-        content_sha256: document.sha256,
-      }
-    }),
+    documents.map((document) => ({
+      projectId,
+      documentId: document.id,
+      userId: authorId,
+      state: document.yjs_state,
+    })),
   )
   await insertRows(
     trx,
@@ -377,7 +387,7 @@ export async function completeImport(
         { client: trx },
       )
       await ProjectMember.create({ projectId, userId: user.id, role: 'owner' }, { client: trx })
-      const documentIds = await insertTree(trx, projectId, plan)
+      const documentIds = await insertTree(trx, projectId, plan, user.id)
       created.mainDocumentId =
         plan.mainDocumentPath === null ? null : (documentIds.get(plan.mainDocumentPath) ?? null)
       await created.useTransaction(trx).save()

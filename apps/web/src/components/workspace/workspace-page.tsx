@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  canComment as canCommentRole,
   type Compiler,
   type CompileResult,
   type PdfPosition,
@@ -29,7 +30,14 @@ import {
   type OnlinePerson,
   peopleByDocument,
 } from '@/lib/presence'
-import { bannerFeed, eventEffect, type RealtimeMessage } from '@/lib/project-events'
+import {
+  bannerFeed,
+  chatFeed,
+  commentFeed,
+  eventEffect,
+  historyFeed,
+  type RealtimeMessage,
+} from '@/lib/project-events'
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/sharing'
 import { documentByPath } from '@/lib/tree'
 import type { EditorHandle, SyncState } from './editor/code-editor'
@@ -39,7 +47,8 @@ import { FileActionsProvider } from './file-actions'
 import type { CompileSettings } from './pdf/compile-status'
 import { PdfColumn } from './pdf/pdf-column'
 import { OutlineTree } from './sidebar/outline-tree'
-import { Sidebar } from './sidebar/sidebar'
+import { Sidebar, type SidebarTab } from './sidebar/sidebar'
+import { useProjectChat } from './use-project-chat'
 import { useCompile } from './use-compile'
 import { useDocumentOutline } from './use-outline'
 import { useProjectMeta } from './use-project-meta'
@@ -88,6 +97,15 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   const [revealSidebar, setRevealSidebar] = useState(0)
   // Navigations vers un fichier (arbre, plan, recherche, logs) : le tiroir de la sidebar se ferme.
   const [navigations, setNavigations] = useState(0)
+  // `?panel=chat` (lien de l'email de mention) : sidebar affichée sur l'onglet Chats.
+  const [chatLink] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('panel') === 'chat',
+  )
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(chatLink ? 'chats' : 'files')
+  // Sidebar réellement visible : le chat n'est marqué comme lu que s'il est sous les yeux.
+  const [sidebarShown, setSidebarShown] = useState(false)
   const showEditor = useCallback(() => {
     setNarrowView('editor')
     setNavigations((count) => count + 1)
@@ -113,6 +131,11 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   )
 
   const canEdit = project?.role === 'owner' || project?.role === 'editor'
+  // Chat lu seulement s'il est affiché : sidebar visible, onglet Chats, sans recherche par-dessus.
+  const chat = useProjectChat(
+    project?.id ?? null,
+    sidebarShown && sidebarTab === 'chats' && search === null,
+  )
 
   const compileState = useCompile({
     projectId,
@@ -297,6 +320,15 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         case 'banners':
           bannerFeed.publish(effect.banners)
           break
+        case 'chat':
+          chatFeed.publish(effect.event)
+          break
+        case 'comment':
+          commentFeed.publish(effect.event)
+          break
+        case 'history':
+          historyFeed.publish(effect.event)
+          break
         case 'none':
           break
       }
@@ -384,6 +416,11 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   const runCompile = useCallback(() => {
     setHighlight(null)
     void compile()
+  }, [compile])
+  // Auto-compilation après une pause de frappe : pas de version dans l'historique.
+  const runAutoCompile = useCallback(() => {
+    setHighlight(null)
+    void compile('auto')
   }, [compile])
 
   /** Ouvre la recherche dans le projet (sidebar affichée), préremplie avec `query`. */
@@ -625,6 +662,9 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
           onNarrowViewChange={setNarrowView}
           revealSidebar={revealSidebar}
           dismissDrawer={navigations}
+          openSidebarOnMount={chatLink}
+          onSidebarShownChange={setSidebarShown}
+          sidebarUnread={chat.unread > 0}
           sidebar={({ onCollapse, collapseLabel }) => (
             <Sidebar
               project={project}
@@ -646,6 +686,10 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               onFollow={follow}
               membersVersion={membersVersion}
               onAccessChanged={() => void checkAccess()}
+              onOpenLocation={openLocation}
+              tab={sidebarTab}
+              onTabChange={setSidebarTab}
+              chat={chat}
               outline={
                 <OutlineTree
                   nodes={outline.nodes}
@@ -667,6 +711,9 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               connectionError={socketError}
               loading={currentTabs === null}
               canEdit={canEdit}
+              canComment={project !== null && canCommentRole(project.role)}
+              selfId={user?.id ?? null}
+              membersVersion={membersVersion}
               theme={preferences.theme}
               autoCompile={preferences.autoCompile}
               toolsVisible={preferences.toolsVisible}
@@ -710,6 +757,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
                 updatePreferences({ toolsVisible: !preferences.toolsVisible })
               }}
               onCompile={runCompile}
+              onAutoCompile={runAutoCompile}
               onEditorReady={onEditorReady}
               onSyncState={setSyncState}
             />

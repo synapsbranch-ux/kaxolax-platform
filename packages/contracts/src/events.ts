@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { activeBannerSchema } from './admin.js'
 import { buildStatusSchema } from './builds.js'
+import { commentThreadUpdatedEventSchema } from './comments.js'
 import { compileResultSchema } from './compile.js'
+import { versionKindSchema } from './history.js'
 import { projectRoleSchema } from './realtime.js'
 
 /**
@@ -56,6 +58,8 @@ export const treeChangeReasonSchema = z.enum([
   'upload',
   'import',
   'main-document',
+  /** Restauration d'une version (tâche 8) : le client relit toute l'arborescence. */
+  'restore',
 ])
 export type TreeChangeReason = z.infer<typeof treeChangeReasonSchema>
 
@@ -105,8 +109,13 @@ export const chatMessageCreatedEventSchema = z.object({
   messageId: z.uuid(),
   authorId: z.uuid(),
 })
+export type ChatMessageCreatedEvent = z.infer<typeof chatMessageCreatedEventSchema>
 
-/** Nouveau commentaire (tâche 7) : le client relit le fil. */
+/**
+ * Nouveau commentaire (tâche 7) : nouveau fil (`commentId` est alors son premier message) ou
+ * réponse. Le client relit le fil. Les autres changements d'un fil : `comment.thread-updated`
+ * (comments.ts).
+ */
 export const commentCreatedEventSchema = z.object({
   type: z.literal('comment.created'),
   threadId: z.uuid(),
@@ -114,6 +123,20 @@ export const commentCreatedEventSchema = z.object({
   documentId: z.uuid(),
   authorId: z.uuid(),
 })
+export type CommentCreatedEvent = z.infer<typeof commentCreatedEventSchema>
+
+/**
+ * Nouvelle version dans l'historique (tâche 8) : le tiroir Historique ouvert relit la liste.
+ * `actorId` : compte qui l'a déclenchée (compilation, restauration), null pour une version
+ * automatique.
+ */
+export const versionCreatedEventSchema = z.object({
+  type: z.literal('version.created'),
+  versionId: z.uuid(),
+  kind: versionKindSchema,
+  actorId: z.uuid().nullable(),
+})
+export type VersionCreatedEvent = z.infer<typeof versionCreatedEventSchema>
 
 /** Bannières système actives après un changement (diffusé à tous les clients connectés). */
 export const bannerChangedEventSchema = z.object({
@@ -147,8 +170,10 @@ export const projectEventSchema = z.discriminatedUnion('type', [
   memberRoleUpdatedEventSchema,
   chatMessageCreatedEventSchema,
   commentCreatedEventSchema,
+  commentThreadUpdatedEventSchema,
   bannerChangedEventSchema,
   compileUpdatedEventSchema,
+  versionCreatedEventSchema,
 ])
 export type ProjectEvent = z.infer<typeof projectEventSchema>
 export type ProjectEventType = ProjectEvent['type']

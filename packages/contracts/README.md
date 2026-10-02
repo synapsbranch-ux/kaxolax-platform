@@ -14,6 +14,8 @@ realtime). Chaque service valide avec ces schémas les messages qu'il reçoit.
 | `realtime.ts`   | Snapshot d'un projet et fermeture d'un document (routes internes du service temps réel)      |
 | `projects.ts`   | Langues du correcteur orthographique d'un projet                                             |
 | `workspaces.ts` | Types et rôles de workspace, workspace renvoyé par `GET /workspaces`                         |
+| `comments.ts`   | Commentaires ancrés : fils, messages, routes du panneau Review, `comment.thread-updated`     |
+| `history.ts`    | Historique : versions, diff attribué, label, restauration, manifeste, routes internes        |
 
 Le paquet est compilé vers `dist/` (ESM + déclarations). Commandes :
 

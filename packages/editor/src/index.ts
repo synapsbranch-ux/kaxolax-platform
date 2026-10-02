@@ -33,6 +33,7 @@ export * from './theme.js'
 export * from './auto-compile.js'
 export * from './outline.js'
 export * from './presence.js'
+export * from './comments.js'
 export {
   findPreamble,
   loadedPackages,

@@ -99,6 +99,31 @@ export class DocumentStore {
     }
   }
 
+  /**
+   * Ajoute des mises à jour Yjs au journal de l'historique (table document_updates), dans
+   * l'ordre donné (ordre du rejeu). `userId` nul : origine inconnue.
+   */
+  async insertUpdates(
+    rows: readonly {
+      projectId: string
+      documentId: string
+      userId: string | null
+      update: Uint8Array
+    }[],
+  ): Promise<void> {
+    if (rows.length === 0) return
+    const values: unknown[] = []
+    const tuples = rows.map((row, index) => {
+      values.push(row.projectId, row.documentId, row.userId, Buffer.from(row.update))
+      const first = index * 4
+      return `($${String(first + 1)}, $${String(first + 2)}, $${String(first + 3)}, $${String(first + 4)})`
+    })
+    await this.pool.query(
+      `INSERT INTO document_updates (project_id, document_id, user_id, yjs_update) VALUES ${tuples.join(', ')}`,
+      values,
+    )
+  }
+
   async documentIds(projectId: string): Promise<string[]> {
     const result = await this.pool.query<{ id: string }>(
       'SELECT id FROM documents WHERE project_id = $1 ORDER BY id',

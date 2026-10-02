@@ -24,6 +24,7 @@ export async function startServer(
   storeDelayMs = 50,
   roles: { ROLE_RECHECK_MS?: number; ROLE_SWEEP_MS?: number } = {},
   redis: { REDIS_URL?: string; REDIS_PREFIX?: string } = {},
+  history: { HISTORY_FLUSH_MS?: number } = {},
 ): Promise<{ server: RealtimeServer; url: string; httpUrl: string }> {
   const server = createRealtimeServer(
     {
@@ -37,6 +38,7 @@ export async function startServer(
       ROLE_RECHECK_MS: roles.ROLE_RECHECK_MS ?? 60_000,
       ROLE_SWEEP_MS: roles.ROLE_SWEEP_MS ?? 0,
       ...redis,
+      ...history,
     },
     store,
     pino({ level: 'silent' }),

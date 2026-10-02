@@ -5,6 +5,7 @@ import {
   closeDocumentResponseSchema,
   disconnectUserResponseSchema,
   fitProjectEvent,
+  flushUpdatesResponseSchema,
   INTERNAL_TOKEN_HEADER,
   memberChangedResponseSchema,
   type ProjectEvent,
@@ -14,6 +15,9 @@ import {
   type ProjectRole,
   REALTIME_TOKEN_TTL_SECONDS,
   type RealtimeTokenResponse,
+  type ReplaceDocumentRequest,
+  type ReplaceDocumentResponse,
+  replaceDocumentResponseSchema,
 } from '@kaxolax/contracts'
 import logger from '@adonisjs/core/services/logger'
 import realtimeConfig from '#config/realtime'
@@ -158,6 +162,60 @@ export default class RealtimeClient {
         { err: error, ...logContext, type: event.type },
         'could not publish realtime event',
       )
+    }
+  }
+
+  /**
+   * Historique : fait écrire tout de suite dans le journal les mises à jour Yjs en attente du
+   * projet (avant une version de compilation ou de restauration). Au mieux : sinon, elles entrent
+   * dans la version suivante.
+   */
+  async flushUpdates(projectId: string): Promise<void> {
+    try {
+      const response = await fetch(
+        `${realtimeConfig.internalUrl}/internal/projects/${projectId}/updates/flush`,
+        {
+          method: 'POST',
+          headers: { [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release() },
+          // L'instance attend aussi les autres instances (jusqu'à 2 s) : délai de l'instantané.
+          signal: AbortSignal.timeout(realtimeConfig.snapshotTimeoutMs),
+        },
+      )
+      if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+      flushUpdatesResponseSchema.parse(await response.json())
+    } catch (error) {
+      logger.warn({ err: error, projectId }, 'could not flush realtime updates')
+    }
+  }
+
+  /**
+   * Restauration : remplace le texte d'un document par le service temps réel (modification Yjs
+   * minimale reçue par les clients connectés, attribuée à `userId`). Null si le service n'a pas
+   * répondu ou ne connaît pas le document : l'appelant n'applique alors pas la restauration.
+   */
+  async replaceDocument(
+    projectId: string,
+    documentId: string,
+    request: ReplaceDocumentRequest,
+  ): Promise<ReplaceDocumentResponse | null> {
+    try {
+      const response = await fetch(
+        `${realtimeConfig.internalUrl}/internal/projects/${projectId}/documents/${documentId}/replace`,
+        {
+          method: 'POST',
+          headers: {
+            [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release(),
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(realtimeConfig.snapshotTimeoutMs),
+        },
+      )
+      if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+      return replaceDocumentResponseSchema.parse(await response.json())
+    } catch (error) {
+      logger.warn({ err: error, projectId, documentId }, 'could not replace realtime document')
+      return null
     }
   }
 

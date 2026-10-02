@@ -1,19 +1,33 @@
 'use client'
 
 import { HocuspocusProvider, type HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import type { PresenceUser, Theme } from '@kaxolax/contracts'
-import { documentName, TEXT_FIELD } from '@kaxolax/collab'
+import type { CommentThread, PresenceUser, Theme } from '@kaxolax/contracts'
+import {
+  anchorFromBase64,
+  anchorToBase64,
+  createCommentAnchor,
+  documentName,
+  type ResolvedAnchor,
+  resolveCommentAnchor,
+  TEXT_FIELD,
+} from '@kaxolax/collab'
 import {
   type ActionHost,
   type ActionRegistry,
   collaboratorCursorTheme,
+  commentableSelection,
+  commentHighlights,
+  type CommentRange,
   goToLine,
   isActionTransaction,
   isLocalEdit,
   keystrokeListener,
   latexExtensions,
   reconfigureEditor,
+  revealComment as revealCommentRange,
   revealPosition,
+  setActiveComment,
+  setCommentRanges,
 } from '@kaxolax/editor'
 import { Spinner } from '@kaxolax/ui'
 import { EditorSelection, EditorState } from '@codemirror/state'
@@ -22,7 +36,43 @@ import { useEffect, useRef, useState } from 'react'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import { api } from '@/lib/api'
+import { quoteOf } from '@/lib/comments'
 import { cursorIndexOf } from '@/lib/presence'
+
+const NO_COMMENTS: readonly CommentThread[] = []
+
+/** Délai de regroupement des positions des commentaires remontées au panneau Review. */
+const COMMENT_POSITIONS_DELAY_MS = 200
+
+/** Positions des fils dans le document : tous les fils, résolus compris (ordre du panneau). */
+function resolveThreads(
+  ytext: Y.Text,
+  threads: readonly CommentThread[],
+): { positions: Map<string, ResolvedAnchor>; ranges: CommentRange[] } {
+  const positions = new Map<string, ResolvedAnchor>()
+  const ranges: CommentRange[] = []
+  for (const thread of threads) {
+    const bytes = anchorFromBase64(thread.anchor)
+    const position: ResolvedAnchor =
+      bytes === null ? { status: 'unknown' } : resolveCommentAnchor(ytext, bytes)
+    positions.set(thread.id, position)
+    // Seuls les fils ouverts sont surlignés.
+    if (thread.resolvedAt === null && position.status === 'attached')
+      ranges.push({ id: thread.id, from: position.from, to: position.to })
+  }
+  return { positions, ranges }
+}
+
+function samePositions(
+  a: ReadonlyMap<string, ResolvedAnchor>,
+  b: ReadonlyMap<string, ResolvedAnchor>,
+): boolean {
+  if (a.size !== b.size) return false
+  for (const [id, position] of a) {
+    if (JSON.stringify(position) !== JSON.stringify(b.get(id))) return false
+  }
+  return true
+}
 
 /** Commandes de l'éditeur utilisées par la page (logs, SyncTeX, compilation, barre Tools). */
 export interface EditorHandle {
@@ -44,6 +94,11 @@ export interface EditorHandle {
   /** Annuler et rétablir (historique partagé de Yjs, limité aux modifications locales). */
   undo: () => void
   redo: () => void
+  /**
+   * Ancre (positions relatives Yjs en base64) et citation de la sélection, pour un nouveau
+   * commentaire ; null sans sélection.
+   */
+  commentDraft: () => { anchor: string; quotedText: string } | null
 }
 
 export type SyncState = 'connecting' | 'synced' | 'saving' | 'offline' | 'closed'
@@ -61,8 +116,16 @@ export function CodeEditor({
   follow,
   onKeystroke,
   onCompile,
+  onAutoCompile,
   onReady,
   onSyncState,
+  comments = NO_COMMENTS,
+  activeCommentId = null,
+  revealComment = null,
+  onCommentPositions,
+  onCommentSelect,
+  onCommentShortcut,
+  onCommentRevealed,
 }: {
   projectId: string
   documentId: string
@@ -87,13 +150,45 @@ export function CodeEditor({
   /** Frappe dans l'éditeur (fin du suivi d'un collaborateur). */
   onKeystroke: () => void
   onCompile: () => void
+  /** Auto-compilation (sans version dans l'historique) ; à défaut, `onCompile`. */
+  onAutoCompile?: () => void
   onReady: (handle: EditorHandle | null) => void
   onSyncState: (state: SyncState) => void
+  /** Fils de commentaires de ce document : les ouverts sont surlignés. */
+  comments?: readonly CommentThread[]
+  /** Fil sélectionné dans le panneau Review (surlignage renforcé). */
+  activeCommentId?: string | null
+  /** Demande de saut vers un fil de ce document (`serial` change à chaque demande). */
+  revealComment?: { threadId: string; serial: number } | null
+  /** Positions des fils dans le texte courant, après chaque modification (regroupées). */
+  onCommentPositions?: (positions: ReadonlyMap<string, ResolvedAnchor>) => void
+  /** Clic dans un texte commenté. */
+  onCommentSelect?: (threadId: string) => void
+  /** Raccourci « Commenter la sélection » (Ctrl+Alt+M, Cmd+Option+M sur macOS). */
+  onCommentShortcut?: () => void
+  /** La demande de saut a été traitée (le fil est dans ce document). */
+  onCommentRevealed?: () => void
 }) {
   const container = useRef<HTMLDivElement>(null)
-  const callbacks = useRef({ onCompile, onReady, onSyncState, onKeystroke, host, autoCompile })
+  const callbacks = useRef({
+    onCompile,
+    onAutoCompile,
+    onReady,
+    onSyncState,
+    onKeystroke,
+    host,
+    autoCompile,
+    onCommentPositions,
+    onCommentSelect,
+    onCommentShortcut,
+    onCommentRevealed,
+  })
   // Valeurs lues à la création de l'éditeur et par ses écouteurs.
-  const latest = useRef({ readOnly, self, follow })
+  const latest = useRef({ readOnly, self, follow, comments })
+  // Recalcul des plages commentées depuis Yjs (null tant que l'éditeur n'existe pas).
+  const refreshComments = useRef<(() => void) | null>(null)
+  // Texte partagé et éditeur courants (saut vers un commentaire).
+  const shared = useRef<{ ytext: Y.Text; editor: EditorView } | null>(null)
   const view = useRef<EditorView | null>(null)
   // Défilement jusqu'au curseur du collaborateur suivi (null tant que l'éditeur n'existe pas).
   const revealFollowed = useRef<(() => void) | null>(null)
@@ -109,9 +204,47 @@ export function CodeEditor({
   const openingSerial = opening.serial
 
   useEffect(() => {
-    callbacks.current = { onCompile, onReady, onSyncState, onKeystroke, host, autoCompile }
-    latest.current = { readOnly, self, follow }
+    callbacks.current = {
+      onCompile,
+      onAutoCompile,
+      onReady,
+      onSyncState,
+      onKeystroke,
+      host,
+      autoCompile,
+      onCommentPositions,
+      onCommentSelect,
+      onCommentShortcut,
+      onCommentRevealed,
+    }
+    latest.current = { readOnly, self, follow, comments }
   })
+
+  // Fils modifiés (création, résolution, relecture) : plages recalculées.
+  useEffect(() => {
+    refreshComments.current?.()
+  }, [comments, ready])
+
+  useEffect(() => {
+    if (ready) view.current?.dispatch({ effects: setActiveComment.of(activeCommentId) })
+  }, [activeCommentId, ready])
+
+  // Saut vers un fil : sa plage est sélectionnée, ou l'endroit où se trouvait le texte supprimé.
+  const revealSerial = revealComment?.serial ?? null
+  const revealThreadId = revealComment?.threadId ?? null
+  useEffect(() => {
+    const current = shared.current
+    if (!ready || revealThreadId === null || current === null) return
+    const thread = latest.current.comments.find((candidate) => candidate.id === revealThreadId)
+    const bytes = thread ? anchorFromBase64(thread.anchor) : null
+    if (bytes === null) return
+    callbacks.current.onCommentRevealed?.()
+    const position = resolveCommentAnchor(current.ytext, bytes)
+    if (position.status === 'attached')
+      revealCommentRange(current.editor, position.from, position.to)
+    else if (position.status === 'detached')
+      revealCommentRange(current.editor, position.at, position.at)
+  }, [ready, revealThreadId, revealSerial])
 
   useEffect(() => {
     if (view.current) reconfigureEditor(view.current, { theme })
@@ -187,7 +320,7 @@ export function CodeEditor({
               actions: { registry, host: () => callbacks.current.host },
               autoCompile: {
                 onCompile: () => {
-                  callbacks.current.onCompile()
+                  ;(callbacks.current.onAutoCompile ?? callbacks.current.onCompile)()
                 },
                 enabled: () => callbacks.current.autoCompile,
                 // Annuler et rétablir passent par l'historique Yjs : y-codemirror applique la
@@ -200,6 +333,21 @@ export function CodeEditor({
             yCollab(ytext, provider.awareness, { undoManager }),
             keymap.of(yUndoManagerKeymap),
             collaboratorCursorTheme,
+            commentHighlights({
+              onSelect: (threadId) => {
+                callbacks.current.onCommentSelect?.(threadId)
+              },
+            }),
+            keymap.of([
+              {
+                key: 'Mod-Alt-m',
+                preventDefault: true,
+                run: () => {
+                  callbacks.current.onCommentShortcut?.()
+                  return callbacks.current.onCommentShortcut !== undefined
+                },
+              },
+            ]),
             keystrokeListener(() => {
               // Fin du suivi immédiate : le raccourci (Entrée, Retour arrière…) modifie le
               // document dans le même événement, avant que React n'applique le nouvel état.
@@ -223,6 +371,33 @@ export function CodeEditor({
       })
       created = editor
       view.current = editor
+      shared.current = { ytext, editor }
+      // Plages commentées : envoyées à l'éditeur hors de sa mise à jour (une modification locale
+      // atteint Yjs pendant celle-ci), une fois par salve ; positions remontées au panneau après
+      // un court délai.
+      let commentsScheduled = false
+      let reported = new Map<string, ResolvedAnchor>()
+      let reportTimer: ReturnType<typeof setTimeout> | null = null
+      refreshComments.current = () => {
+        if (commentsScheduled) return
+        commentsScheduled = true
+        queueMicrotask(() => {
+          commentsScheduled = false
+          if (view.current !== editor) return
+          const { positions, ranges } = resolveThreads(ytext, latest.current.comments)
+          editor.dispatch({ effects: setCommentRanges.of(ranges) })
+          if (reportTimer !== null) clearTimeout(reportTimer)
+          reportTimer = null
+          if (samePositions(positions, reported)) return
+          reportTimer = setTimeout(() => {
+            reportTimer = null
+            if (view.current !== editor) return
+            reported = positions
+            callbacks.current.onCommentPositions?.(positions)
+          }, COMMENT_POSITIONS_DELAY_MS)
+        })
+      }
+      refreshComments.current()
       // Défilement différé : les extensions de y-codemirror modifient Yjs et l'awareness pendant
       // la mise à jour de l'éditeur ; appeler view.dispatch à ce moment lèverait une erreur et
       // désactiverait leurs plugins (synchronisation, curseurs distants). Un seul défilement par
@@ -292,6 +467,14 @@ export function CodeEditor({
           if (!latest.current.readOnly) undoManager.redo()
           editor.focus()
         },
+        commentDraft: () => {
+          const selection = commentableSelection(editor.state)
+          if (selection === null) return null
+          return {
+            anchor: anchorToBase64(createCommentAnchor(ytext, selection.from, selection.to)),
+            quotedText: quoteOf(selection.text),
+          }
+        },
       })
     }
     provider.on('synced', mount)
@@ -308,6 +491,7 @@ export function CodeEditor({
     }
     const followText = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
       if (!transaction.local) revealFollowed.current?.()
+      refreshComments.current?.()
     }
     provider.awareness?.on('change', followAwareness)
     ytext.observe(followText)
@@ -316,6 +500,8 @@ export function CodeEditor({
       provider.awareness?.off('change', followAwareness)
       ytext.unobserve(followText)
       revealFollowed.current = null
+      refreshComments.current = null
+      shared.current = null
       callbacks.current.onReady(null)
       listeners.clear()
       created?.destroy()

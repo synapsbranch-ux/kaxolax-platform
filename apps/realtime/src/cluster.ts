@@ -27,6 +27,13 @@ export const clusterMessageSchema = z.discriminatedUnion('kind', [
     documentName: z.string().min(1).max(200),
     clientIds: z.array(z.number().int().nonnegative()).min(1).max(1000),
   }),
+  /**
+   * Historique : écrire tout de suite les mises à jour en attente du projet (`updates.ts`), puis
+   * répondre `flush-updates-done` avec le même `requestId` (l'instance appelée par l'API attend
+   * ces réponses avant de rendre la main).
+   */
+  z.object({ kind: z.literal('flush-updates'), projectId: uuid, requestId: uuid }),
+  z.object({ kind: z.literal('flush-updates-done'), requestId: uuid }),
   /** `projectId` null : à tous les documents meta (bannière). */
   z.object({
     kind: z.literal('project-event'),
@@ -39,6 +46,8 @@ export type ClusterMessage = z.infer<typeof clusterMessageSchema>
 export interface ClusterBus {
   /** Envoie aux autres instances (jamais à soi-même). */
   publish(message: ClusterMessage): Promise<void>
+  /** Comme `publish` ; renvoie le nombre d'autres instances qui ont reçu le message. */
+  publishCounted(message: ClusterMessage): Promise<number>
   subscribe(listener: (message: ClusterMessage) => Promise<void>): void
   /** Résolu une fois l'abonnement actif : avant, les messages des autres instances sont perdus. */
   ready(): Promise<void>
@@ -48,6 +57,7 @@ export interface ClusterBus {
 /** Une seule instance : rien à relayer. */
 export const singleInstanceBus: ClusterBus = {
   publish: () => Promise.resolve(),
+  publishCounted: () => Promise.resolve(0),
   subscribe: () => undefined,
   ready: () => Promise.resolve(),
   close: () => Promise.resolve(),
@@ -106,7 +116,16 @@ export class RedisClusterBus implements ClusterBus {
   }
 
   async publish(message: ClusterMessage): Promise<void> {
-    await this.pub.publish(this.channel, JSON.stringify({ from: this.identifier, message }))
+    await this.publishCounted(message)
+  }
+
+  async publishCounted(message: ClusterMessage): Promise<number> {
+    const receivers = await this.pub.publish(
+      this.channel,
+      JSON.stringify({ from: this.identifier, message }),
+    )
+    // Redis compte tous les abonnés du canal, dont la connexion d'abonnement de cette instance.
+    return Math.max(0, receivers - 1)
   }
 
   subscribe(listener: (message: ClusterMessage) => Promise<void>): void {

@@ -20,6 +20,11 @@ export const configSchema = z.object({
   STORE_MAX_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(10_000),
   /** Une mise à jour d'un rédacteur fait relire son rôle en base si la dernière lecture est plus ancienne. */
   ROLE_RECHECK_MS: z.coerce.number().int().nonnegative().default(5_000),
+  /**
+   * Journal de l'historique : les mises à jour Yjs reçues sont écrites par lots, au plus tard
+   * après ce délai (voir `updates.ts`).
+   */
+  HISTORY_FLUSH_MS: z.coerce.number().int().positive().default(100),
   /** Relecture périodique du rôle de toutes les connexions (0 : désactivée). */
   ROLE_SWEEP_MS: z.coerce.number().int().nonnegative().default(30_000),
   /**

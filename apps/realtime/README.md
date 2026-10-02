@@ -87,17 +87,31 @@ L'état Yjs complet et le sha256 du texte sont écrits dans `documents` (`yjs_st
 date du projet est mise à jour. Un arrêt propre (SIGINT, SIGTERM) enregistre les documents en
 attente avant de quitter.
 
+## Historique : origine des mises à jour
+
+Chaque mise à jour Yjs appliquée à un document texte est journalisée avec son auteur dans
+`document_updates` (`src/updates.ts`) : le compte de la connexion qui l'a envoyée, ou celui qui
+restaure une version (connexion directe). Une mise à jour relayée par Redis depuis une autre
+instance est ignorée (journalisée par l'instance qui l'a reçue) : une seule ligne par mise à jour,
+quel que soit le nombre d'instances. Une mise à jour refusée (lecture seule) n'est pas appliquée,
+donc pas journalisée. Les mises à jour consécutives d'un même auteur sont fusionnées et écrites
+par lots (au plus tard `HISTORY_FLUSH_MS`, 100 ms par défaut), dans l'ordre d'arrivée ; l'API
+rejoue ce journal pour créer les versions et attribuer chaque changement à son auteur. Une
+écriture perdue est rattrapée à la version suivante depuis l'état enregistré (sans auteur).
+
 ## Routes HTTP
 
-| Route                                                 | Rôle                                                                                   |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `GET /health`                                         | État du service et nombre de documents ouverts                                         |
-| `GET /internal/projects/:id/snapshot`                 | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe)      |
-| `POST /internal/documents/:id/close`                  | Ferme les connexions d'un document supprimé                                            |
-| `POST /internal/users/:id/disconnect`                 | Ferme toutes les connexions d'un compte (banni, supprimé, sessions révoquées)          |
-| `POST /internal/projects/:id/members/:userId/changed` | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`) |
-| `POST /internal/projects/:id/events`                  | Publie `{ event }` (`publishProjectEventRequestSchema`) sur le document meta du projet |
-| `POST /internal/events`                               | Publie `{ event }` (`banner.changed`) sur tous les documents meta                      |
+| Route                                                  | Rôle                                                                                                                        |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                          | État du service et nombre de documents ouverts                                                                              |
+| `GET /internal/projects/:id/snapshot`                  | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe)                                           |
+| `POST /internal/documents/:id/close`                   | Ferme les connexions d'un document supprimé                                                                                 |
+| `POST /internal/users/:id/disconnect`                  | Ferme toutes les connexions d'un compte (banni, supprimé, sessions révoquées)                                               |
+| `POST /internal/projects/:id/members/:userId/changed`  | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`)                                      |
+| `POST /internal/projects/:id/events`                   | Publie `{ event }` (`publishProjectEventRequestSchema`) sur le document meta du projet                                      |
+| `POST /internal/events`                                | Publie `{ event }` (`banner.changed`) sur tous les documents meta                                                           |
+| `POST /internal/projects/:id/updates/flush`            | Historique : écrit tout de suite le journal en attente du projet, sur toutes les instances (réponses attendues 2 s au plus) |
+| `POST /internal/projects/:id/documents/:docId/replace` | Restauration : remplace le texte (`{ content, userId }`) par une modification minimale                                      |
 
 Les routes `/internal` exigent l'en-tête `X-Internal-Token`. Leurs réponses suivent les schémas
 de `@kaxolax/contracts` (`projectSnapshotSchema`, `closeDocumentResponseSchema`,

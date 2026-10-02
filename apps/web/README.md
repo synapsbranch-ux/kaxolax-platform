@@ -37,14 +37,14 @@ l'API).
   mémorisés dans les préférences) ; sous 1024 px, sidebar en tiroir et éditeur/PDF en onglets.
   - Sidebar : logo, sélecteur de projet (récents, recherche, nouveau projet, tableau de bord),
     présence et partage (voir plus bas), onglets Fichiers (arborescence : créer, renommer, déplacer
-    par glisser-déposer, supprimer, uploader, document principal) et Chats (à venir), menu +,
+    par glisser-déposer, supprimer, uploader, document principal) et Chats (voir plus bas), menu +,
     recherche dans tout le projet (loupe ou Ctrl+Maj+F : casse, mot entier, expression
     régulière, résultats par fichier), section Plan (document courant et fichiers inclus,
     section courante surlignée), pied (utilisateur, workspace, `<UserButton />`).
   - Éditeur : onglets des fichiers ouverts (mémorisés par projet), bouton + (ouvrir ou créer),
     bouton Outils (barre de menus du registre d'actions de `@kaxolax/editor`), CodeMirror 6 sur
-    Yjs en thème sombre, aperçu des images, emplacements Review, Historique et assistant
-    (étape 3). Les outils s'ajoutent par `useEditorActions()` (registre partagé, raccourcis) et
+    Yjs en thème sombre, aperçu des images, panneau Review (voir plus bas), emplacement
+    de l'assistant (étape 3), tiroir Historique (voir plus bas). Les outils s'ajoutent par `useEditorActions()` (registre partagé, raccourcis) et
     `ACTION_DIALOGS` (`workspace/action-dialogs.tsx`).
   - PDF (pdf.js) : pastille de statut (Recompiler, Ctrl+Entrée) et son menu (auto-compilation,
     compilateur, brouillon, arrêt à la première erreur, arrêt, vider le cache, logs), zoom
@@ -74,6 +74,44 @@ l'API).
     relue : seule la réponse de la dernière demande s'applique. Connexion meta refusée (jeton non
     obtenu, erreur du serveur) : accès revérifié, puis connexion rouverte s'il est confirmé
     (délai de 2 s doublé à chaque échec, 30 s au plus).
+  - Chat du projet (onglet Chats, `sidebar/chats-panel.tsx`, `workspace/use-project-chat.ts`,
+    logique dans `lib/chat.ts`) : 50 derniers messages au chargement, plus anciens au défilement
+    vers le haut (position conservée) ; à chaque `chat.message-created` (relayé par `chatFeed`)
+    et au retour sur l'onglet, messages suivants relus par curseur `after`. Badge de non-lus sur
+    l'onglet lu depuis l'API (exact après rechargement) ; messages marqués comme lus seulement si
+    le chat est sous les yeux (sidebar dépliée ou tiroir ouvert, onglet Chats, page visible).
+    L'état du chat et l'onglet sont tenus par la page (le tiroir d'un écran étroit se démonte) ;
+    sidebar masquée : pastille de non-lus sur le bouton qui l'affiche. Texte brut uniquement (aucun HTML interprété), regroupé par jour puis par
+    auteur (5 min). `@` propose les membres (flèches, Entrée ou Tab) ; à l'envoi, `@Nom` devient
+    `<@uuid>`. `chemin.tex:42` devient un lien qui ouvre le fichier à la ligne, seulement si le
+    document existe (chemin exact, ou nom seul s'il est unique). `?panel=chat` ouvre le chat
+    (lien de l'email de mention), sidebar dépliée ou tiroir ouvert. Entrée envoie, Maj+Entrée va à la ligne ; 429 : délai affiché.
+  - Commentaires et panneau Review (`panels/review-panel.tsx`, `panels/comment-composer.tsx`,
+    `workspace/use-project-comments.ts`, logique dans `lib/comments.ts`) : fils du projet
+    chargés à l'ouverture, fil concerné relu à chaque `comment.created` ou
+    `comment.thread-updated` (relayés par `commentFeed`), tout relu au retour sur l'onglet.
+    Owner, editor et reviewer sélectionnent du texte puis « Commenter la sélection »
+    (Ctrl+Alt+M) : l'ancre est créée sur le Y.Doc ouvert (`createCommentAnchor`, début et fin en
+    positions relatives) avec la citation (1000 caractères au plus). L'éditeur résout les ancres
+    après chaque modification et surligne le texte des fils ouverts (`commentHighlights` de
+    `@kaxolax/editor`) ; un clic dans un texte commenté ouvre son fil. Panneau : onglets
+    Ouverts / Résolus, fils du document actif dans l'ordre du texte puis des autres documents,
+    précédent / suivant (en boucle), clic sur un fil → saut au texte (document ouvert au besoin) ;
+    texte ancré supprimé : citation barrée et « Texte commenté supprimé ». Réponses, modification
+    et suppression de ses messages, résolution et réouverture ; `@` propose les membres (comme le
+    chat). Lecteur : lecture seule. `?comment=<id>` (lien de l'email de mention) ouvre le fil.
+  - Historique (`panels/history-drawer.tsx`, `workspace/use-project-history.ts`, logique dans
+    `lib/history.ts`), bouton Historique de la colonne éditeur : versions groupées par jour
+    (heure, nature, label, auteurs dans leur couleur de présence), relues à chaque
+    `version.created` (relayé par `historyFeed`). Une version ouvre ses fichiers changés (ou tous),
+    le diff d'un document coloré par auteur (ajouts surlignés, suppressions barrées, passages
+    inchangés repliés, légende +/− par auteur) et l'aperçu d'une image. Owner et editor nomment
+    une version et restaurent le projet ou un fichier, après confirmation (le dialogue cite ce
+    qui sera retiré ou remplacé et le nombre de fils de commentaires perdus) ; zip d'une version
+    par lien court. Erreurs de l'API traduites en français par code (`historyErrorMessage`,
+    `commentErrorMessage`, `chatErrorMessage`, `localizedErrorMessage` dans `lib/api.ts`). Le
+    panneau Review masque les fils d'un document absent de l'arborescence et relit les fils quand
+    les documents changent (suppression, restauration). L'auto-compilation envoie `trigger: 'auto'` (pas de version).
   - Lecture seule : passer en lecture seule reconfigure l'éditeur sans le recréer ; le retour en
     écriture rouvre le document (les frappes refusées pendant la lecture seule bloqueraient les
     suivantes).

@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { createCommentAnchor } from './anchors.js'
 
 /**
  * Conventions Yjs de Kaxolax, définies une seule fois : chaque document texte est un Y.Doc qui
@@ -83,3 +84,20 @@ export function replaceDocumentText(state: Uint8Array | null, text: string): Uin
   doc.destroy()
   return next
 }
+
+/**
+ * Ancre de commentaire de la plage [from, to[ du texte d'un état Yjs persisté (outils serveur,
+ * tests) ; dans le navigateur, l'ancre est créée sur le document ouvert (`createCommentAnchor`).
+ */
+export function createStateAnchor(state: Uint8Array | null, from: number, to: number): Uint8Array {
+  const doc = new Y.Doc()
+  if (state !== null && state.length > 0) Y.applyUpdate(doc, state)
+  try {
+    return createCommentAnchor(doc.getText(TEXT_FIELD), from, to)
+  } finally {
+    doc.destroy()
+  }
+}
+
+export * from './anchors.js'
+export * from './history.js'
