@@ -31,6 +31,7 @@ const CommentsController = () => import('#controllers/comments_controller')
 const HistoryController = () => import('#controllers/history_controller')
 const TexliveController = () => import('#controllers/texlive_controller')
 const WordCountsController = () => import('#controllers/word_counts_controller')
+const MarkdownImportsController = () => import('#controllers/markdown_imports_controller')
 const TemplatesController = () => import('#controllers/templates_controller')
 const AiSettingsController = () => import('#controllers/ai_settings_controller')
 const PersonalAccessTokensController = () =>
@@ -187,6 +188,8 @@ router
         router.get('projects/:id/builds/:buildId', [BuildsController, 'show'])
         router.post('projects/:id/compiler/warm', [BuildsController, 'warm'])
         router.post('projects/:id/word-count', [WordCountsController, 'count'])
+        // Markdown → LaTeX par pandoc dans le sandbox (packages/contracts/src/markdown-import.ts).
+        router.post('projects/:id/convert/markdown', [MarkdownImportsController, 'store'])
         router.get('projects/:id/download.zip', [ExportsController, 'download'])
         router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })

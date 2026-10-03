@@ -22,6 +22,7 @@ import {
   rectangularSelection,
 } from '@codemirror/view'
 import type { ActionHost, ActionRegistry } from './actions/registry.js'
+import { markdownPasteDetector } from './actions/markdown.js'
 import { autoCompile, type AutoCompileOptions } from './auto-compile.js'
 import { latexFolding } from './folding.js'
 import { latexAutocomplete, type LatexCompletionOptions } from './completion/latex-completion.js'
@@ -75,6 +76,7 @@ export {
   packageManagerPayload,
 } from './actions/defaults.js'
 export * from './actions/writing.js'
+export * from './actions/markdown.js'
 export * from './writing/apply.js'
 export * from './writing/formula.js'
 export * from './writing/formula-library.js'
@@ -141,6 +143,11 @@ export interface LatexExtensionsOptions extends LatexEditorOptions {
   spellcheck?: SpellcheckConfig | null
 }
 
+/** Callbacks de l'application, lus à chaque appel s'ils sont donnés par une fonction. */
+function hostGetter(host: ActionHost | (() => ActionHost)): () => ActionHost {
+  return typeof host === 'function' ? host : () => host
+}
+
 /** Raccourcis propres à Kaxolax. */
 export function kaxolaxKeymap(options: LatexEditorOptions): Extension {
   return keymap.of([
@@ -191,6 +198,7 @@ export function latexExtensions(options: LatexExtensionsOptions = {}): Extension
     options.completion === false ? [] : latexAutocomplete(options.completion),
     spellcheckCompartment.of(options.spellcheck ? spellcheck(options.spellcheck) : []),
     options.actions ? options.actions.registry.keymap(options.actions.host) : [],
+    options.actions ? markdownPasteDetector(hostGetter(options.actions.host)) : [],
     options.autoCompile ? autoCompile(options.autoCompile) : [],
     kaxolaxKeymap(options),
     keymap.of([

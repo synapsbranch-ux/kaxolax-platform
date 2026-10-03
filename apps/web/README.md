@@ -129,6 +129,18 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
       détail par section ; chargement, erreurs traduites, Recompter.
     - **Barre d'état** sous l'éditeur : ligne et colonne, mode Vim/Emacs, langue du correcteur,
       compteur de mots, paramètres.
+    - **Importer du Markdown** (Fichier → Importer du Markdown…, menu « Convertir en LaTeX… »
+      d'un `.md` de l'arborescence, proposition après l'upload d'un `.md` ou le collage de
+      Markdown évident dans l'éditeur, `looksLikeMarkdown` de `@kaxolax/editor`) :
+      `tools/markdown-import-dialog.tsx`. Markdown collé, fichier de l'ordinateur ou du projet ;
+      options (destination : document courant ou nouveau fichier ; préambule : document principal
+      ou document autonome ; `\input` dans le principal ; niveau des titres, numérotation pour un
+      document autonome seulement, LaTeX brut ; nettoyage par l'IA si elle est activée) ; aperçu du
+      LaTeX produit (version nettoyée ou sortie de pandoc, préambule à compléter, images extraites,
+      avertissements) ; insertion à la place du texte collé (seulement dans le document du collage,
+      retrouvé même déplacé) ou au curseur. Le préambule du document principal est complété dans
+      l'éditeur partagé (`lib/markdown-import.ts` : `planPackage`, définitions absentes, aucun
+      doublon), comme toute modification d'un collaborateur.
   - PDF (pdf.js) : pastille de statut (Recompiler, Ctrl+Entrée) et son menu (auto-compilation,
     compilateur, brouillon, arrêt à la première erreur, arrêt, vider le cache, logs), zoom
     (page, largeur, 50 à 400 %), téléchargement, menu ⋯ (zip des sources, fichiers de sortie,
@@ -349,6 +361,10 @@ Clerk) :
   et Emacs, retour à la ligne, correcteur désactivé) appliqués à chaud, gardés après rechargement
   et sur un autre appareil, autocomplétion (`\cite{` mesurée, `\ref`, `\eqref`, commandes des
   packages chargés, chemins de `\input` et `\includegraphics`) ;
+- `markdown-import.spec.ts` : Markdown collé (aperçu, insertion dans le document courant,
+  préambule du document principal complété une seule fois), `.md` du projet converti en nouveau
+  fichier inclus par `\input` avec son image, collage intelligent et proposition après l'upload
+  d'un `.md` ; chaque résultat compile ;
 - `spellcheck.spec.ts` : correcteur (langue du projet changée depuis la barre d'état, commandes
   LaTeX et maths ignorées, correction proposée au clic droit, dictionnaire personnel gardé après
   rechargement) ;

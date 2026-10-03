@@ -1,5 +1,6 @@
 import {
   compileRequestKey,
+  type ConvertFailure,
   signCompileWorkerToken,
   type WorkerCompileJob,
 } from '@kaxolax/contracts'
@@ -19,6 +20,17 @@ const counts = {
   floatCount: 0,
   inlineMathCount: 0,
   displayMathCount: 0,
+}
+
+const converted = {
+  latex: '\\section{Bonjour}\n',
+  preamble: '',
+  title: null,
+  media: [],
+  images: [],
+  citations: [],
+  warnings: [],
+  durationMs: 3,
 }
 
 function stub(overrides: Partial<ProjectCompiler> = {}) {
@@ -44,6 +56,10 @@ function stub(overrides: Partial<ProjectCompiler> = {}) {
     wordCount: (request) => {
       calls.push(['wordCount', request.rootResourcePath])
       return Promise.resolve({ ok: true, result: { total: counts, sections: [], warnings: [] } })
+    },
+    convert: (request) => {
+      calls.push(['convert', request.sourcePath])
+      return Promise.resolve({ ok: true, result: converted })
     },
     ...overrides,
   }
@@ -180,5 +196,48 @@ describe('worker router', () => {
       error: 'word_count_failed',
       message: 'Word count timed out',
     })
+  })
+
+  it('converts Markdown synchronously and relays a conversion failure as 422', async () => {
+    const body = {
+      projectId,
+      sourcePath: 'notes.md',
+      targetPath: 'notes.tex',
+      markdown: '# Bonjour',
+    }
+    const { compiler, calls } = stub()
+    const ok = await call(`/projects/${projectId}/convert`, post(body), compiler)
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual(converted)
+    expect(calls).toEqual([['convert', 'notes.md']])
+    expect((await call(`/projects/${projectId}/convert`, { method: 'GET' })).status).toBe(405)
+
+    for (const invalid of [
+      { ...body, projectId: otherProject },
+      { ...body, sourcePath: '/etc/passwd' },
+      { ...body, options: { luaFilter: 'evil.lua' } },
+    ]) {
+      expect((await call(`/projects/${projectId}/convert`, post(invalid), compiler)).status).toBe(
+        400,
+      )
+    }
+    expect(calls).toHaveLength(1)
+    // Jeton d'un autre projet : refusé.
+    expect(
+      (await call(`/projects/${projectId}/convert`, { ...post(body), project: otherProject }))
+        .status,
+    ).toBe(401)
+
+    const failure: ConvertFailure = {
+      error: 'convert_failed',
+      reason: 'timeout',
+      message: 'Conversion timed out after 30 s',
+    }
+    const failing = stub({ convert: () => Promise.resolve({ ok: false, failure }) }).compiler
+    const failed = await call(`/projects/${projectId}/convert`, post(body), failing)
+    expect(failed.status).toBe(422)
+    expect(await failed.json()).toEqual(failure)
+    const broken = stub({ convert: () => Promise.reject(new Error('busy')) }).compiler
+    expect((await call(`/projects/${projectId}/convert`, post(body), broken)).status).toBe(503)
   })
 })

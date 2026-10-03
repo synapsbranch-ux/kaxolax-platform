@@ -8,6 +8,12 @@ import {
   type CompileRequest,
   type CompileStatus,
   type Compiler as CompilerName,
+  type ConvertRequest,
+  type ConvertResult,
+  DEFAULT_CONVERT_TIMEOUT_MS,
+  MAX_CONVERT_EMBEDDED_BYTES,
+  MAX_CONVERT_LATEX_BYTES,
+  MAX_MARKDOWN_BYTES,
   type LogEntry,
   type OutputFile,
   type SynctexCodeQuery,
@@ -20,6 +26,15 @@ import {
 } from '@kaxolax/contracts'
 import { parseCompileLogs } from '@kaxolax/latex-log-parser'
 import { OUTPUT_LIMITS } from './config.js'
+import {
+  CONVERT_FILES,
+  convertCommand,
+  ConvertError,
+  convertFailure,
+  filterOptions,
+  readConversion,
+  resolveConvertOptions,
+} from './convert.js'
 import { type CompileSandbox, type SandboxResult } from './sandbox.js'
 import { readRegularFile, regularFileSize } from './regular-file.js'
 import { Semaphore } from './semaphore.js'
@@ -36,6 +51,7 @@ import {
   touchProject,
   UnsafePathError,
   syncWorkspace,
+  writeSandboxDirectory,
   writeTextTree,
 } from './workspace.js'
 
@@ -62,9 +78,12 @@ const UPLOADED_OUTPUTS: { name: string; contentType: string }[] = [
 ]
 
 const SYNCTEX_TIMEOUT_MS = 20_000
-/** Comptages de mots simultanés dans des conteneurs Docker (en plus des compilations). */
-const WORD_COUNT_CONCURRENCY = 2
-/** Comptages en attente d'un emplacement au plus : au-delà, refus immédiat (503). */
+/**
+ * Exécutions courtes (comptages de mots, conversions Markdown) simultanées dans des conteneurs
+ * Docker, en plus des compilations.
+ */
+const SHORT_RUN_CONCURRENCY = 2
+/** Exécutions courtes en attente d'un emplacement au plus : au-delà, refus immédiat (503). */
 export const WORD_COUNT_MAX_WAITING = 8
 /**
  * Répertoire des comptages de mots, sous `compilesDir` (visible du démon Docker comme les
@@ -72,6 +91,14 @@ export const WORD_COUNT_MAX_WAITING = 8
  * ignore les noms commençant par un point) ne le touchent pendant un comptage.
  */
 export const WORD_COUNT_DIR = '.wordcount'
+/** Répertoire des conversions Markdown → LaTeX, hors de tout projet (comme `WORD_COUNT_DIR`). */
+export const CONVERT_DIR = '.convert'
+/**
+ * Plafond du répertoire d'une conversion pendant l'exécution (chien de garde) : entrée, LaTeX et
+ * images extraites, avec une marge pour le rapport et les fichiers temporaires de pandoc.
+ */
+const CONVERT_WORKDIR_MAX_BYTES =
+  MAX_MARKDOWN_BYTES + MAX_CONVERT_LATEX_BYTES + MAX_CONVERT_EMBEDDED_BYTES + 4 * 1024 * 1024
 
 /**
  * Code TeX lu avant le document principal en mode brouillon : graphicx et hyperref reçoivent
@@ -133,6 +160,9 @@ export class WordCountError extends Error {}
 /** File d'attente des comptages pleine : l'API répond 503, l'utilisateur réessaie plus tard. */
 export class WordCountBusyError extends Error {}
 
+/** File d'attente des conversions pleine : 503 `convert_busy`. */
+export class ConvertBusyError extends Error {}
+
 interface Running {
   controller: AbortController
   done: Promise<unknown>
@@ -156,9 +186,9 @@ function projectFile(file: string | null, rootDir: string): string | null {
 
 export class Compiler {
   private readonly slots: Semaphore
-  private readonly wordCountSlots = new Semaphore(WORD_COUNT_CONCURRENCY)
-  /** Comptages qui attendent un emplacement (chacun garde ses documents en mémoire). */
-  private wordCountsWaiting = 0
+  private readonly shortRunSlots = new Semaphore(SHORT_RUN_CONCURRENCY)
+  /** Exécutions courtes qui attendent un emplacement (chacune garde sa demande en mémoire). */
+  private shortRunsWaiting = 0
   private readonly running = new Map<string, Running>()
   /** Garantit qu'un seul traitement touche le répertoire d'un projet à la fois. */
   private readonly projectQueues = new Map<string, Promise<unknown>>()
@@ -395,6 +425,93 @@ export class Compiler {
   }
 
   /**
+   * Emplacement d'une exécution courte (comptage, conversion) : partagé entre elles, et avec les
+   * compilations quand le sandbox n'exécute qu'une commande à la fois (conteneur Cloudflare). Au-delà
+   * de `WORD_COUNT_MAX_WAITING` demandes en attente, refus immédiat avec l'erreur de `busy`.
+   */
+  private async acquireShortRun(busy: () => Error): Promise<() => void> {
+    const slots = this.options.sandbox.serialRuns === true ? this.slots : this.shortRunSlots
+    if (this.shortRunsWaiting >= WORD_COUNT_MAX_WAITING) throw busy()
+    this.shortRunsWaiting++
+    try {
+      return await slots.acquire()
+    } finally {
+      this.shortRunsWaiting--
+    }
+  }
+
+  /**
+   * Convertit du Markdown en LaTeX avec pandoc, dans le même sandbox que la compilation (aucun
+   * réseau, UID 1000, racine en lecture seule, délai, `RLIMIT_FSIZE`, chien de garde sur la
+   * taille du répertoire). Le répertoire de travail, neuf, ne contient que le Markdown, les
+   * options du filtre et `media/` ; il est supprimé ensuite. Le projet n'est ni lu ni modifié :
+   * la réponse porte le LaTeX et les images extraites. `ConvertError` : échec (422).
+   */
+  async convert(request: ConvertRequest): Promise<ConvertResult> {
+    const started = performance.now()
+    const options = resolveConvertOptions(request)
+    const timeoutMs = request.timeoutMs ?? DEFAULT_CONVERT_TIMEOUT_MS
+    const release = await this.acquireShortRun(
+      () => new ConvertBusyError('Too many conversions are waiting'),
+    )
+    const parent = join(this.options.compilesDir, CONVERT_DIR)
+    const directory = join(parent, randomBytes(8).toString('hex'))
+    try {
+      await mkdir(parent, { recursive: true, mode: 0o700 })
+      const filter = filterOptions(request, options, randomBytes(16).toString('hex'))
+      await writeSandboxDirectory(
+        directory,
+        {
+          [CONVERT_FILES.input]: request.markdown,
+          [CONVERT_FILES.options]: JSON.stringify(filter),
+        },
+        [CONVERT_FILES.media],
+      )
+      const visible = this.options.sandbox.workdirPath(directory)
+      const result = await this.options.sandbox.run({
+        command: convertCommand(options),
+        hostWorkdir: directory,
+        workingDir: visible,
+        timeoutMs,
+        labels: { 'dev.kaxolax.project': request.projectId, 'dev.kaxolax.convert': 'true' },
+        watchdog: {
+          intervalMs: 500,
+          check: async () =>
+            (await directorySize(directory)) > CONVERT_WORKDIR_MAX_BYTES
+              ? 'conversion directory size limit exceeded'
+              : null,
+        },
+      })
+      const failure = convertFailure(result, timeoutMs)
+      if (failure) throw failure
+      const converted = await readConversion(directory, request, options, filter, result.output)
+      const durationMs = Math.round(performance.now() - started)
+      this.options.logger.info(
+        {
+          projectId: request.projectId,
+          mode: options.mode,
+          durationMs,
+          media: converted.media.length,
+          warnings: converted.warnings.length,
+        },
+        'conversion finished',
+      )
+      return { ...converted, durationMs }
+    } catch (error) {
+      if (error instanceof ConvertError) {
+        this.options.logger.info(
+          { projectId: request.projectId, reason: error.reason },
+          'conversion failed',
+        )
+      }
+      throw error
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+      release()
+    }
+  }
+
+  /**
    * Compte les mots avec texcount, dans le même sandbox que la compilation (aucun réseau, UID
    * 1000, délai, sans shell escape : texcount n'exécute pas TeX), sous la garde
    * `TEXCOUNT_GUARD` (aucune lecture hors du répertoire du comptage). Les documents sont écrits
@@ -404,17 +521,9 @@ export class Compiler {
    * compilation.
    */
   async wordCount(request: WordCountRequest): Promise<WordCountResult> {
-    const slots = this.options.sandbox.serialRuns === true ? this.slots : this.wordCountSlots
-    if (this.wordCountsWaiting >= WORD_COUNT_MAX_WAITING) {
-      throw new WordCountBusyError('Too many word counts are waiting')
-    }
-    this.wordCountsWaiting++
-    let release: () => void
-    try {
-      release = await slots.acquire()
-    } finally {
-      this.wordCountsWaiting--
-    }
+    const release = await this.acquireShortRun(
+      () => new WordCountBusyError('Too many word counts are waiting'),
+    )
     const parent = join(this.options.compilesDir, WORD_COUNT_DIR)
     const directory = join(parent, randomBytes(8).toString('hex'))
     try {

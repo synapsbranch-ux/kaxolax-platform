@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   type CompileRequest,
   compileOutputPrefix,
+  convertResultSchema,
   INTERNAL_TOKEN_HEADER,
   projectFilesPrefix,
 } from '@kaxolax/contracts'
@@ -35,7 +36,18 @@ class FakeSandbox implements CompileSandbox {
     this.runs.push(run)
     const cwd = run.workingDir ?? run.hostWorkdir
     let output = ''
-    if (run.command[0] === 'latexmk') {
+    if (run.command[0] === 'pandoc') {
+      // Conversion : pandoc « écrit » le LaTeX encadré des marqueurs du filtre et son rapport.
+      const options = JSON.parse(await readFile(join(cwd, 'kaxolax-convert.json'), 'utf8')) as {
+        marker: string
+      }
+      const marker = options.marker
+      await writeFile(
+        join(cwd, 'output.tex'),
+        `\\documentclass{article}\n\\begin{document}\n%KAXOLAX-BODY-BEGIN-${marker}\nBonjour\n%KAXOLAX-BODY-END-${marker}\n\\end{document}\n`,
+      )
+      await writeFile(join(cwd, 'kaxolax-report.json'), '{"title":null,"images":[]}')
+    } else if (run.command[0] === 'latexmk') {
       await writeFile(join(cwd, 'output.pdf'), '%PDF-1.7 container')
       await writeFile(
         join(cwd, 'output.log'),
@@ -208,6 +220,33 @@ describe('compile container server', () => {
         })
       ).statusCode,
     ).toBe(404)
+  })
+
+  it('serves the Markdown conversion route of the agent, behind the internal token', async () => {
+    const app = setup()
+    const payload = {
+      projectId,
+      sourcePath: 'notes.md',
+      targetPath: 'notes.tex',
+      markdown: 'Bonjour',
+    }
+    const anonymous = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/convert`,
+      payload,
+    })
+    expect(anonymous.statusCode).toBe(401)
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/convert`,
+      headers,
+      payload,
+    })
+    expect(response.statusCode).toBe(200)
+    const result = convertResultSchema.parse(response.json())
+    expect(result.latex).toContain('Bonjour')
+    expect(result.media).toEqual([])
+    expect(sandbox.runs.at(-1)?.command).toContain('--sandbox')
   })
 
   it('restores the SyncTeX file of an earlier build into a fresh container', async () => {

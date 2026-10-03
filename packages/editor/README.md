@@ -44,9 +44,15 @@ registry.run('format.bold', { view, host })
 registry.subscribe(() => rerender())
 ```
 
-- `ActionHost` : callbacks fournis par l'application (`newFile`, `upload`, `downloadZip`, `searchProject`, `openDialog`, `prompt`, `notify`, `readOnly`). Une action dont le callback manque est désactivée.
+- `ActionHost` : callbacks fournis par l'application (`newFile`, `upload`, `downloadZip`, `searchProject`, `openDialog`, `prompt`, `notify`, `onMarkdownPaste`, `readOnly`). Une action dont le callback manque est désactivée.
 - Constructeurs d'actions d'édition (`editCommand`, `toggleWrap`, `inlineSnippet`, `insertBlock`, `replaceWithBlock`, marque `CURSOR`) : une transaction par action, donc une étape d'annulation ; `isActionTransaction` permet d'appeler `stopCapturing()` d'un `Y.UndoManager`.
 - `planPackage`, `addPackage`, `loadedPackages`, `findPreamble` : ajout d'un `\usepackage` dans le préambule, sans doublon, options fusionnées.
+
+## Import de Markdown
+
+- Action `file.import-markdown` (« Importer du Markdown… », menu Fichier, `MARKDOWN_IMPORT_DIALOG`) : `host.openDialog` avec un `MarkdownImportPayload` (la sélection si elle ressemble à du Markdown, avec sa plage à remplacer) ; désactivée en lecture seule ou sans `openDialog`.
+- `looksLikeMarkdown(text)` : Markdown évident (deux signes au moins, ou un bloc de code ou un tableau), jamais un texte qui contient du LaTeX.
+- Collage intelligent (`markdownPasteDetector`, inclus par `latexExtensions` avec `actions`) : après le collage de Markdown évident dans un document modifiable, `host.onMarkdownPaste({ text, from, to })` ; le texte reste collé tel quel. L'application y ajoute `documentId` (document du collage) : le remplacement n'a lieu que dans ce document.
 
 ## Outils d'écriture (formules, symboles, tableaux)
 

@@ -1,5 +1,6 @@
 import { Container } from '@cloudflare/containers'
 import {
+  type ConvertRequest,
   INTERNAL_TOKEN_HEADER,
   type WorkerCompileJob,
   type WorkerEnqueueResponse,
@@ -10,6 +11,7 @@ import type { Env } from './env.js'
 import {
   CONTAINER_PORT,
   CompileRunner,
+  type ConvertOutcome,
   type ObjectBucket,
   type WordCountOutcome,
 } from './runner.js'
@@ -153,6 +155,11 @@ export class CompileContainer extends Container<Env> {
   async wordCount(request: WordCountRequest): Promise<WordCountOutcome> {
     await this.ctx.storage.put(PROJECT_KEY, request.projectId)
     return this.runner.wordCount(request)
+  }
+
+  async convert(request: ConvertRequest): Promise<ConvertOutcome> {
+    await this.ctx.storage.put(PROJECT_KEY, request.projectId)
+    return this.runner.convert(request)
   }
 
   async synctex(

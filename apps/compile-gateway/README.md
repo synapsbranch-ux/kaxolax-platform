@@ -28,6 +28,7 @@ les routes exigent l'en-tête `X-Internal-Token`.
 | `GET /projects/:id/synctex/code` | Du code vers le PDF                                                                  |
 | `GET /projects/:id/synctex/pdf`  | Du PDF vers le code                                                                  |
 | `POST /projects/:id/word-count`  | Compte les mots (corps `WordCountRequest`) ; 422 et 503 de l'agent relayés           |
+| `POST /projects/:id/convert`     | Markdown → LaTeX (corps `ConvertRequest`) ; 422 `convert_failed` et 503 relayés      |
 | `GET /health`                    | Disponibilité et charge de chaque agent                                              |
 
 Sans agent disponible, `/compile` répond 503 : l'API enregistre alors une compilation en erreur.

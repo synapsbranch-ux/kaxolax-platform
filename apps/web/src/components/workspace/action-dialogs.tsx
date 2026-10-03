@@ -1,6 +1,11 @@
 'use client'
 
-import { PACKAGE_MANAGER_DIALOG, WRITING_DIALOGS, type ActionContext } from '@kaxolax/editor'
+import {
+  MARKDOWN_IMPORT_DIALOG,
+  PACKAGE_MANAGER_DIALOG,
+  WRITING_DIALOGS,
+  type ActionContext,
+} from '@kaxolax/editor'
 import {
   Alert,
   Button,
@@ -146,7 +151,7 @@ export const WORD_COUNT_DIALOG = 'file.wordCount'
 /**
  * Boîtes de dialogue des outils, par identifiant d'action. Outils d'écriture (tâche 9) :
  * éditeur de formules (MathLive), symboles, tableaux ; tâche 10 : gestionnaire de packages et
- * compteur de mots.
+ * compteur de mots ; étape 3 : import de Markdown.
  */
 export const ACTION_DIALOGS: Partial<Record<string, DialogComponent>> = {
   [WRITING_DIALOGS.formula]: lazyDialog(() => import('./writing/formula-dialog')),
@@ -154,4 +159,6 @@ export const ACTION_DIALOGS: Partial<Record<string, DialogComponent>> = {
   [WRITING_DIALOGS.table]: lazyDialog(() => import('./writing/table-dialog')),
   [PACKAGE_MANAGER_DIALOG]: lazyDialog(() => import('./tools/package-manager-dialog')),
   [WORD_COUNT_DIALOG]: lazyDialog(() => import('./tools/word-count-dialog')),
+  // Tâche 5 de l'étape 3 : Markdown → LaTeX (pandoc dans le sandbox).
+  [MARKDOWN_IMPORT_DIALOG]: lazyDialog(() => import('./tools/markdown-import-dialog')),
 }

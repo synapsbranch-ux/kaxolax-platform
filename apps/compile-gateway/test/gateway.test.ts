@@ -31,6 +31,9 @@ class FakeAgent {
   wordCounts: string[] = []
   /** Statut et corps renvoyés par la route word-count (succès par défaut). */
   wordCountReply: { status: number; body: unknown } | null = null
+  conversions: string[] = []
+  /** Statut et corps renvoyés par la route convert (succès par défaut). */
+  convertReply: { status: number; body: unknown } | null = null
   /** Compilations en cours par projet, et le maximum observé (tous agents confondus). */
   static running = new Map<string, number>()
   static maxConcurrent = new Map<string, number>()
@@ -108,6 +111,29 @@ class FakeAgent {
       (request) => {
         this.clears.push(request.params.projectId)
         return { cleared: true }
+      },
+    )
+    this.app.post<{ Params: { projectId: string } }>(
+      '/projects/:projectId/convert',
+      async (request, reply) => {
+        if (this.dropConnections) {
+          reply.raw.destroy()
+          return reply
+        }
+        this.conversions.push(request.params.projectId)
+        if (this.convertReply) {
+          return reply.code(this.convertReply.status).send(this.convertReply.body)
+        }
+        return {
+          latex: '\\section{Bonjour}\n',
+          preamble: '',
+          title: null,
+          media: [],
+          images: [],
+          warnings: [],
+          durationMs: 12,
+          agent: this.id,
+        }
       },
     )
     this.app.post<{ Params: { projectId: string } }>(
@@ -436,5 +462,92 @@ describe('word count', () => {
     expect(mismatch.statusCode).toBe(400)
     const unsafe = { ...wordCountRequest(projectId), rootResourcePath: '../main.tex' }
     expect((await post(`/projects/${projectId}/word-count`, unsafe)).statusCode).toBe(400)
+  })
+})
+
+describe('Markdown conversion', () => {
+  const convertRequest = (projectId: string) => ({
+    projectId,
+    sourcePath: 'notes.md',
+    targetPath: 'notes.tex',
+    markdown: '# Bonjour',
+    options: { mode: 'fragment' },
+  })
+
+  it('goes to the agent of the affinity, without the compile lock, and retries elsewhere', async () => {
+    const [first, second] = await setup(2)
+    if (!first || !second) throw new Error('agents')
+    const projectId = newProject()
+    await redis.set(affinityKey(projectId), second.id)
+    await redis.set(`compile:lock:${projectId}`, 'running-build')
+    const response = await post(`/projects/${projectId}/convert`, convertRequest(projectId))
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      latex: '\\section{Bonjour}\n',
+      preamble: '',
+      title: null,
+      media: [],
+      images: [],
+      // Agent sans les citations (version précédente) : liste vide.
+      citations: [],
+      warnings: [],
+      durationMs: 12,
+    })
+    expect(second.conversions).toEqual([projectId])
+    expect(first.conversions).toEqual([])
+    expect(await redis.get(`compile:lock:${projectId}`)).toBe('running-build')
+
+    second.dropConnections = true
+    const retried = await post(`/projects/${projectId}/convert`, convertRequest(projectId))
+    expect(retried.statusCode).toBe(200)
+    expect(first.conversions).toEqual([projectId])
+  })
+
+  it('relays conversion failures and rejects an invalid request', async () => {
+    const [agent] = await setup(1)
+    if (!agent) throw new Error('agents')
+    const projectId = newProject()
+    agent.convertReply = {
+      status: 422,
+      body: {
+        error: 'convert_failed',
+        reason: 'timeout',
+        message: 'Conversion timed out after 30 s',
+      },
+    }
+    const failed = await post(`/projects/${projectId}/convert`, convertRequest(projectId))
+    expect(failed.statusCode).toBe(422)
+    expect(failed.json()).toEqual({
+      error: 'convert_failed',
+      reason: 'timeout',
+      message: 'Conversion timed out after 30 s',
+    })
+
+    agent.convertReply = {
+      status: 503,
+      body: { error: 'convert_busy', message: 'Too many conversions are waiting' },
+    }
+    const busy = await post(`/projects/${projectId}/convert`, convertRequest(projectId))
+    expect(busy.statusCode).toBe(503)
+    expect(busy.json()).toMatchObject({ error: 'convert_busy' })
+
+    // Réponse de l'agent non conforme au contrat : 502, rien n'est relayé.
+    agent.convertReply = { status: 200, body: { latex: 1 } }
+    expect(
+      (await post(`/projects/${projectId}/convert`, convertRequest(projectId))).statusCode,
+    ).toBe(502)
+
+    const other = newProject()
+    expect((await post(`/projects/${other}/convert`, convertRequest(projectId))).statusCode).toBe(
+      400,
+    )
+    for (const invalid of [
+      { ...convertRequest(projectId), sourcePath: '../notes.md' },
+      { ...convertRequest(projectId), targetPath: 'notes.md' },
+      { ...convertRequest(projectId), options: { filter: 'evil.lua' } },
+    ]) {
+      expect((await post(`/projects/${projectId}/convert`, invalid)).statusCode).toBe(400)
+    }
+    expect(agent.conversions).toHaveLength(3)
   })
 })

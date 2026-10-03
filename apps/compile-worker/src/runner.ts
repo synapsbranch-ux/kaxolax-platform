@@ -5,6 +5,10 @@ import {
   type CompileRequest,
   compileRequestKey,
   compileRequestSchema,
+  type ConvertFailure,
+  convertFailureSchema,
+  type ConvertRequest,
+  convertResultSchema,
   DEFAULT_COMPILE_TIMEOUT_MS,
   isFinalBuildStatus,
   type LogEntry,
@@ -109,6 +113,10 @@ export type WordCountOutcome =
   { ok: true; result: z.infer<typeof wordCountResultSchema> } | { ok: false; message: string }
 
 const wordCountFailureSchema = z.object({ message: z.string() })
+
+/** Résultat d'une conversion Markdown → LaTeX : sortie, ou échec décrit par l'agent (422). */
+export type ConvertOutcome =
+  { ok: true; result: z.infer<typeof convertResultSchema> } | { ok: false; failure: ConvertFailure }
 
 export const MESSAGES = {
   startFailed: 'The compiler could not start. Try again in a moment.',
@@ -253,6 +261,28 @@ export class CompileRunner {
     }
     if (!response.ok) throw new Error(`word count answered ${String(response.status)}`)
     return { ok: true, result: wordCountResultSchema.parse(await response.json()) }
+  }
+
+  /**
+   * Conversion Markdown → LaTeX (pandoc dans le sandbox du conteneur), synchrone : le Markdown est
+   * dans la demande, les images extraites dans la réponse (aucun accès à R2). Réveille le
+   * conteneur s'il dort ; l'agent attend la fin d'une compilation en cours.
+   */
+  async convert(request: ConvertRequest): Promise<ConvertOutcome> {
+    const { container } = this.options
+    await container.start()
+    const response = await container.fetch(`/projects/${request.projectId}/convert`, json(request))
+    if (response.status === 422) {
+      const failure = convertFailureSchema.safeParse(await response.json())
+      return {
+        ok: false,
+        failure: failure.success
+          ? failure.data
+          : { error: 'convert_failed', reason: 'failed', message: 'Conversion failed' },
+      }
+    }
+    if (!response.ok) throw new Error(`convert answered ${String(response.status)}`)
+    return { ok: true, result: convertResultSchema.parse(await response.json()) }
   }
 
   /**

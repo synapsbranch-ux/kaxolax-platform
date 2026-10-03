@@ -1,5 +1,9 @@
 import {
   type CompileRequest,
+  type ConvertRequest,
+  type ConvertResult,
+  convertFailureSchema,
+  convertResultSchema,
   type GatewayCompileResponse,
   gatewayCompileResponseSchema,
   INTERNAL_TOKEN_HEADER,
@@ -48,6 +52,41 @@ export async function wordCountFailure(response: Response): Promise<WordCountFai
       ? body.message
       : undefined
   return new WordCountFailedException(message)
+}
+
+/** pandoc n'a pas abouti dans le sandbox (`reason` de l'agent : délai, mémoire, taille, erreur). */
+export class ConvertFailedException extends Exception {
+  static override status = 422
+  static override code = 'E_CONVERT_FAILED'
+  static override message = 'The Markdown conversion failed'
+}
+
+/** Demande de conversion refusée par l'agent (400) : jamais une erreur interne de l'API. */
+export class ConvertRejectedException extends Exception {
+  static override status = 422
+  static override code = 'E_CONVERT_REJECTED'
+  static override message = 'The compile service refused this conversion request'
+}
+
+const CONVERT_FAILURE_MESSAGES = {
+  timeout: 'The Markdown conversion took too long',
+  out_of_memory: 'The Markdown conversion ran out of memory',
+  output_too_large: 'The converted document is too large',
+  failed: 'pandoc could not convert this Markdown',
+} as const
+
+/**
+ * Échec de conversion décrit par l'agent (corps `ConvertFailure`, 422) : message selon la raison,
+ * suivi de la sortie de pandoc pour `failed` (tronquée par l'agent).
+ */
+export async function convertFailure(response: Response): Promise<ConvertFailedException> {
+  const parsed = convertFailureSchema.safeParse(await response.json().catch(() => null))
+  if (!parsed.success) return new ConvertFailedException()
+  const { reason, message } = parsed.data
+  const base = CONVERT_FAILURE_MESSAGES[reason]
+  return new ConvertFailedException(
+    reason === 'failed' && message.trim() !== '' ? `${base}: ${message.trim()}` : base,
+  )
 }
 
 /** Appels de l'API au compile-gateway (réseau interne, X-Internal-Token). Remplacé dans les tests. */
@@ -103,6 +142,20 @@ export default class CompileGateway {
     if (response.status === 503) throw new CompileServiceUnavailableException()
     if (!response.ok) throw new Error(`compile gateway answered ${String(response.status)}`)
     return wordCountResultSchema.parse(await response.json())
+  }
+
+  /** Conversion Markdown → LaTeX par pandoc sur un agent (synchrone, quelques secondes). */
+  async convert(request: ConvertRequest): Promise<ConvertResult> {
+    const response = await this.send(`/projects/${request.projectId}/convert`, {
+      method: 'POST',
+      body: request,
+      timeoutMs: compileConfig.convertTimeoutMs,
+    })
+    if (response.status === 422) throw await convertFailure(response)
+    if (response.status === 400) throw new ConvertRejectedException()
+    if (response.status === 503) throw new CompileServiceUnavailableException()
+    if (!response.ok) throw new Error(`compile gateway answered ${String(response.status)}`)
+    return convertResultSchema.parse(await response.json())
   }
 
   async stop(projectId: string): Promise<boolean> {

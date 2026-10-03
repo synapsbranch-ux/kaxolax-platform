@@ -856,3 +856,53 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Nouvelle route publique `GET /api/v1/client-config` (`clientConfigSchema`, packages/contracts) : temps réel, origine des URL présignées (public, sinon serveur, sinon point d'accès régional AWS), fichiers des templates. Rien de secret : le navigateur reçoit déjà ces URL.
 - Le proxy du web complète ses variables avec cette réponse (`src/lib/csp-sources.ts`) : variables d'abord, réponse gardée 5 min puis relue en arrière-plan, API injoignable → dernière réponse ou variables seules, nouvel essai après 30 s ; la page n'attend jamais plus de 2 s. Une seule source de vérité (l'API), les variables du web restent possibles.
 - Démarrage : avertissement si des origines manquent, arrêt seulement sur une valeur invalide.
+
+## 2026-10-03 · Conversion Markdown → LaTeX dans le sandbox de compilation
+
+- pandoc (3.12, ajouté à l'image TeX Live) tourne dans le sandbox de l'agent, jamais dans l'API : nouvelle opération `convert` (`POST /projects/:id/convert` sur l'agent, le gateway et le Worker ; contrat `ConvertRequest`/`ConvertResult`/`ConvertFailure` de `packages/contracts`). Ajout d'une route seulement : le protocole existant est inchangé.
+- Sans état : la demande porte le Markdown (2 Mo au plus) et les chemins des fichiers du projet (pour signaler les images introuvables, sans leur contenu : pandoc ne lit aucune image) ; la réponse porte le LaTeX et les images `data:` extraites en base64. L'agent n'écrit rien dans le projet ; l'API range les fichiers. Ni R2 ni S3 en jeu.
+- Commande constante (`--sandbox`, `--data-dir` de l'image, `+RTS -M512m`, seul filtre : celui de l'image), répertoire neuf hors des projets, sorties lues sans suivre de lien, marqueurs aléatoires pour séparer corps et préambule. LaTeX brut du texte échappé par défaut (`rawLatex` pour le garder) ; le contenu des formules (`$…$`, `$$…$$`, métadonnées YAML comprises) est toujours recopié tel quel par pandoc : le LaTeX produit n'est jamais digne de confiance, le sandbox de compilation est la seule barrière (cas malveillant `pandoc-math-latex`), et l'agent signale les commandes sensibles recopiées dans `warnings`.
+- Fragment : toujours `--number-sections` (titres `\section`, jamais étoilés), et le `\setcounter{secnumdepth}{…}` du préambule de pandoc est retiré : la numérotation reste celle du document hôte. Le reste du préambule est rendu tel que pandoc le produit, à fusionner par l'appelant.
+- Écartés : pandoc dans l'API (aucune isolation) ; `--extract-media` (n'extrait rien sous `--sandbox`, lit fichiers et URL sans) ; `pandoc-server` (serveur HTTP de plus dans le conteneur).
+
+## 2026-10-03 · Gateway : réponse d'agent non conforme → 502
+
+- Comptage de mots et conversion partagent `shortRun` (affinité, seconde tentative ailleurs). Une réponse d'agent qui ne respecte pas le contrat donnait 400 `invalid_request` (erreur zod) au lieu d'une erreur de l'agent : elle donne désormais 502 `agent_error`.
+
+## 2026-10-03 · Tests de conversion et image TeX Live publiée
+
+- L'image épinglée en CI et dans le conteneur Cloudflare (`ghcr.io/…/kaxolax-texlive:2026-medium@sha256:3278…`) n'a pas encore pandoc : les tests d'intégration de conversion sont ignorés si l'image n'a pas pandoc, sauf avec `KAXOLAX_REQUIRE_PANDOC=1`. Une fois l'image republiée par kaxolax-texlive-images, mettre à jour l'empreinte (CI, `apps/compile-worker/container/Dockerfile`) et poser `KAXOLAX_REQUIRE_PANDOC=1` dans le job d'intégration.
+- En local, l'étape `pandoc-overlay` de kaxolax-texlive-images ajoute pandoc à une image existante (voir le README de l'agent).
+
+## 2026-10-03 · Import de Markdown : l'API range les fichiers, le client modifie les documents
+
+- `POST /projects/:id/convert/markdown` (éditeur et propriétaire) : pandoc dans le sandbox (gateway ou conteneur Cloudflare, comme le comptage de mots), puis dossiers, images `data:` extraites et `.tex` créés par les services existants (transaction, stockage du plan, historique, `tree.changed`). Aperçu (`dryRun`) et écriture par la même route.
+- L'API ne modifie jamais le texte d'un document existant : le fragment à insérer et les ajouts au préambule du document principal sont appliqués par le client dans l'éditeur partagé (Yjs : modification collaborative, annulable, attribuée à son auteur). `replaceDocument` du temps réel (restauration) remplacerait le texte entier et effacerait une frappe concurrente.
+- Préambule adapté : déduit de ce que le fragment utilise (`pandocRequirements`, `packages/contracts`) et non du préambule complet de pandoc (polices, encodage, mise en page restent ceux du document hôte). Packages (amsmath, graphicx, longtable, booktabs, hyperref en dernier…) et définitions de pandoc (`\tightlist`, `\pandocbounded`, coloration) écrites sans redéfinition (`\providecommand`, `\@ifundefined`). L'API calcule ce qui manque au document principal ; le client le recalcule sur le texte courant (`planPackage`) : aucun doublon. Option `embedded` : document complet et autonome, préambule de pandoc compris.
+- Écartés : préambule de pandoc copié tel quel (fontenc, lmodern, unicode-math, parskip… en conflit avec le document hôte) ; définitions dans le fichier inclus (une seconde inclusion redéfinirait les environnements).
+
+## 2026-10-03 · Nettoyage du Markdown converti par l'IA : texte validé, pas de suggestions
+
+- Option `cleanup` : Claude (opération `markdown_cleanup`, effort `low`, prompt système figé) réécrit la sortie de pandoc sans toucher au contenu ; crédits IA de l'utilisateur, IA activée exigée (vérifiée avant d'occuper le sandbox), 100 ko de Markdown au plus.
+- Les suggestions de la tâche 2 n'existent pas encore dans cette branche : la sortie est un nouveau texte validé. Validation côté serveur (fragment sans préambule, environnements équilibrés, mêmes images, aucune commande d'accès aux fichiers ajoutée) ; une sortie coupée ou non conforme est écartée avec un avertissement (coût décompté). L'aperçu montre la version nettoyée et la sortie de pandoc ; le texte choisi est renvoyé (`latex`) et revérifié, sans second appel à l'IA. Une fois la tâche 2 fusionnée, l'insertion dans un document existant pourra passer par des suggestions.
+
+## 2026-10-03 · Collage intelligent et proposition après upload
+
+- Détection locale et prudente (`looksLikeMarkdown`, `@kaxolax/editor`) : deux signes de Markdown au moins (titre, liste, lien, gras, code…) ou un bloc de code ou un tableau, et presque pas de LaTeX. Le texte reste collé tel quel ; une proposition non bloquante (15 s) ouvre « Importer du Markdown », qui remplace le texte collé seulement dans le document du collage (mémorisé), retrouvé même déplacé par d'autres modifications (occurrence la plus proche de sa place) ; sinon le fragment est inséré au curseur, sans rien remplacer.
+- Un `.md` uploadé reste un document Markdown du projet ; la conversion est seulement proposée.
+- Jeu d'exemples Markdown (`apps/compile-agent/test/fixtures/markdown`) : sortie exacte de pandoc vérifiée en intégration, et compilation du fragment avec le seul préambule demandé par l'API.
+
+## 2026-10-03 · Import de Markdown : validation hors verbatim, images relues à l'écriture
+
+- La validation du LaTeX à écrire (sortie de pandoc, nettoyage par l'IA, texte de l'aperçu) analyse le code comme TeX le lit (`latexCode`, `packages/contracts`) : contenu des `verbatim`/`Verbatim` et des `\verb` vidé, `%` d'un verbatim sans effet sur sa fin. Un Markdown qui documente du LaTeX (`\documentclass`, `\begin` seul dans un bloc de code) s'importe ; un `Verbatim` à `commandchars` (le `Highlighting` de pandoc) exécute des commandes et reste analysé.
+- Images extraites : chaque chemin est relu dans la transaction (projet verrouillé). Même contenu déjà présent, créé par un import concurrent : réutilisé (objet en double supprimé) ; disparu depuis l'instantané : téléversé et recréé. Plus de 409 entre deux imports de la même image.
+- Une demande refusée par l'agent (400, ex. cible `.TEX` avant l'alignement des schémas, désormais insensibles à la casse) donne 422 `E_CONVERT_REJECTED`, jamais une erreur 500.
+- « Titres numérotés » n'est proposé que pour un document autonome : un fragment suit la numérotation du document principal (option masquée, rien d'envoyé).
+
+## 2026-10-03 · Import de Markdown : citations natbib/biblatex, texte validé lié à sa source
+
+- Les citations `[@clé]` deviennent des commandes `\citep`/`\citet` (`--natbib`) ou `\autocite`/`\textcite` (`--biblatex`), choisies dans une liste fermée (option `citations`, défaut : biblatex si le document principal le charge, sinon natbib). citeproc reste écarté : la bibliographie est celle du projet (`.bib`, Zotero). `pandocRequirements` demande natbib ou biblatex d'après les commandes propres à chacun (jamais pour le `\cite` du noyau, qui irait aussi avec biblatex).
+- pandoc recopie les clés telles quelles, y compris la syntaxe `@{…}` qui accepte `\input{…}` : le filtre Lua ne garde que les clés de l'alphabet sûr (lettres, chiffres, `_:.-+/`), la citation d'une autre clé reste du texte échappé et la clé est signalée. Sans citation, les lignes natbib/biblatex du modèle sont retirées. L'API signale les clés absentes des `.bib` du projet.
+- Le texte validé dans l'aperçu d'un `.md` du projet est lié à l'empreinte du Markdown (`sourceSha256`, renvoyée par l'aperçu, obligatoire avec `latex` et `documentId`) : 409 `E_SOURCE_CHANGED` si le fichier a changé depuis, au lieu d'écrire une conversion périmée.
+- Le texte collé n'est remplacé que par sa propre conversion (onglet « Coller », Markdown inchangé, aucun fichier de l'ordinateur chargé, même document) ; sinon la conversion est insérée au curseur.
+- Nettoyage par l'IA : la sortie de Claude est vérifiée par liste blanche (le Markdown n'est pas fiable, une injection de prompt est possible) : toute séquence de contrôle (`\@@input`, `\csname`, `\lstinputlisting`…) ou tout environnement (`filecontents`…) absent de la sortie de pandoc est refusé, hors `\toprule`/`\midrule`/`\bottomrule`/`\cmidrule`/`\hline`/`\centering`/`\linewidth`/`\textwidth` et `tabular`/`table`/`center` ; texte entier analysé (commentaires et verbatim compris), `Verbatim` analysés dès qu'un `\fvset` apparaît, notation `^^` et nouvelles images refusées.

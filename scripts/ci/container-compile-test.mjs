@@ -10,7 +10,10 @@
 //   contient le jeton interne) échoue sans rien divulguer ;
 // - la suite malveillante de kaxolax-texlive-images (/usr/share/kaxolax/malicious dans l'image TeX
 //   Live), avec les attentes de apps/compile-agent/test/integration/malicious.test.ts. L'« hôte »
-//   est ici la VM : le fichier témoin est un fichier réservé à root dans le conteneur.
+//   est ici la VM : le fichier témoin est un fichier réservé à root dans le conteneur ;
+// - la conversion Markdown → LaTeX (pandoc) : Markdown riche converti puis compilé, et cas
+//   malveillants `convert` de la suite (attentes de apps/compile-agent/test/integration/convert.test.ts).
+//   Ignorée (# SKIP) si l'image TeX Live n'a pas pandoc.
 //
 //   node scripts/ci/container-compile-test.mjs --image <image> [--cases <dossier>] [--only <cas>]
 //
@@ -62,6 +65,9 @@ const TEXT_EXTENSIONS = [
   '.csv',
 ]
 const MAX_TEXT_BYTES = 2 * 1024 * 1024
+// Délai maximal d'une conversion accepté par l'agent (MAX_CONVERT_TIMEOUT_MS de @kaxolax/contracts) :
+// le `timeoutSeconds` d'un cas borne chaque étape (conversion, puis compilation du résultat).
+const MAX_CONVERT_TIMEOUT_MS = 60_000
 /** Cas exigés par la spécification (mêmes que malicious.test.ts). */
 const REQUIRED_CASES = [
   'read-passwd-input',
@@ -828,9 +834,12 @@ async function caseFiles(directory, base = directory) {
 }
 
 /**
- * @typedef {{ compiler?: string, command?: string[], timeoutSeconds?: number, expect: {
- *   status?: string[], logContains?: string[], logLacks?: string[], noLeak?: string[],
- *   absentFiles?: string[] } }} MaliciousCase
+ * @typedef {{ mode?: string, documentClass?: string, rawLatex?: boolean, citations?: string,
+ *   sourceDir?: string, graphicsDir?: string, mediaDir?: string, compile?: string }} ConvertSpec
+ * @typedef {{ compiler?: string, command?: string[], convert?: ConvertSpec, timeoutSeconds?: number,
+ *   expect: { status?: string[], logContains?: string[], logLacks?: string[], noLeak?: string[],
+ *   absentFiles?: string[], texContains?: string[], texLacks?: string[],
+ *   reportContains?: string[] } }} MaliciousCase
  */
 
 /**
@@ -855,6 +864,7 @@ async function readCase(directory) {
 async function checkMaliciousCase(directory, scratch) {
   const spec = await readCase(directory)
   if (spec.command) return { skip: 'command case, not reachable through the compile API' }
+  if (spec.convert) return checkConvertCase(directory, spec, scratch)
   const canary = createCanary('host-canary.txt')
   const projectId = randomUUID()
   /** @type {string | null} */
@@ -896,6 +906,212 @@ async function checkMaliciousCase(directory, scratch) {
       assert.ok(!existsSync(join(workdir, path)), `${path} must not exist`)
     }
     assertConfined(projectId, canary)
+    const markers = (expected.noLeak ?? []).map((marker) =>
+      marker.replace('@@HOST_CANARY_CONTENT@@', canary.content),
+    )
+    assertNoLeak(texts, [...markers, token])
+  } finally {
+    inAgent(['rm', '-rf', canary.directory])
+    await cleanupAfter(projectId, buildId)
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Conversion Markdown → LaTeX (pandoc dans le sandbox du conteneur)
+
+/** Répertoire des conversions de l'agent (`CONVERT_DIR`), vidé après chacune. */
+const CONVERT_DIR = `${COMPILES_DIR}/.convert`
+
+/** L'image TeX Live a-t-elle pandoc ? (images publiées avant son ajout : non) */
+function hasPandoc() {
+  const result = spawnSync('docker', ['exec', names.agent, 'pandoc', '--version'], {
+    encoding: 'utf8',
+  })
+  return result.status === 0
+}
+
+/**
+ * Demande de conversion comme l'API l'envoie (`ConvertRequest`) ; statut `success`, `failure` ou
+ * `timeout` (échecs 422 de l'agent).
+ * @param {Record<string, unknown>} request
+ * @param {number} timeoutMs
+ * @returns {Promise<{ status: string, body: any }>}
+ */
+async function convert(request, timeoutMs) {
+  const response = await postJson(
+    `/projects/${String(request.projectId)}/convert`,
+    { ...request, timeoutMs },
+    timeoutMs + 60_000,
+  )
+  if (response.status === 200) return { status: 'success', body: response.body }
+  assert.equal(response.status, 422, `convert answered ${JSON.stringify(response.body)}`)
+  assert.equal(response.body.error, 'convert_failed')
+  return { status: response.body.reason === 'timeout' ? 'timeout' : 'failure', body: response.body }
+}
+
+/**
+ * Fichiers d'une compilation du LaTeX converti : le `.tex`, les images extraites et des fichiers
+ * du projet.
+ * @param {string} texPath
+ * @param {any} result
+ * @param {Record<string, Buffer | string>} [extra]
+ */
+function convertedProject(texPath, result, extra = {}) {
+  /** @type {Record<string, Buffer | string>} */
+  const files = { ...extra, [texPath]: result.latex }
+  for (const media of result.media) files[media.path] = Buffer.from(media.contentBase64, 'base64')
+  return files
+}
+
+const PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGM4IScHRwzEcQCxYxBBO0tjggAAAABJRU5ErkJggg=='
+const RICH_MARKDOWN = `---
+title: Conversion
+---
+
+# Introduction
+
+Du *Markdown* avec une note[^1], une formule $e^{i\\pi} + 1 = 0$ et des accents : élève.
+
+[^1]: La note.
+
+| Moteur | Unicode |
+|--------|---------|
+| pdfLaTeX | non |
+
+\`\`\`python
+print("Bonjour")
+\`\`\`
+
+![Figure](figures/square.png)
+
+![Intégrée](data:image/png;base64,${PNG_BASE64})
+`
+
+async function checkConvert() {
+  if (!hasPandoc()) return { skip: 'the TeX Live image has no pandoc' }
+  const projectId = randomUUID()
+  /** @type {string | null} */
+  let buildId = null
+  try {
+    const converted = await convert(
+      {
+        projectId,
+        sourcePath: 'notes.md',
+        targetPath: 'notes.tex',
+        markdown: RICH_MARKDOWN,
+        media: ['figures/square.png'],
+      },
+      30_000,
+    )
+    assert.equal(converted.status, 'success', JSON.stringify(converted.body))
+    const result = converted.body
+    assert.equal(result.title, 'Conversion')
+    assert.match(result.latex, /\\section\{Introduction\}/)
+    assert.match(result.latex, /\{figures\/square\.png\}/)
+    assert.equal(result.media.length, 1, 'one embedded image extracted')
+    assert.match(result.media[0].path, /^media\/[0-9a-f]{40}\.png$/)
+    assert.deepEqual(
+      result.images.map((/** @type {any} */ image) => [image.kind, image.found]),
+      [
+        ['project', true],
+        ['embedded', null],
+      ],
+    )
+    assert.deepEqual(listInAgent(CONVERT_DIR), [], 'conversion directory removed')
+    const compiled = await compile(
+      projectId,
+      convertedProject('notes.tex', result, { 'figures/square.png': png(16) }),
+      { root: 'notes.tex' },
+    )
+    buildId = compiled.buildId
+    assert.equal(compiled.result.status, 'success', JSON.stringify(compiled.result.entries))
+  } finally {
+    await cleanupAfter(projectId, buildId)
+  }
+}
+
+/**
+ * Cas `convert` de la suite malveillante : conversion par l'API du conteneur, compilation
+ * éventuelle du résultat, puis attentes du cas (texte du LaTeX, rapport, fuites, confinement).
+ * @param {string} directory
+ * @param {MaliciousCase} spec
+ * @param {string} scratch
+ * @returns {Promise<void | { skip: string }>}
+ */
+async function checkConvertCase(directory, spec, scratch) {
+  if (!hasPandoc()) return { skip: 'the TeX Live image has no pandoc' }
+  const options = spec.convert ?? {}
+  const canary = createCanary('host-canary.txt')
+  const projectId = randomUUID()
+  /** @type {string | null} */
+  let buildId = null
+  try {
+    const markdown = (await readFile(join(directory, 'input.md'), 'utf8')).replaceAll(
+      '@@HOST_CANARY@@',
+      canary.path,
+    )
+    const sourceDir = options.sourceDir ?? ''
+    const converted = await convert(
+      {
+        projectId,
+        sourcePath: sourceDir === '' ? 'input.md' : `${sourceDir}/input.md`,
+        targetPath: 'output.tex',
+        graphicsDir: options.graphicsDir ?? '',
+        mediaDir: options.mediaDir ?? 'media',
+        markdown,
+        options: {
+          mode: options.mode,
+          documentClass: options.documentClass,
+          citations: options.citations,
+          rawLatex: options.rawLatex,
+        },
+      },
+      Math.min((spec.timeoutSeconds ?? 30) * 1000, MAX_CONVERT_TIMEOUT_MS),
+    )
+    let status = converted.status
+    const texts = [JSON.stringify(converted.body)]
+    assert.deepEqual(listInAgent(CONVERT_DIR), [], 'conversion directory removed')
+    if (status === 'success' && options.compile !== undefined) {
+      const compiled = await compile(projectId, convertedProject('output.tex', converted.body), {
+        compiler: options.compile,
+        root: 'output.tex',
+        timeoutMs: (spec.timeoutSeconds ?? 60) * 1000,
+      })
+      buildId = compiled.buildId
+      status = compiled.result.status
+      const outputs = await readOutputs(compiled.result)
+      const readableNow = await everythingReadable(
+        projectId,
+        buildId,
+        compiled.result,
+        outputs,
+        compiled.resources,
+        scratch,
+      )
+      texts.push(...readableNow.texts)
+      for (const path of spec.expect.absentFiles ?? []) {
+        assert.ok(!existsSync(join(readableNow.workdir, path)), `${path} must not exist`)
+      }
+      assertConfined(projectId, canary)
+    } else {
+      assert.deepEqual(listInAgent(canary.directory), ['host-canary.txt'])
+    }
+    const expected = spec.expect
+    assert.ok((expected.status ?? ['success']).includes(status), `status ${status}`)
+    const latex = converted.status === 'success' ? String(converted.body.latex) : ''
+    for (const text of expected.texContains ?? [])
+      assert.ok(latex.includes(text), `LaTeX has ${text}`)
+    for (const text of expected.texLacks ?? [])
+      assert.ok(!latex.includes(text), `LaTeX lacks ${text}`)
+    // Rapport du filtre tel que l'agent le restitue : images, clés citées, clés refusées.
+    const report = JSON.stringify({
+      images: converted.body.images ?? [],
+      citations: converted.body.citations ?? [],
+      warnings: converted.body.warnings ?? [],
+    })
+    for (const text of expected.reportContains ?? [])
+      assert.ok(report.includes(text), `report has ${text}`)
     const markers = (expected.noLeak ?? []).map((marker) =>
       marker.replace('@@HOST_CANARY_CONTENT@@', canary.content),
     )
@@ -978,6 +1194,7 @@ try {
   await check('real pdfLaTeX compile: PDF, log, BibTeX, SyncTeX, word count, cache', () =>
     checkRealCompile(),
   )
+  await check('Markdown converted by pandoc in the sandbox, then compiled', checkConvert)
   for (const target of /** @type {const} */ (['absolute', 'relative', 'agent-environment'])) {
     await check(`\\input outside the project (${target}) is refused`, () =>
       checkInputOutside(scratch(), target),

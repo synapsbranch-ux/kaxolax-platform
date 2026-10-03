@@ -34,7 +34,7 @@ export interface ContainerServerOptions {
 
 /**
  * Serveur de l'agent dans le conteneur Cloudflare. Mêmes routes que l'agent de l'étape 1
- * (compilation, arrêt, cache, SyncTeX), plus celles qui remplacent l'accès direct à S3 : le
+ * (compilation, arrêt, cache, SyncTeX, comptage de mots, conversion Markdown → LaTeX), plus celles qui remplacent l'accès direct à S3 : le
  * Worker pousse les binaires manquants, relit les sorties, restaure le SyncTeX. Le conteneur
  * n'ouvre aucune connexion sortante.
  */

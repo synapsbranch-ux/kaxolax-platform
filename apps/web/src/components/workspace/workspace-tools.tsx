@@ -16,6 +16,10 @@ export interface WorkspaceTools {
   mainDocument: TreeDocument | null
   /** Document de l'onglet actif. */
   activeDocument: TreeDocument | null
+  /** Documents texte du projet (fichiers `.md` à convertir, cibles). */
+  documents: readonly TreeDocument[]
+  /** Relit l'arborescence (après la création de fichiers par un outil). */
+  refreshTree: () => Promise<void>
   canEdit: boolean
   /** Ouvre un document dans un onglet. */
   openDocument: (documentId: string) => void

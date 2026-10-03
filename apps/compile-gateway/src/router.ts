@@ -1,6 +1,10 @@
 import {
   agentCompileResponseSchema,
   type CompileRequest,
+  type ConvertRequest,
+  type ConvertResult,
+  convertResultSchema,
+  DEFAULT_CONVERT_TIMEOUT_MS,
   type GatewayCompileResponse,
   synctexCodeResponseSchema,
   type SynctexCodeQuery,
@@ -15,6 +19,7 @@ import {
 } from '@kaxolax/contracts'
 import type { Redis } from 'ioredis'
 import type { Logger } from 'pino'
+import type { z } from 'zod'
 import { type AgentPool, AgentUnreachableError } from './agents.js'
 
 export const lockKey = (projectId: string) => `compile:lock:${projectId}`
@@ -27,8 +32,11 @@ const AGENT_CALL_MARGIN_MS = 60_000
 /** Arrêter une compilation attend la fin du conteneur (docker kill, nettoyage). */
 const STOP_TIMEOUT_MS = 30_000
 const SYNCTEX_TIMEOUT_MS = 15_000
-/** Au-delà du délai de texcount : écriture des documents, attente d'une place sur l'agent. */
-const WORD_COUNT_MARGIN_MS = 30_000
+/**
+ * Au-delà du délai de texcount ou de pandoc : écriture des fichiers, attente d'une place sur
+ * l'agent.
+ */
+const SHORT_RUN_MARGIN_MS = 30_000
 
 /** Libère le verrou seulement s'il appartient encore à cette compilation. */
 const RELEASE_LOCK = `
@@ -58,6 +66,14 @@ export class NoCompileOutputError extends Error {
   constructor() {
     super('This project has not been compiled on any agent')
     this.name = 'NoCompileOutputError'
+  }
+}
+
+/** Réponse d'un agent non conforme au contrat : 502, jamais relayée. */
+export class InvalidAgentResponseError extends Error {
+  constructor(readonly path: string) {
+    super(`Invalid agent response for ${path}`)
+    this.name = 'InvalidAgentResponseError'
   }
 }
 
@@ -181,27 +197,57 @@ export class CompileRouter {
   }
 
   /**
-   * Comptage de mots : sans état (les documents voyagent dans la demande) et sans verrou du
-   * projet. L'agent de l'affinité s'il répond, sinon le moins chargé ; une seconde tentative
-   * ailleurs si l'agent tombe entre-temps.
+   * Exécution courte sans état (les fichiers voyagent dans la demande) et sans verrou du projet :
+   * l'agent de l'affinité s'il répond, sinon le moins chargé ; une seconde tentative ailleurs si
+   * l'agent tombe entre-temps.
    */
-  async wordCount(request: WordCountRequest): Promise<WordCountResult> {
+  private async shortRun<T>(
+    projectId: string,
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+    schema: z.ZodType<T>,
+  ): Promise<T> {
     const call = (agentId: string) =>
       this.pool.call(agentId, {
         method: 'POST',
-        path: `/projects/${request.projectId}/word-count`,
-        body: request,
-        timeoutMs: WORD_COUNT_TIMEOUT_MS + WORD_COUNT_MARGIN_MS,
+        path: `/projects/${projectId}/${path}`,
+        body,
+        timeoutMs: timeoutMs + SHORT_RUN_MARGIN_MS,
       })
-    const agentId = await this.pickAgent(request.projectId)
-    let body: unknown
+    const agentId = await this.pickAgent(projectId)
+    let answer: unknown
     try {
-      body = await call(agentId)
+      answer = await call(agentId)
     } catch (error) {
       if (!(error instanceof AgentUnreachableError)) throw error
-      body = await call(await this.pickAgent(request.projectId, agentId))
+      answer = await call(await this.pickAgent(projectId, agentId))
     }
-    return wordCountResultSchema.parse(body)
+    const parsed = schema.safeParse(answer)
+    if (!parsed.success) throw new InvalidAgentResponseError(path)
+    return parsed.data
+  }
+
+  /** Comptage de mots (texcount dans le sandbox de l'agent). */
+  async wordCount(request: WordCountRequest): Promise<WordCountResult> {
+    return this.shortRun(
+      request.projectId,
+      'word-count',
+      request,
+      WORD_COUNT_TIMEOUT_MS,
+      wordCountResultSchema,
+    )
+  }
+
+  /** Conversion Markdown → LaTeX (pandoc dans le sandbox de l'agent). */
+  async convert(request: ConvertRequest): Promise<ConvertResult> {
+    return this.shortRun(
+      request.projectId,
+      'convert',
+      request,
+      request.timeoutMs ?? DEFAULT_CONVERT_TIMEOUT_MS,
+      convertResultSchema,
+    )
   }
 
   /** Le répertoire du projet peut exister sur plusieurs agents (après une bascule) : tous sont vidés. */

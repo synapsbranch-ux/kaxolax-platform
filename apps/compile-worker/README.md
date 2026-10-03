@@ -19,12 +19,20 @@ Chaque requête porte `Authorization: Bearer v1.<charge>.<HMAC>` : jeton de 60 s
 | `POST /projects/:id/clear-cache`        | Vide le cache de compilation du projet dans le conteneur  |
 | `GET /projects/:id/synctex/code`, `pdf` | SyncTeX sur la dernière sortie                            |
 | `POST /projects/:id/word-count`         | Compte les mots (texcount), synchrone ; 422 si échec      |
+| `POST /projects/:id/convert`            | Markdown → LaTeX (pandoc), synchrone ; 422 si échec       |
 
 Le comptage de mots est synchrone : la demande (documents texte seulement, aucun binaire à
 pousser) passe du Worker au Durable Object puis à l'agent du conteneur, réveillé si besoin.
 L'agent l'exécute après une compilation en cours (une exécution à la fois dans la VM). L'API
 attend au plus 95 s (Cloudflare coupe une requête à 100 s) : un conteneur au réveil lent donne
 503, à réessayer ; l'éditeur réveille le conteneur dès l'ouverture (`warm`).
+
+La conversion Markdown → LaTeX suit le même chemin, synchrone : le Markdown est dans la demande
+(`ConvertRequest`, 2 Mo au plus), le LaTeX et les images extraites (base64) dans la réponse, sans
+passer par R2. pandoc tourne dans le conteneur avec les mêmes protections qu'une compilation
+(`ProcessSandbox` : UID 1000, `prlimit`, délai), après une compilation en cours. Un échec de
+pandoc donne 422 et le corps `ConvertFailure` de l'agent (vérifié : un corps illisible devient un
+échec générique) ; une file d'attente pleine ou un conteneur indisponible, 503.
 
 ## Déroulement d'une compilation
 

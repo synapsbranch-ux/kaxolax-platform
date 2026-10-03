@@ -17,6 +17,7 @@ export default {
           clearCache: () => stub.clearCache(),
           synctex: (kind, query, buildId) => stub.synctex(kind, query, buildId),
           wordCount: (request) => stub.wordCount(request),
+          convert: (request) => stub.convert(request),
         }
       },
       log: (message, data) => {

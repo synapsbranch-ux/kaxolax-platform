@@ -26,6 +26,8 @@ import {
   texlivePackageDetailSchema,
   texlivePackageListSchema,
   wordCountResponseSchema,
+  type MarkdownImportBody,
+  markdownImportResponseSchema,
 } from '@kaxolax/contracts'
 import type {
   ActiveBanner,
@@ -318,7 +320,7 @@ export const api = {
     input: { filename: string; folderId: string | null; sizeBytes: number },
   ) => request<StartedUpload>('POST', `/projects/${id}/uploads`, input),
   completeUpload: (id: string, uploadId: string) =>
-    request<unknown>('POST', `/projects/${id}/uploads/${uploadId}/complete`),
+    request<CompletedUpload>('POST', `/projects/${id}/uploads/${uploadId}/complete`),
   startImport: (input: { filename: string; sizeBytes: number }) =>
     request<StartedUpload>('POST', '/imports', input),
   completeImport: (uploadId: string, workspaceId: string | null = null) =>
@@ -553,6 +555,15 @@ export const api = {
       documentId === null ? {} : { documentId },
     ).then((data) => wordCountResponseSchema.parse(data)),
 
+  /**
+   * Markdown → LaTeX par pandoc dans le sandbox : aperçu (`dryRun`), nouveau fichier ou fragment
+   * à insérer (voir `markdownImportBodySchema`).
+   */
+  convertMarkdown: (id: string, body: MarkdownImportBody) =>
+    request<unknown>('POST', `/projects/${id}/convert/markdown`, body).then((data) =>
+      markdownImportResponseSchema.parse(data),
+    ),
+
   // Index des packages TeX Live (réponses validées par `@kaxolax/contracts`, texlive.ts).
   texlivePackages: (query: Partial<TexlivePackagesQuery>) =>
     request<unknown>(
@@ -585,12 +596,26 @@ export const api = {
     ),
 }
 
+/** Upload terminé : document texte (`.tex`, `.md`…) ou fichier binaire créé. */
+export type CompletedUpload =
+  | { type: 'document'; document: { id: string; folderId: string | null; name: string } }
+  | {
+      type: 'file'
+      file: {
+        id: string
+        folderId: string | null
+        name: string
+        sizeBytes: number
+        mimeType: string
+      }
+    }
+
 /** PUT direct vers S3 (URL présignée, taille signée), puis complétion côté API. */
 export async function uploadToProject(
   projectId: string,
   file: File,
   folderId: string | null,
-): Promise<void> {
+): Promise<CompletedUpload> {
   const started = await api.startUpload(projectId, {
     filename: file.name,
     folderId,
@@ -598,7 +623,7 @@ export async function uploadToProject(
   })
   const put = await fetch(started.url, { method: 'PUT', body: file })
   if (!put.ok) throw new ApiError(put.status, 'E_UPLOAD_FAILED', `Upload of ${file.name} failed`)
-  await api.completeUpload(projectId, started.uploadId)
+  return api.completeUpload(projectId, started.uploadId)
 }
 
 /** Importe un zip comme nouveau projet (workspace donné, sinon workspace personnel). */

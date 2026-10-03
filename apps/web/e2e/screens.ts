@@ -66,6 +66,7 @@ export const SCREENS = [
   { id: '17-table', title: 'Tableau' },
   { id: '18-packages', title: 'Gestionnaire de packages' },
   { id: '19-word-count', title: 'Compteur de mots' },
+  { id: '19-markdown-import', title: 'Importer du Markdown : aperçu du LaTeX' },
   { id: '20-settings', title: 'Paramètres de l’éditeur' },
   { id: '20-spellcheck', title: 'Correcteur : menu du clic droit' },
   { id: '21-pricing', title: 'Tarifs' },

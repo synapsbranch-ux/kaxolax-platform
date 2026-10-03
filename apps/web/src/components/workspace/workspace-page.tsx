@@ -23,7 +23,14 @@ import {
   useProjectSettings,
   useSettings,
 } from '@/components/preferences/settings-provider'
-import { api, ApiError, errorMessage, type Project, type ProjectTree } from '@/lib/api'
+import {
+  api,
+  ApiError,
+  errorMessage,
+  type Project,
+  type ProjectTree,
+  type TreeDocument,
+} from '@/lib/api'
 import { warmsCompiler } from '@/lib/builds'
 import {
   closeTab,
@@ -89,6 +96,8 @@ const REMOVED_REDIRECT_MS = 6_000
 const FOLLOW_GRACE_MS = 3_000
 /** Attente maximale de l'ouverture d'un document à modifier (correction depuis les logs). */
 const EDIT_DOCUMENT_TIMEOUT_MS = 15_000
+/** Liste vide stable (arborescence pas encore chargée). */
+const NO_DOCUMENTS: readonly TreeDocument[] = []
 
 /**
  * Page projet : charge le projet, l'arborescence et la dernière compilation, tient les onglets
@@ -732,6 +741,8 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
       projectName: project?.name ?? '',
       mainDocument,
       activeDocument,
+      documents: tree?.documents ?? NO_DOCUMENTS,
+      refreshTree,
       canEdit,
       openDocument: open,
       editDocument,
@@ -743,6 +754,8 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
       project?.name,
       mainDocument,
       activeDocument,
+      tree?.documents,
+      refreshTree,
       canEdit,
       open,
       editDocument,

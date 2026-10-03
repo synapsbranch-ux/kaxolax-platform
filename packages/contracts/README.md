@@ -16,6 +16,8 @@ valide avec ces schémas les messages qu'il reçoit ; un module par domaine, tou
 | `compile-worker-auth.ts` | Jetons API → Worker et signature HMAC des rappels (WebCrypto, Node.js et Workers)                                  |
 | `synctex.ts`             | Requêtes et réponses SyncTeX dans les deux sens                                                                    |
 | `word-count.ts`          | Comptage de mots (texcount) : demande, plafonds, résultat                                                          |
+| `convert.ts`             | Conversion Markdown → LaTeX (pandoc dans le sandbox) : demande, options, résultat, échecs                          |
+| `markdown-import.ts`     | Import de Markdown (`POST …/convert/markdown`) et préambule nécessaire à un fragment de pandoc, sans doublon       |
 | `realtime.ts`            | Routes internes du temps réel (snapshot, fermeture, déconnexion, membres), jetons (projet, canal de l'utilisateur) |
 | `events.ts`              | Événements du projet sur le document meta (`tree.changed`, `compile.updated`…), `banner.changed`                   |
 | `presence.ts`            | Présence (awareness Yjs) : identité, document ouvert, curseur, couleurs                                            |

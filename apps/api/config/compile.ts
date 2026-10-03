@@ -1,4 +1,8 @@
-import { DEFAULT_COMPILE_TIMEOUT_MS, WORD_COUNT_TIMEOUT_MS } from '@kaxolax/contracts'
+import {
+  DEFAULT_COMPILE_TIMEOUT_MS,
+  DEFAULT_CONVERT_TIMEOUT_MS,
+  WORD_COUNT_TIMEOUT_MS,
+} from '@kaxolax/contracts'
 import env from '#start/env'
 
 const backend = env.get('COMPILE_BACKEND') ?? 'gateway'
@@ -49,6 +53,10 @@ const compileConfig = {
   wordCountTimeoutMs: WORD_COUNT_TIMEOUT_MS + 45_000,
   /** Comptage de mots par le Worker, réveil du conteneur compris (Cloudflare coupe à 100 s). */
   workerWordCountTimeoutMs: 95_000,
+  /** Conversion Markdown → LaTeX par le gateway : délai de pandoc, attente d'une place sur l'agent. */
+  convertTimeoutMs: DEFAULT_CONVERT_TIMEOUT_MS + 45_000,
+  /** Conversion par le Worker, réveil du conteneur compris (Cloudflare coupe à 100 s). */
+  workerConvertTimeoutMs: 95_000,
   /** SyncTeX, arrêt, vidage du cache. */
   shortCallTimeoutMs: 30_000,
   /** pdf.js lit le PDF par requêtes Range pendant toute la session : URL valable 1 heure. */

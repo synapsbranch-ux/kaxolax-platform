@@ -1,5 +1,7 @@
 import {
   compileRequestKey,
+  type ConvertRequest,
+  convertRequestSchema,
   verifyCompileWorkerToken,
   workerCancelSchema,
   workerCompileJobSchema,
@@ -11,7 +13,7 @@ import {
   workerSynctexPdfQuerySchema,
 } from '@kaxolax/contracts'
 import { ZodError } from 'zod'
-import type { WordCountOutcome } from './runner.js'
+import type { ConvertOutcome, WordCountOutcome } from './runner.js'
 
 /** Opérations du Durable Object d'un projet, vues par le Worker. */
 export interface ProjectCompiler {
@@ -23,6 +25,8 @@ export interface ProjectCompiler {
   synctex(kind: 'code' | 'pdf', query: Record<string, string>, buildId: string): Promise<unknown>
   /** Comptage de mots (texcount dans le conteneur), synchrone. */
   wordCount(request: WordCountRequest): Promise<WordCountOutcome>
+  /** Conversion Markdown → LaTeX (pandoc dans le conteneur), synchrone. */
+  convert(request: ConvertRequest): Promise<ConvertOutcome>
 }
 
 export interface RouterOptions {
@@ -32,7 +36,7 @@ export interface RouterOptions {
 }
 
 const ROUTE =
-  /^\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(compile|cancel|warm|clear-cache|synctex\/code|synctex\/pdf|word-count)$/
+  /^\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(compile|cancel|warm|clear-cache|synctex\/code|synctex\/pdf|word-count|convert)$/
 
 const METHODS: Record<string, string> = {
   compile: 'POST',
@@ -42,6 +46,7 @@ const METHODS: Record<string, string> = {
   'synctex/code': 'GET',
   'synctex/pdf': 'GET',
   'word-count': 'POST',
+  convert: 'POST',
 }
 
 function reply(status: number, body: unknown): Response {
@@ -99,6 +104,12 @@ export async function handleRequest(request: Request, options: RouterOptions): P
         return outcome.ok
           ? reply(200, outcome.result)
           : reply(422, { error: 'word_count_failed', message: outcome.message })
+      }
+      case 'convert': {
+        const body = convertRequestSchema.parse(await request.json())
+        if (body.projectId !== projectId) return reply(400, { error: 'invalid_request' })
+        const outcome = await compiler.convert(body)
+        return outcome.ok ? reply(200, outcome.result) : reply(422, outcome.failure)
       }
       default: {
         const params = Object.fromEntries(url.searchParams)

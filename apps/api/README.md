@@ -355,6 +355,41 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   plus un comptage en cours par utilisateur et projet (la même demande attend le comptage en
   cours et reçoit son résultat, un autre document répond 429) et 2 par utilisateur, par
   instance de l'API.
+- **Markdown → LaTeX** : `POST /projects/:id/convert/markdown` (permission `edit` : éditeur et
+  propriétaire ; `packages/contracts/src/markdown-import.ts`). Source : `markdown` (texte collé ou
+  fichier de l'ordinateur, 2 Mo au plus, images relatives à la racine) ou `documentId` (fichier
+  `.md`/`.markdown` du projet, texte courant). pandoc tourne dans le sandbox de compilation, jamais
+  dans l'API : gateway (mode `gateway`) ou conteneur du projet (mode `cloudflare`, compté dans le
+  plafond de compilateurs), comme le comptage de mots. `output` : `file` (nouveau `.tex`
+  `targetPath`, défaut : la source en `.tex`) ou `insert` (fragment renvoyé, inséré par le client
+  dans le document courant) ; `preamble` : `main` (fragment, les packages et définitions nécessaires
+  sont décrits pour le document principal : `packages`, `definitions` et ce qui lui manque,
+  `missingPackages`/`missingDefinitions`, sans doublon ni package déjà chargé par un autre) ou
+  `embedded` (document complet et autonome) ; `documentClass` (défaut : celle du document
+  principal), `topLevelDivision` (défaut `section` pour un fragment), `numberSections`, `rawLatex` ;
+  `citations` (`natbib` ou `biblatex`, défaut : biblatex si le document principal le charge, sinon
+  natbib ; les `[@clé]` deviennent des `\citep`/`\autocite`, `citations` de la réponse liste les
+  clés, un avertissement signale celles absentes des `.bib` du projet) ;
+  `dryRun` (aperçu, rien d'écrit) ; `cleanup` (nettoyage par Claude, opération `markdown_cleanup`,
+  effort `low`, crédits IA de l'utilisateur, IA activée exigée : sortie validée par liste blanche —
+  structure, mêmes images, aucune séquence de contrôle ni aucun environnement absents de la sortie
+  de pandoc hors quelques commandes de tableau et de largeur — sinon écartée avec un
+  avertissement) ; `latex` (texte validé dans l'aperçu, écrit sans nouvel appel à l'IA) avec
+  `sourceSha256` (empreinte du Markdown donnée par l'aperçu, obligatoire pour un fichier du projet :
+  409 `E_SOURCE_CHANGED` si le `.md` a changé depuis). Écritures dans une transaction
+  (projet verrouillé, stockage du plan du propriétaire) : dossiers créés au besoin, images `data:`
+  extraites (S3 puis table files, objets supprimés si la transaction échoue ; chaque image est relue
+  dans la transaction : une image identique déjà présente, même créée par un import concurrent, est
+  gardée, une image supprimée depuis l'aperçu est recréée), document `.tex` (historique : contenu
+  initial attribué à l'utilisateur), puis un événement `tree.changed`. L'API ne modifie jamais le
+  texte d'un document existant : fragment et préambule sont appliqués par le client dans l'éditeur
+  partagé. Réponse `markdownImportResponseSchema` (201 si des fichiers ont été créés). Erreurs : 404
+  source introuvable, 409 `E_NAME_TAKEN` (dès l'aperçu) ou `E_SOURCE_CHANGED`, 422 `E_CONVERT_FAILED` (délai, mémoire,
+  taille, erreur de pandoc), `E_CONVERT_REJECTED` (demande refusée par l'agent), `E_NOT_MARKDOWN`,
+  `E_MARKDOWN_TOO_LARGE` (100 ko au plus avec le nettoyage), `E_INVALID_LATEX` (structure vérifiée
+  hors verbatim et `\verb` : du LaTeX documenté dans un bloc de code passe), 403 `E_PLAN_LIMIT`
+  (stockage, crédits IA) ou `E_AI_DISABLED`, 503 `E_AI_UNAVAILABLE` ou `E_COMPILE_UNAVAILABLE`, 429
+  `E_CONVERT_BUSY` (2 conversions en cours par utilisateur et par instance).
 - **Index des packages TeX Live** (`packages/contracts/src/texlive.ts`, tout compte connecté) :
   - `GET /texlive/packages?q=&category=&topic=&page=&perPage=` : recherche (tous les mots, dans
     le nom, les fichiers `.sty`/`.cls` et la description ; le package qui fournit `<q>.sty` en

@@ -12,6 +12,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { NameDialog } from '@/components/name-dialog'
 import { api, type EntityType, errorMessage, type ProjectTree, uploadToProject } from '@/lib/api'
+import { isMarkdownPath } from '@/lib/markdown-import'
 import { isInside, type TreeNode } from '@/lib/tree'
 
 /**
@@ -32,6 +33,9 @@ export interface FileActions {
   setMain: (documentId: string) => void
   /** Noms des fichiers en cours d'upload. */
   uploads: string[]
+  /** Fichiers Markdown tout juste uploadés : conversion en LaTeX proposée. */
+  markdownUploads: { id: string; name: string }[]
+  dismissMarkdownUpload: (id: string) => void
 }
 
 const FileActionsContext = createContext<FileActions | null>(null)
@@ -65,6 +69,7 @@ export function FileActionsProvider({
 }) {
   const [dialog, setDialog] = useState<Dialog>(null)
   const [uploads, setUploads] = useState<string[]>([])
+  const [markdownUploads, setMarkdownUploads] = useState<{ id: string; name: string }[]>([])
   const uploadInput = useRef<HTMLInputElement>(null)
   const uploadFolder = useRef<string | null>(null)
 
@@ -86,7 +91,11 @@ export function FileActionsProvider({
       setUploads((current) => [...current, ...files.map((file) => file.name)])
       for (const file of files) {
         try {
-          await uploadToProject(projectId, file, folderId)
+          const completed = await uploadToProject(projectId, file, folderId)
+          if (completed.type === 'document' && isMarkdownPath(completed.document.name)) {
+            const { id, name } = completed.document
+            setMarkdownUploads((current) => [...current, { id, name }])
+          }
         } catch (caught) {
           onError(`${file.name} : ${errorMessage(caught)}`)
         } finally {
@@ -127,8 +136,12 @@ export function FileActionsProvider({
         void run(() => onSetMain(documentId))
       },
       uploads,
+      markdownUploads,
+      dismissMarkdownUpload: (id) => {
+        setMarkdownUploads((current) => current.filter((entry) => entry.id !== id))
+      },
     }),
-    [canEdit, upload, tree, run, projectId, onSetMain, uploads],
+    [canEdit, upload, tree, run, projectId, onSetMain, uploads, markdownUploads],
   )
 
   return (

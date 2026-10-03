@@ -16,7 +16,12 @@ import {
 } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { type CompileResource, isSafeRelativePath, type WordCountRequest } from '@kaxolax/contracts'
+import {
+  type CompileResource,
+  isSafeRelativePath,
+  isValidEntityName,
+  type WordCountRequest,
+} from '@kaxolax/contracts'
 
 /** Emplacements d'un projet sur l'agent : `files/` est monté dans le conteneur, pas `state.json`. */
 export interface ProjectPaths {
@@ -261,6 +266,30 @@ export async function writeTextTree(
     const target = join(directory, resource.path)
     await writeNoFollow(target, resource.content)
     await makeWritableForSandbox(target, false)
+  }
+}
+
+/**
+ * Prépare le répertoire neuf d'une conversion : fichiers aux noms constants (lisibles, non
+ * modifiables par le sandbox) et sous-répertoires inscriptibles par l'UID du sandbox, comme le
+ * répertoire lui-même (pandoc y écrit sa sortie). Le répertoire ne doit pas exister.
+ */
+export async function writeSandboxDirectory(
+  directory: string,
+  files: Record<string, string>,
+  subdirectories: string[],
+): Promise<void> {
+  for (const name of [...Object.keys(files), ...subdirectories]) {
+    if (!isValidEntityName(name)) throw new UnsafePathError(`Unsafe file name: ${name}`)
+  }
+  await mkdir(directory, { mode: 0o755 })
+  await makeWritableForSandbox(directory, true)
+  for (const [name, content] of Object.entries(files)) {
+    await writeNoFollow(join(directory, name), content)
+  }
+  for (const name of subdirectories) {
+    await mkdir(join(directory, name), { mode: 0o755 })
+    await makeWritableForSandbox(join(directory, name), true)
   }
 }
 

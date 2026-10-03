@@ -22,6 +22,7 @@ import {
   replaceWithBlock,
   toggleWrap,
 } from './edit.js'
+import { markdownImportAction } from './markdown.js'
 import { writingActions } from './writing.js'
 import {
   type ActionContext,
@@ -123,6 +124,7 @@ const fileActions: EditorAction[] = [
     (host) => host.upload,
     { edits: true },
   ),
+  markdownImportAction,
   hostAction(
     {
       id: 'file.download-zip',

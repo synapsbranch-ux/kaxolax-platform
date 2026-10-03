@@ -1,5 +1,8 @@
 import {
   clearCacheResponseSchema,
+  type ConvertRequest,
+  type ConvertResult,
+  convertResultSchema,
   signCompileWorkerToken,
   type SynctexCodeResponse,
   synctexCodeResponseSchema,
@@ -17,6 +20,8 @@ import {
 import compileConfig from '#config/compile'
 import {
   CompileServiceUnavailableException,
+  convertFailure,
+  ConvertRejectedException,
   NoCompileOutputException,
   wordCountFailure,
 } from '#services/compile_gateway'
@@ -88,6 +93,26 @@ export default class CompileWorkerClient {
       )
     }
     return wordCountResultSchema.parse(await response.json())
+  }
+
+  /**
+   * Conversion Markdown → LaTeX dans le conteneur du projet, synchrone comme le comptage de mots
+   * (réveil compris, sous la coupure à 100 s de Cloudflare).
+   */
+  async convert(request: ConvertRequest): Promise<ConvertResult> {
+    const response = await this.send(request.projectId, '/convert', {
+      method: 'POST',
+      body: request,
+      timeoutMs: compileConfig.workerConvertTimeoutMs,
+    })
+    if (response.status === 422) throw await convertFailure(response)
+    if (response.status === 400) throw new ConvertRejectedException()
+    if (!response.ok) {
+      throw new CompileServiceUnavailableException(
+        `compile worker answered ${String(response.status)}`,
+      )
+    }
+    return convertResultSchema.parse(await response.json())
   }
 
   async cancel(projectId: string, buildId: string): Promise<void> {

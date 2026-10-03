@@ -19,6 +19,8 @@ import {
 interface MaliciousCase {
   compiler?: 'pdflatex' | 'xelatex' | 'lualatex'
   command?: string[]
+  /** Conversion Markdown → LaTeX : rejouée par convert.test.ts. */
+  convert?: object
   timeoutSeconds?: number
   expect: {
     status?: string[]
@@ -94,7 +96,7 @@ describe.skipIf(!available)(`malicious suite replayed through the agent (${RUNTI
   it.each(cases)('%s fails cleanly without leaking anything', async (name) => {
     const dir = join(casesDir, name)
     const spec = JSON.parse(await readFile(join(dir, 'case.json'), 'utf8')) as MaliciousCase
-    if (spec.command) return
+    if (spec.command || spec.convert) return
 
     const projectId = randomUUID()
     const hostDir = await mkdtemp(join(tmpdir(), 'kaxolax-host-'))

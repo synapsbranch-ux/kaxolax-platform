@@ -6,6 +6,7 @@ import {
   type ActionRegistry,
   createDefaultRegistry,
   hasEditor,
+  MARKDOWN_IMPORT_DIALOG,
   openSpellcheckMenu,
   type PromptRequest,
 } from '@kaxolax/editor'
@@ -13,6 +14,7 @@ import {
   createContext,
   type ReactNode,
   type RefObject,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -24,6 +26,7 @@ import type { WordCountPayload } from '@/lib/word-count'
 import { ACTION_DIALOGS, WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle } from './editor/code-editor'
 import { useFileActions } from './file-actions'
+import { MarkdownProposal, type MarkdownProposalState } from './tools/markdown-proposal'
 import { type WorkspaceTools, WorkspaceToolsProvider } from './workspace-tools'
 
 /**
@@ -83,6 +86,8 @@ export function WorkspaceActionsProvider({
   const [registry] = useState(createDefaultRegistry)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null)
+  // Collage intelligent : proposition de conversion du Markdown collé (la dernière seulement).
+  const [pasteProposal, setPasteProposal] = useState<MarkdownProposalState | null>(null)
   const { openSettings } = useSettings()
 
   // Outils de l'application (tâche 10) : compteur de mots et paramètres (menu Fichier),
@@ -145,6 +150,7 @@ export function WorkspaceActionsProvider({
         }),
       ...(canEdit
         ? {
+            onMarkdownPaste: pasteHandler(editor, setPasteProposal),
             newFile: () => {
               files.createDocument(null)
             },
@@ -157,13 +163,32 @@ export function WorkspaceActionsProvider({
           }
         : {}),
     }),
-    [canEdit, compile, downloadZip, searchProject, notify, files],
+    [canEdit, compile, downloadZip, searchProject, notify, files, editor],
   )
   const context = useMemo(() => contextGetter(editor, host), [editor, host])
 
   const value = useMemo<EditorActions>(
     () => ({ registry, host, context, run: (id) => registry.run(id, context()) }),
     [registry, host, context],
+  )
+
+  // Fichier `.md` tout juste uploadé (le plus ancien d'abord), sinon texte collé.
+  const upload = files.markdownUploads[0]
+  const proposal: MarkdownProposalState | null =
+    canEdit && upload !== undefined
+      ? {
+          id: `upload:${upload.id}`,
+          message: `${upload.name} est un fichier Markdown.`,
+          payload: { kind: 'markdown-import', documentId: upload.id },
+        }
+      : pasteProposal
+  const { dismissMarkdownUpload } = files
+  const dismissProposal = useCallback(
+    (id: string) => {
+      if (id.startsWith('upload:')) dismissMarkdownUpload(id.slice('upload:'.length))
+      else setPasteProposal((current) => (current?.id === id ? null : current))
+    },
+    [dismissMarkdownUpload],
   )
 
   const Dialog = dialog === null ? undefined : ACTION_DIALOGS[dialog.id]
@@ -180,6 +205,13 @@ export function WorkspaceActionsProvider({
             }}
           />
         ) : null}
+        <MarkdownProposal
+          proposal={dialog?.id === MARKDOWN_IMPORT_DIALOG ? null : proposal}
+          onConvert={(id, payload) => {
+            setDialog({ id, payload })
+          }}
+          onDismiss={dismissProposal}
+        />
         <NameDialog
           key={prompt?.request.title ?? 'prompt'}
           open={prompt !== null}
@@ -201,6 +233,29 @@ export function WorkspaceActionsProvider({
       </EditorActionsContext>
     </WorkspaceToolsProvider>
   )
+}
+
+/**
+ * Collage de Markdown : proposition de conversion, avec le document d'origine (lu au moment du
+ * collage) pour que le remplacement n'ait lieu que dans celui-ci.
+ */
+function pasteHandler(
+  editor: RefObject<EditorHandle | null>,
+  propose: (proposal: MarkdownProposalState) => void,
+): NonNullable<ActionHost['onMarkdownPaste']> {
+  return (paste) => {
+    // Le collage a lieu dans l'éditeur affiché : son document est celui du texte collé.
+    const documentId = editor.current?.documentId
+    propose({
+      id: `paste:${String(paste.from)}:${String(paste.text.length)}`,
+      message: 'Le texte collé ressemble à du Markdown.',
+      payload: {
+        kind: 'markdown-import',
+        markdown: paste.text,
+        replace: documentId === undefined ? paste : { ...paste, documentId },
+      },
+    })
+  }
 }
 
 /** Contexte d'exécution lu à chaque appel : l'éditeur courant change avec l'onglet actif. */

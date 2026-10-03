@@ -672,6 +672,21 @@ async function captureDialogs(shots: Shots, page: Page) {
     await expect(page.getByTestId('word-count-total')).toBeVisible({ timeout: 60_000 })
   })
   await tidy(() => closeDialog(page))
+  await shots.take('19-markdown-import', async () => {
+    await onProject(page, projectId)
+    await runTool(page, 'file', 'file.import-markdown')
+    const dialog = page.getByTestId('markdown-import')
+    await dialog
+      .getByLabel('Markdown', { exact: true })
+      .fill(
+        '# Résultats\n\nUne mesure **importante**[^1] et $E = mc^2$.\n\n[^1]: Source.\n\n| Essai | Valeur |\n|---|---:|\n| A | 12 |\n',
+      )
+    await dialog.getByRole('button', { name: 'Aperçu', exact: true }).click()
+    await expect(dialog.getByTestId('markdown-preview')).toContainText('\\section{Résultats}', {
+      timeout: 60_000,
+    })
+  })
+  await tidy(() => closeDialog(page))
   await shots.take('20-settings', async () => {
     await page.getByTestId('status-settings').click()
     await expect(page.getByTestId('settings-font-size')).toBeVisible()

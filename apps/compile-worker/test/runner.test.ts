@@ -348,4 +348,36 @@ describe('CompileRunner', () => {
     container.wordCountReply = { status: 500, body: { error: 'internal_error' } }
     await expect(runner.wordCount(request)).rejects.toThrow('word count answered 500')
   })
+
+  it('converts Markdown in the container, waking it first, and relays failures', async () => {
+    const request = {
+      projectId,
+      sourcePath: 'notes.md',
+      targetPath: 'notes.tex',
+      markdown: '# Bonjour',
+    }
+    expect(container.running).toBe(false)
+    const outcome = await runner.convert(request)
+    expect(container.running).toBe(true)
+    expect(outcome).toMatchObject({ ok: true, result: { latex: '\\section{Bonjour}\n' } })
+    expect(container.called('POST', `/projects/${projectId}/convert`)).toHaveLength(1)
+
+    const failure = {
+      error: 'convert_failed',
+      reason: 'out_of_memory',
+      message: 'Conversion ran out of memory',
+    }
+    container.convertReply = { status: 422, body: failure }
+    expect(await runner.convert(request)).toEqual({ ok: false, failure })
+    // Corps d'échec illisible (conteneur non fiable) : échec générique.
+    container.convertReply = { status: 422, body: { reason: 'evil' } }
+    expect(await runner.convert(request)).toEqual({
+      ok: false,
+      failure: { error: 'convert_failed', reason: 'failed', message: 'Conversion failed' },
+    })
+    container.convertReply = { status: 200, body: { latex: 1 } }
+    await expect(runner.convert(request)).rejects.toThrow()
+    container.convertReply = { status: 503, body: { error: 'convert_busy' } }
+    await expect(runner.convert(request)).rejects.toThrow('convert answered 503')
+  })
 })

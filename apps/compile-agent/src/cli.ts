@@ -6,6 +6,7 @@
  *   kaxolax-compile synctex-code ./examples/demo --file chapters/intro.tex --line 3
  *   kaxolax-compile synctex-pdf ./examples/demo --page 1 --h 150 --v 200
  *   kaxolax-compile clear-cache ./examples/demo
+ *   kaxolax-compile convert ./examples/demo --source notes.md --mode fragment --class report
  */
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
@@ -17,6 +18,8 @@ import {
   type CompileResource,
   compileOutputPrefix,
   compilerSchema,
+  convertDocumentClassSchema,
+  convertModeSchema,
   DEFAULT_COMPILE_TIMEOUT_MS,
   isTextDocument,
   projectFilesPrefix,
@@ -84,12 +87,16 @@ async function main() {
       page: { type: 'string' },
       h: { type: 'string' },
       v: { type: 'string' },
+      source: { type: 'string' },
+      target: { type: 'string' },
+      mode: { type: 'string', default: 'document' },
+      class: { type: 'string', default: 'article' },
     },
   })
   const [command, directoryArgument] = positionals
   if (command === undefined || directoryArgument === undefined) {
     console.error(
-      'usage: kaxolax-compile <compile|synctex-code|synctex-pdf|clear-cache> <dir> [options]',
+      'usage: kaxolax-compile <compile|synctex-code|synctex-pdf|clear-cache|convert> <dir> [options]',
     )
     process.exit(2)
   }
@@ -171,6 +178,26 @@ async function main() {
       v: Number(values.v ?? '0'),
     })
     console.log(JSON.stringify(result, null, 2))
+  } else if (command === 'convert') {
+    // Markdown du dossier → LaTeX sur la sortie standard ; images et avertissements sur stderr.
+    const source = values.source ?? 'README.md'
+    const result = await compiler.convert({
+      projectId,
+      sourcePath: source,
+      targetPath: values.target ?? source.replace(/\.[^./]*$/, '.tex'),
+      markdown: await readFile(join(directory, source), 'utf8'),
+      media: await listFiles(directory),
+      options: {
+        mode: convertModeSchema.parse(values.mode),
+        documentClass: convertDocumentClassSchema.parse(values.class),
+      },
+    })
+    if (result.preamble !== null) console.log(`% Préambule\n${result.preamble}\n% Corps`)
+    console.log(result.latex)
+    for (const media of result.media)
+      console.error(`media ${media.path} (${String(media.sizeBytes)} bytes)`)
+    for (const warning of result.warnings) console.error(`warning ${warning}`)
+    console.error(`converted in ${String(result.durationMs)} ms`)
   } else if (command === 'clear-cache') {
     console.log(JSON.stringify({ cleared: await compiler.clearCache(projectId) }))
   } else {

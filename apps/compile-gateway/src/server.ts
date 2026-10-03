@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   clearCacheResponseSchema,
   compileRequestSchema,
+  convertRequestSchema,
   INTERNAL_TOKEN_HEADER,
   stopCompileResponseSchema,
   synctexCodeQuerySchema,
@@ -56,7 +57,7 @@ export function buildServer(options: ServerOptions) {
       await reply.code(404).send({ error: 'no_compile_output', message: error.message })
       return
     }
-    // Agent saturé (file des comptages pleine) : 503 transmis, l'API le traduit en indisponible.
+    // Agent saturé (file des comptages ou des conversions pleine) : 503 transmis, l'API le traduit en indisponible.
     if (error instanceof AgentResponseError && error.status === 503) {
       await reply.code(503).send(error.body)
       return
@@ -88,6 +89,16 @@ export function buildServer(options: ServerOptions) {
       return reply.code(400).send({ error: 'invalid_request' })
     }
     return router.wordCount(body)
+  })
+
+  // Conversion Markdown → LaTeX : 422 `convert_failed` et 503 `convert_busy` de l'agent relayés.
+  app.post('/projects/:projectId/convert', async (request, reply) => {
+    const { projectId } = projectParamsSchema.parse(request.params)
+    const body = convertRequestSchema.parse(request.body)
+    if (body.projectId !== projectId) {
+      return reply.code(400).send({ error: 'invalid_request' })
+    }
+    return router.convert(body)
   })
 
   app.post('/projects/:projectId/stop', async (request) => {

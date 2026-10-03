@@ -15,6 +15,7 @@ exigent l'en-tête `X-Internal-Token`.
 | `GET /projects/:id/synctex/code` | Du code vers le PDF (`file`, `line`, `column`)            |
 | `GET /projects/:id/synctex/pdf`  | Du PDF vers le code (`page`, `h`, `v`)                    |
 | `POST /projects/:id/word-count`  | Compte les mots (corps `WordCountRequest`) ; 422 si échec |
+| `POST /projects/:id/convert`     | Markdown → LaTeX (corps `ConvertRequest`) ; 422 si échec  |
 | `GET /health`                    | Compilations actives et capacité                          |
 
 ## Fonctionnement
@@ -56,6 +57,42 @@ exigent l'en-tête `X-Internal-Token`.
   `!!! … !!!`. Au plus 2 comptages simultanés par agent et 8 en attente (au-delà, 503
   `word_count_busy` immédiat) ; dans le conteneur Cloudflare (`ProcessSandbox`, une exécution
   à la fois), le comptage attend la fin de la compilation.
+- **Conversion Markdown → LaTeX** (`src/convert.ts`) : pandoc 3.12 de l'image TeX Live, dans le
+  même sandbox (aucun réseau, UID 1000, racine en lecture seule, `RLIMIT_FSIZE`, délai de 30 s
+  par défaut, 60 s au plus, chien de garde sur la taille du répertoire). Le répertoire de travail,
+  neuf et hors des projets (`COMPILES_DIR/.convert/<aléa>/`), ne contient que `input.md`,
+  `kaxolax-convert.json` (options du filtre) et `media/` ; il est supprimé ensuite.
+  - Commande constante : `pandoc +RTS -M512m -RTS --sandbox --data-dir=/usr/share/kaxolax/pandoc
+--lua-filter=/usr/share/kaxolax/pandoc/kaxolax-convert.lua --from=markdown-raw_tex-raw_attribute-raw_html
+--to=latex --standalone --wrap=preserve --variable=documentclass:<classe> --natbib --output=output.tex input.md`.
+    Seules des valeurs de listes fermées en dépendent (classe, `--top-level-division`,
+    `--number-sections`, `--natbib` ou `--biblatex`, `--from=markdown` avec `rawLatex`). Aucun autre filtre, modèle ni
+    fichier de défauts : le filtre Lua de l'image est le seul exécuté.
+  - Sans `rawLatex`, le LaTeX brut du texte est échappé, mais pandoc recopie tel quel le contenu
+    des formules (`$…$`, `$$…$$`, métadonnées YAML comprises) : le LaTeX produit n'est jamais sûr,
+    le sandbox de compilation reste la seule barrière. Les commandes d'accès aux fichiers ou au
+    moteur ainsi recopiées (`\input`, `\write18`, `\directlua`…, hors verbatim) sont signalées
+    dans `warnings`.
+  - Le filtre réécrit les chemins des images (relatifs au Markdown → relatifs au document
+    principal, `graphicsDir`), change les images distantes en liens, remplace les chemins absolus
+    ou hors du projet par leur texte, extrait les images `data:` (PNG, JPEG, PDF, 50 au plus,
+    4 Mo de fichiers distincts : une image répétée ne compte pas) sous `media/<sha1>.<ext>`, et
+    encadre le corps de marqueurs aléatoires.
+  - Citations `[@clé]` : commandes natbib (`\citep`, `\citet`) ou biblatex (`\autocite`,
+    `\textcite`), jamais citeproc ni du texte. pandoc recopie les clés telles quelles, même avec
+    la syntaxe `@{…}` : le filtre ne garde que les clés de l'alphabet sûr (lettres, chiffres,
+    `_:.-+/`), les autres restent du texte échappé et sont signalées. Sans citation, les lignes
+    natbib/biblatex du modèle de pandoc sont retirées hors du corps. `citations` de la réponse
+    liste les clés citées (l'API les compare aux `.bib` du projet).
+  - Réponse (`ConvertResult`) : document complet, ou corps et préambule (fragment : sans
+    `\documentclass`, titre ni `\setcounter{secnumdepth}`, la numérotation restant celle du
+    document hôte), titre,
+    images extraites en base64 (chemins sous `mediaDir`), traitement de chaque image (présence
+    dans `media`, la liste des fichiers du projet) et avertissements. Les sorties sont lues sans
+    suivre de lien symbolique. Rien n'est écrit dans le projet : l'API range les fichiers.
+  - Échecs (422 `convert_failed`, `reason`) : `timeout`, `out_of_memory` (tas plafonné),
+    `output_too_large` (LaTeX de plus de 8 Mo, images), `failed` (erreur de pandoc). Même file que
+    le comptage de mots (2 exécutions, 8 en attente, puis 503 `convert_busy`).
 - **Nettoyage LRU** des répertoires de projets et du cache, toutes les 5 minutes.
 - Durées mesurées (`timings` : synchronisation, exécution, upload) et loguées à chaque compilation.
 
@@ -95,7 +132,24 @@ Les tests d'intégration couvrent :
 - SyncTeX aller-retour et la comparaison à chaud contre à froid ;
 - un lien symbolique planté et l'absence de fuite de l'environnement ;
 - la suite de tests malveillants, lue dans l'image (`/usr/share/kaxolax/malicious`) et rejouée par l'agent ;
+- la conversion Markdown → LaTeX (document compilé, fragment inclus dans un document) et les cas
+  malveillants `pandoc-*` de l'image, rejoués par l'agent ;
+- le jeu d'exemples Markdown de `test/fixtures/markdown` (titres, listes, tableaux, maths,
+  notes, liens et code, images, blocs de citation, citations `[@clé]` compilées avec BibTeX) : chaque `<nom>.md` converti en fragment comme le fait
+  l'API est comparé exactement à `<nom>.expected.tex`, puis inclus dans le document de départ
+  d'un projet complété du seul préambule demandé par l'API (`pandocRequirements`) et compilé.
+  `KAXOLAX_UPDATE_EXPECTED=1` réécrit les résultats attendus (à relire avant de les garder) ;
 - le HTTP avec S3.
 
 Ils sont ignorés si Docker ou l'image manquent, sauf avec `KAXOLAX_REQUIRE_INTEGRATION=1` (CI).
-L'image à tester se choisit avec `KAXOLAX_TEST_IMAGE`.
+L'image à tester se choisit avec `KAXOLAX_TEST_IMAGE`. Les tests de conversion sont aussi ignorés
+si l'image n'a pas pandoc (images publiées avant son ajout), sauf avec `KAXOLAX_REQUIRE_PANDOC=1`.
+Pour les lancer sans reconstruire TeX Live, ajouter pandoc à l'image locale avec l'étape
+`pandoc-overlay` de kaxolax-texlive-images :
+
+```bash
+docker build --target pandoc-overlay --build-arg PANDOC_OVERLAY_BASE=kaxolax-texlive:2026-medium \
+  -t kaxolax-texlive-pandoc:2026-medium ../kaxolax-texlive-images
+KAXOLAX_TEST_IMAGE=kaxolax-texlive-pandoc:2026-medium KAXOLAX_REQUIRE_PANDOC=1 \
+  pnpm --filter @kaxolax/compile-agent test:integration
+```

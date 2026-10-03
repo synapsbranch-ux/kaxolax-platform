@@ -39,6 +39,22 @@ export async function dockerAvailable(): Promise<boolean> {
   }
 }
 
+/**
+ * L'image a-t-elle pandoc (conversion Markdown → LaTeX) ? Les images publiées avant son ajout ne
+ * l'ont pas : les tests de conversion sont alors ignorés, sauf avec `KAXOLAX_REQUIRE_PANDOC=1`.
+ */
+export function pandocAvailable(): boolean {
+  try {
+    execFileSync('docker', ['run', '--rm', '--network', 'none', IMAGE, 'pandoc', '--version'], {
+      stdio: 'ignore',
+    })
+    return true
+  } catch (error) {
+    if (process.env.KAXOLAX_REQUIRE_PANDOC === '1') throw error
+    return false
+  }
+}
+
 export interface TestAgent {
   compiler: Compiler
   root: string

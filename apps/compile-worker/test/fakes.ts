@@ -102,6 +102,8 @@ export class FakeContainer implements ContainerPort {
   holdBlobs = false
   /** Réponse de la route word-count de l'agent (succès par défaut). */
   wordCountReply: { status: number; body: unknown } | null = null
+  /** Réponse de la route convert de l'agent (succès par défaut). */
+  convertReply: { status: number; body: unknown } | null = null
   /** Sorties supplémentaires annoncées par un agent compromis. */
   extraOutputs: { name: string; s3Key: string; content: string }[] = []
 
@@ -223,6 +225,18 @@ export class FakeContainer implements ContainerPort {
         displayMathCount: 0,
       }
       return json({ total, sections: [], warnings: [] })
+    }
+    if (method === 'POST' && url.pathname.endsWith('/convert')) {
+      if (this.convertReply) return json(this.convertReply.body, this.convertReply.status)
+      return json({
+        latex: '\\section{Bonjour}\n',
+        preamble: null,
+        title: 'Bonjour',
+        media: [],
+        images: [],
+        warnings: [],
+        durationMs: 5,
+      })
     }
     return json({ error: 'not_found' }, 404)
   }

@@ -1,5 +1,6 @@
 import { Compartment, type Extension, Prec } from '@codemirror/state'
 import { type EditorView, type KeyBinding, keymap, ViewPlugin } from '@codemirror/view'
+import type { MarkdownPaste } from './markdown.js'
 
 /** Menus de la barre d'outils (bouton Tools), dans l'ordre d'affichage. */
 export const ACTION_MENUS = [
@@ -50,6 +51,11 @@ export interface ActionHost {
   prompt?: (request: PromptRequest) => Promise<string | null>
   /** Message court (toast). */
   notify?: (message: string, level?: 'info' | 'warning' | 'error') => void
+  /**
+   * Collage intelligent : du Markdown évident vient d'être collé (texte et plage dans le
+   * document) ; l'application propose de le convertir en LaTeX. Absent : aucune détection.
+   */
+  onMarkdownPaste?: (paste: MarkdownPaste) => void
 }
 
 /** Contexte d'exécution d'une action : éditeur courant (null sans fichier texte ouvert) et application. */

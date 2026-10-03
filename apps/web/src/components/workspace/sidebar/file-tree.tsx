@@ -1,6 +1,7 @@
 'use client'
 
 import type { PresenceUser } from '@kaxolax/contracts'
+import { MARKDOWN_IMPORT_DIALOG } from '@kaxolax/editor'
 import {
   Button,
   DropdownMenu,
@@ -24,7 +25,9 @@ import {
 import { type DragEvent, type KeyboardEvent, useRef, useState } from 'react'
 import type { EntityType, ProjectTree } from '@/lib/api'
 import { nestTree, type TreeNode, treeKeyEffect, visibleRows } from '@/lib/tree'
+import { isMarkdownPath } from '@/lib/markdown-import'
 import { useFileActions } from '../file-actions'
+import { useEditorActions } from '../workspace-actions'
 
 const DRAG_TYPE = 'application/x-kaxolax-entity'
 
@@ -71,6 +74,7 @@ function PresenceDots({ users }: { users: readonly PresenceUser[] }) {
  */
 export function FileTree({ tree, mainDocumentId, activeId, onOpen, presence }: Props) {
   const files = useFileActions()
+  const actions = useEditorActions()
   const { canEdit } = files
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -320,6 +324,18 @@ export function FileTree({ tree, mainDocumentId, activeId, onOpen, presence }: P
                     }}
                   >
                     Définir comme document principal
+                  </DropdownMenuItem>
+                ) : null}
+                {node.type === 'document' && isMarkdownPath(node.entity.name) ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      actions.host.openDialog?.(MARKDOWN_IMPORT_DIALOG, {
+                        kind: 'markdown-import',
+                        documentId: id,
+                      })
+                    }}
+                  >
+                    Convertir en LaTeX…
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem
