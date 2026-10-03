@@ -856,3 +856,14 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Nouvelle route publique `GET /api/v1/client-config` (`clientConfigSchema`, packages/contracts) : temps réel, origine des URL présignées (public, sinon serveur, sinon point d'accès régional AWS), fichiers des templates. Rien de secret : le navigateur reçoit déjà ces URL.
 - Le proxy du web complète ses variables avec cette réponse (`src/lib/csp-sources.ts`) : variables d'abord, réponse gardée 5 min puis relue en arrière-plan, API injoignable → dernière réponse ou variables seules, nouvel essai après 30 s ; la page n'attend jamais plus de 2 s. Une seule source de vérité (l'API), les variables du web restent possibles.
 - Démarrage : avertissement si des origines manquent, arrêt seulement sur une valeur invalide.
+
+## 2026-10-03 · Licence des templates
+
+- Les contenus des templates de kaxolax-templates sont placés sous CC0 1.0, limitée au dossier `templates/` (`templates/LICENSE`).
+- Chaque template déclare sa licence SPDX dans `metadata.json` (`CC0-1.0` pour les dix templates de départ) ; un template sous une autre licence le précise là et dans son `main.tex`.
+- L'outillage de kaxolax-templates (schéma, scripts, tests, CI) reste sans licence, comme les autres dépôts Kaxolax.
+- La renonciation CC0 est irrévocable dès la diffusion des templates : choix à confirmer par l'utilisateur avant la première publication.
+
+## 2026-10-03 · Vérification des constats de revue de l'étape 2
+
+- Les 180 constats confirmés pendant les revues de l'étape 2 (2 bloquants, 48 majeurs, 130 mineurs) ont été revérifiés contre `main` après la remise en état : 178 corrigés (preuve dans le code), 2 sans correction de code nécessaire (F092 déjà corrigé et couvert par des tests ; F078, licence CC0 des templates, consigné ci-dessus).
