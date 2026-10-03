@@ -25,6 +25,8 @@ import { isUuid } from '#services/project_access'
 import { announceDepartures } from '#services/project_events'
 import { releaseDeletedProject } from '#services/project_service'
 import type RealtimeClient from '#services/realtime_client'
+import type ZoteroClient from '#services/zotero/client'
+import { revokeZoteroKeys } from '#services/zotero/connection'
 
 export class AdminUserNotFoundException extends Exception {
   static override status = 404
@@ -50,6 +52,7 @@ export interface AdminUserDependencies {
   realtime: RealtimeClient
   storage: ObjectStorage
   outputs: CompileOutputStorage
+  zotero: ZoteroClient
 }
 
 /** Motif ILIKE qui cherche le texte tel quel (%, _ et \ échappés). */
@@ -366,33 +369,44 @@ export async function deleteUser(
 ): Promise<{ user: User; realtimeDisconnected: boolean }> {
   assertActionable(admin, target)
   const action = userAction(admin, 'user.delete', target)
-  const { user, deleted, leftProjectIds, team } = await auditFailures(action, async () => {
-    const existed = await deps.clerk.deleteUser(target.clerkUserId)
-    return db.transaction(async (trx) => {
-      const {
-        deleted: projects,
-        leftProjectIds,
-        team,
-      } = await deleteClerkUser(target.clerkUserId, trx)
-      await recordAdminAction(
-        {
-          ...action,
-          metadata: {
-            ...action.metadata,
-            clerkAccountExisted: existed,
-            deletedProjects: projects.length,
+  const { user, deleted, leftProjectIds, team, zoteroKeys } = await auditFailures(
+    action,
+    async () => {
+      const existed = await deps.clerk.deleteUser(target.clerkUserId)
+      return db.transaction(async (trx) => {
+        const {
+          deleted: projects,
+          leftProjectIds,
+          team,
+          zoteroKeys,
+        } = await deleteClerkUser(target.clerkUserId, trx)
+        await recordAdminAction(
+          {
+            ...action,
+            metadata: {
+              ...action.metadata,
+              clerkAccountExisted: existed,
+              deletedProjects: projects.length,
+            },
           },
-        },
-        trx,
-      )
-      return { user: await lockUser(target.id, trx), deleted: projects, leftProjectIds, team }
-    })
-  })
+          trx,
+        )
+        return {
+          user: await lockUser(target.id, trx),
+          deleted: projects,
+          leftProjectIds,
+          team,
+          zoteroKeys,
+        }
+      })
+    },
+  )
   forgetAdminStatus(target.clerkUserId)
   for (const project of deleted) await releaseDeletedProject(project, deps)
   const realtimeDisconnected = await disconnectRealtime(admin, target, 'user.delete', deps.realtime)
   await announceDepartures(deps.realtime, target.id, leftProjectIds, admin.id)
   // Projets d'équipe transférés au responsable : rôles des membres concernés relus.
   await applyTeamEffects(deps, team)
+  await revokeZoteroKeys(deps.zotero, zoteroKeys, { userId: target.id })
   return { user, realtimeDisconnected }
 }

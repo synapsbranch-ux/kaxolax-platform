@@ -266,6 +266,37 @@ describe('text replacement (restore)', () => {
     expect(await again.json()).toEqual({ changed: false })
   })
 
+  it('appends a block once, keeping the text typed meanwhile', async () => {
+    const seed = await seedProject(pool, '@a{x,}\n')
+    const editor = await seed.addMember('editor')
+    const watcher = track(
+      connect(single.url, seed.projectId, seed.documentId, tokenFor(seed.owner, seed.projectId)),
+    )
+    const typist = track(
+      connect(
+        single.url,
+        seed.projectId,
+        seed.documentId,
+        tokenFor(editor, seed.projectId, { role: 'editor' }),
+      ),
+    )
+    await Promise.all([watcher.ready, typist.ready])
+    // Frappe reçue par le serveur (et relayée) avant l'ajout.
+    typist.text.insert(0, '% note\n')
+    await eventually(() => watcher.text.toJSON().startsWith('% note'))
+    const append = () =>
+      internalPost(
+        single.httpUrl,
+        `/internal/projects/${seed.projectId}/documents/${seed.documentId}/replace`,
+        { content: '@b{y,}', userId: editor, append: true },
+      )
+    const response = await append()
+    expect(response.status).toBe(200)
+    expect(replaceDocumentResponseSchema.parse(await response.json())).toEqual({ changed: true })
+    await eventually(() => watcher.text.toJSON() === '% note\n@a{x,}\n\n@b{y,}\n')
+    expect(await (await append()).json()).toEqual({ changed: false })
+  })
+
   it('replaces a document no one has open and stores it', async () => {
     const seed = await seedProject(pool, 'ancien')
     const response = await internalPost(

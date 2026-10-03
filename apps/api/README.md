@@ -552,6 +552,68 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
   (AES-256-GCM avec `APP_KEY`, `app/services/encrypted_column.ts`) : colonnes `*_encrypted`,
   chiffrement lié à sa colonne, jamais sérialisés. Changer `APP_KEY` sans garder l'ancienne clé
   dans `config/encryption.ts` rend les jetons illisibles (lus `null` : à redemander).
+- **Zotero** (tâche 9 ; contrats : `packages/contracts/src/zotero.ts` ; code :
+  `app/services/zotero/*`, `app/controllers/zotero_controller.ts`,
+  `app/controllers/project_zotero_controller.ts`). Variables `ZOTERO_CLIENT_KEY` et
+  `ZOTERO_CLIENT_SECRET` facultatives (application OAuth, `docs/deploy.md` §2.1) : sans elles,
+  503 `E_ZOTERO_UNAVAILABLE`.
+  - Connexion OAuth 1.0a (signature HMAC-SHA1 maison, `oauth1.ts`, testée sur les vecteurs de la
+    RFC 5849) : `POST /me/integrations/zotero/connect` obtient un jeton de requête (rappel
+    `APP_URL/integrations/zotero/callback?state=…`), l'enregistre (`zotero_oauth_requests`,
+    secret chiffré, 15 min) avec le compte, la session Clerk (`sid`) et le hachage du `state`.
+    La page web de rappel appelle `GET /integrations/zotero/callback` avec la même session :
+    même compte, même session, même `state`, demande non expirée et consommée (anti-CSRF et
+    anti-rejeu). La clé obtenue est vérifiée (`GET /keys/current`) puis chiffrée
+    (`zotero_accounts`). Permissions demandées : lecture de la bibliothèque sans les notes,
+    groupes en lecture, aucune écriture ; les bibliothèques proposées et liables sont celles
+    que la clé peut réellement lire (objet `access` de `/keys/current`, droits réductibles sur
+    zotero.org ; sinon 403 `E_ZOTERO_LIBRARY_FORBIDDEN`). Au plus 5 demandes OAuth en cours par
+    compte, une par session, espacées de 10 s (429 `E_ZOTERO_OAUTH_TOO_MANY`) ; connexion et
+    déconnexion verrouillent la ligne `users` du compte. `DELETE /me/integrations/zotero` révoque la clé chez
+    Zotero (`DELETE /keys/current`, au mieux) et l'efface, aussi sur les liens du compte. Une
+    reconnexion révoque de même l'ancienne clé (plus aucun lien ne l'utilise : les liens du même
+    compte Zotero prennent la nouvelle, ceux d'un autre la perdent), la suppression du compte
+    Kaxolax aussi (après validation, `revokeZoteroKeys`).
+  - Lien du projet (`GET|PUT|DELETE /projects/:id/zotero`) : bibliothèque personnelle ou de
+    groupe, collection ou toute la bibliothèque, `.bib` existant ou nouveau, `biblatex` ou
+    `bibtex`. Lecture par tout membre ; lier, délier, synchroniser, chercher et insérer
+    demandent `edit`. La clé copiée sur le lien est celle du membre qui a lié : **tout éditeur
+    peut rafraîchir avec elle** (sans la voir), tant que ce membre garde `edit` sur le projet.
+    S'il se déconnecte, quitte le projet, en est retiré ou passe relecteur ou lecteur
+    (`sharing_service`, et revérifié à chaque usage), sa clé quitte le lien
+    (`E_ZOTERO_KEY_INVALID`) : le lien attend qu'un éditeur le refasse avec sa propre clé.
+    « Nouveau fichier » dont le nom est déjà pris : 409 `E_ZOTERO_TARGET_EXISTS` (le choisir
+    comme fichier existant, dont le contenu sera remplacé). Lien à une collection : les autres
+    éditeurs ne cherchent et n'ajoutent que dans la collection et ses sous-collections
+    (`zotero_links.collection_scope`), plus les éléments déjà ajoutés ; seul le membre qui a lié
+    peut ajouter ailleurs dans sa bibliothèque (le formulaire de lien le dit).
+  - Synchronisation (`POST /projects/:id/zotero/sync`, `trigger` `manual` ou `open`) : export
+    élément par élément (`include=biblatex|bibtex`) des éléments de premier niveau de la
+    collection et de ses sous-collections, ou de toute la bibliothèque (pages de 100, versions
+    cohérentes), plus les éléments ajoutés hors collection par le sélecteur, écrit en
+    entier dans le `.bib` par le service temps réel (modification minimale attribuée au membre :
+    historique, clients connectés), stockage du plan vérifié. Clés de citation suivies par
+    élément Zotero (`zotero_links.citation_keys`) : deux éléments distincts ne partagent jamais
+    une clé (suffixe a, b…), un élément garde la sienne d'une synchro à l'autre, et une clé
+    nouvellement attribuée évite celles des autres `.bib` du projet. `open` : au plus une tentative par 15 minutes, `If-Modified-Since-Version` (304 :
+    rien n'est écrit). `manual` : export complet, même texte non réécrit. `Backoff` et
+    `Retry-After` (429, 503) enregistrés sur le lien et sur le compte Zotero (`backoff_until`)
+    et respectés (429 `E_ZOTERO_BACKOFF`), aussi pour les bibliothèques, les collections et la
+    création du lien (la première synchro attend la fin de la pause). Une synchro à la fois
+    (réservation en base, reprise après 5 min) ; aucun appel à Zotero sous verrou : la fin de
+    synchro écrit le `.bib` sous le verrou de la ligne du lien une fois exportés les éléments
+    choisis entre-temps, et une synchro dont le lien a été refait ou supprimé pendant ses
+    appels n'écrit ni n'annonce rien.
+  - Citations : `GET /projects/:id/zotero/search?q=` (titre, auteurs, année ; 25 résultats ;
+    clé du `.bib`, ou celle qu'un ajout donnerait) et `POST /projects/:id/zotero/citations`
+    (clé et élément retenus sous le verrou du lien, puis entrée ajoutée à la fin du `.bib` par le
+    service temps réel, `append` : insertion seule et idempotente, aucune frappe concurrente
+    écrasée ; 503 `E_ZOTERO_REALTIME_UNAVAILABLE` si l'écriture n'est pas confirmée, à refaire ;
+    au plus 500 éléments hors collection, 422 `E_ZOTERO_PICKED_LIMIT` ; renvoie la clé retenue,
+    que l'éditeur corrige, ou retire si l'ajout échoue).
+  - Journal : connexion, déconnexion, lien, synchro, citation ajoutée (identifiants, jamais de
+    clé ni de jeton). Tests : `tests/functional/zotero.spec.ts` avec un faux Zotero
+    (`tests/zotero.ts`, signatures vérifiées) branché sur le vrai client par son `fetch`.
 - **Admin** (`/admin/*`, pour `apps/admin`) : middleware `auth` puis `admin`
   (`app/middleware/admin_middleware.ts`) : claim `metadata.role` = `admin` (sinon 403
   `E_ADMIN_REQUIRED`), second facteur vérifié dans la session (claim `fva[1] !== -1`) et MFA
@@ -627,7 +689,10 @@ nouvelles tables seulement) : `projects.ai_enabled`, `workspaces.ai_enabled` (d�
 `plan_limits.ai_monthly_credits` et `image_monthly_credits` ; `ai_conversations`, `ai_messages`
 (contenu jsonb des blocs de l'API, gardé tel quel) ; `ai_usage`, `ai_credit_periods`,
 `ai_credit_reservations` ; `suggestions` (ancre au format des commentaires, contraintes sur le
-type, les textes et la décision) ; `personal_access_tokens` ; `git_links`, `zotero_links`.
+type, les textes et la décision) ; `personal_access_tokens` ; `git_links`, `zotero_links` ; Zotero (tâche 9, `…0180` et
+`…0181`, `…0182`, `…0183`) : `zotero_accounts`, `zotero_oauth_requests`, colonnes de synchronisation de `zotero_links`,
+clés de citation attribuées (`zotero_links.citation_keys`), pause de Zotero par compte (`zotero_accounts.backoff_until`)
+et collections couvertes par un lien (`zotero_links.collection_scope`).
 
 Déploiement de l'étape 2 : les migrations peuvent passer pendant que l'API de l'étape 1 sert
 encore. Ses créations de projet (sans `workspace_id`) sont rattachées au workspace personnel du

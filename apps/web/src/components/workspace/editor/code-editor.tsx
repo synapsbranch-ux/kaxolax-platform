@@ -18,6 +18,7 @@ import {
   commentableSelection,
   commentHighlights,
   type CommentRange,
+  type CitationProvider,
   type CompletionSources,
   type EditorSettings,
   goToLine,
@@ -148,7 +149,12 @@ export function CodeEditor({
    */
   settings: EditorSettings
   /** Sources de l'autocomplétion (index du projet) et chemin du document, lus à chaque appel. */
-  completion: { sources: () => CompletionSources | null; currentFile: () => string | null }
+  completion: {
+    sources: () => CompletionSources | null
+    currentFile: () => string | null
+    /** Citations d'une source externe (bibliothèque Zotero liée), null sans source. */
+    citationProvider?: () => CitationProvider | null
+  }
   /** Extensions de l'application ajoutées à l'éditeur (fixées à la création). */
   extensions?: Extension
   /** Registre d'actions dont les raccourcis sont liés à l'éditeur. */

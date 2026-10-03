@@ -9,7 +9,9 @@ import Project from '#models/project'
 import ProjectMember from '#models/project_member'
 import User from '#models/user'
 import WorkspaceMember from '#models/workspace_member'
+import ZoteroAccount from '#models/zotero_account'
 import ZoteroLink from '#models/zotero_link'
+import ZoteroOAuthRequest from '#models/zotero_oauth_request'
 import { type DeletedProject, deleteProjectRows } from '#services/project_service'
 import { acceptPendingInvitationsFor, type JoinedProject } from '#services/sharing_service'
 import {
@@ -158,6 +160,11 @@ export interface DeletedClerkUser {
   leftProjectIds: string[]
   /** Équipes quittées : projets d'équipe transférés au responsable, accès à revérifier. */
   team: TeamSyncEffects
+  /**
+   * Clés Zotero effacées (compte connecté, liens) : l'appelant les révoque chez Zotero une fois
+   * la transaction validée (`revokeZoteroKeys`, au mieux).
+   */
+  zoteroKeys: string[]
 }
 
 /**
@@ -167,7 +174,9 @@ export interface DeletedClerkUser {
  * propres projets personnels sont supprimés. Ses données personnelles restées dans les projets des autres
  * partent aussi (la ligne n'est jamais supprimée, donc aucun CASCADE ne les atteint) : ses
  * conversations avec l'IA (messages compris), ses liens Git et Zotero (avec leurs jetons chiffrés),
- * et ses jetons d'accès personnels sont révoqués. Renvoie les projets dont il faut ensuite libérer les
+ * son compte Zotero connecté (clé chiffrée, demandes OAuth en cours ; les clés sont renvoyées
+ * pour être révoquées chez Zotero après validation), et ses jetons d'accès personnels sont
+ * révoqués. Renvoie les projets dont il faut ensuite libérer les
  * ressources, et les projets partagés qu'il a quittés (à annoncer, `announceDepartures`).
  */
 export async function deleteClerkUser(
@@ -179,9 +188,16 @@ export async function deleteClerkUser(
     .forUpdate()
     .first()
   if (!user || user.deletedAt) {
-    return { userId: null, deleted: [], leftProjectIds: [], team: NO_TEAM_EFFECTS }
+    return { userId: null, deleted: [], leftProjectIds: [], team: NO_TEAM_EFFECTS, zoteroKeys: [] }
   }
 
+  // Clés Zotero de ses liens relevées avant les départs d'équipe, qui en effacent sur les projets
+  // où il perd `edit` : elles seront révoquées avec les autres (lecture seule, sans verrou).
+  const teamLinkKeys = (
+    await ZoteroLink.query({ client: trx })
+      .where('ownerId', user.id)
+      .whereNotNull('api_key_encrypted')
+  ).map((link) => link.apiKey)
   // Équipes d'abord : ses projets d'équipe passent au responsable de chaque équipe au lieu
   // d'être supprimés avec ses projets personnels.
   const team = await releaseTeamMemberships(user, trx)
@@ -218,7 +234,23 @@ export async function deleteClerkUser(
   // synchronisation, jetons d'accès révoqués (gardés pour le journal, inutilisables).
   await AiConversation.query({ client: trx }).where('userId', user.id).delete()
   await GitLink.query({ client: trx }).where('ownerId', user.id).delete()
+  const zoteroLinks = await ZoteroLink.query({ client: trx }).where('ownerId', user.id).forUpdate()
+  const zoteroAccount = await ZoteroAccount.query({ client: trx })
+    .where('userId', user.id)
+    .forUpdate()
+    .first()
+  const zoteroKeys = [
+    ...new Set(
+      [
+        zoteroAccount?.apiKey ?? null,
+        ...teamLinkKeys,
+        ...zoteroLinks.map((link) => link.apiKey),
+      ].filter((key): key is string => key !== null),
+    ),
+  ]
   await ZoteroLink.query({ client: trx }).where('ownerId', user.id).delete()
+  await ZoteroAccount.query({ client: trx }).where('userId', user.id).delete()
+  await ZoteroOAuthRequest.query({ client: trx }).where('userId', user.id).delete()
   await PersonalAccessToken.query({ client: trx })
     .where('userId', user.id)
     .whereNull('revokedAt')
@@ -232,7 +264,7 @@ export async function deleteClerkUser(
     deletedAt: DateTime.utc(),
   })
   await user.save()
-  return { userId: user.id, deleted, leftProjectIds, team }
+  return { userId: user.id, deleted, leftProjectIds, team, zoteroKeys }
 }
 
 /** État de bannissement d'un compte, daté par Clerk (`updated_at` du compte) si connu. */

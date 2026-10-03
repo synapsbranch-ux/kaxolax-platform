@@ -857,6 +857,52 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Le proxy du web complète ses variables avec cette réponse (`src/lib/csp-sources.ts`) : variables d'abord, réponse gardée 5 min puis relue en arrière-plan, API injoignable → dernière réponse ou variables seules, nouvel essai après 30 s ; la page n'attend jamais plus de 2 s. Une seule source de vérité (l'API), les variables du web restent possibles.
 - Démarrage : avertissement si des origines manquent, arrêt seulement sur une valeur invalide.
 
+## 2026-10-03 · Zotero : OAuth 1.0a sans dépendance, lié à la session
+
+- Signature HMAC-SHA1 de la RFC 5849 écrite dans l'API (`app/services/zotero/oauth1.ts`, une centaine de lignes, `node:crypto`), vérifiée par les vecteurs connus de la RFC 5849 et de la documentation de Twitter : aucune dépendance OAuth (oauth-1.0a, oauth) pour trois échanges signés. Le reste de l'API Zotero n'est pas signé (clé dans `Zotero-API-Key`).
+- Anti-CSRF : la demande OAuth est liée au compte, à la session Clerk (`sid`) et au hachage d'un `state` aléatoire porté par l'URL de rappel ; la page web de rappel relaie à l'API avec la même session, la demande est consommée avant l'échange (rejeu refusé) et expire après 15 minutes. Un lien d'autorisation lancé par un autre compte ne peut donc pas être terminé dans la session de la victime.
+- Permissions minimales demandées à Zotero : bibliothèque personnelle en lecture sans les notes, groupes en lecture, aucune écriture. La clé est vérifiée (`GET /keys/current`) puis chiffrée au repos (`APP_KEY`), jamais renvoyée ni journalisée. Déconnexion : `DELETE /keys/current` chez Zotero (au mieux), puis effacement local, aussi sur les liens de projet.
+- `ZOTERO_CLIENT_KEY`/`ZOTERO_CLIENT_SECRET` facultatives : sans elles, 503 `E_ZOTERO_UNAVAILABLE`. Client injecté par le conteneur ; les tests branchent le vrai client sur un faux Zotero par son `fetch` (signatures vérifiées), sans réseau.
+
+## 2026-10-03 · Zotero : lien de projet et synchronisation du .bib
+
+- Un lien par projet (bibliothèque personnelle ou de groupe, collection ou toute la bibliothèque, `.bib` existant ou nouveau, `biblatex` par défaut ou `bibtex`), créé par un éditeur ou le propriétaire avec **sa** clé, copiée chiffrée sur le lien. Tout éditeur peut ensuite rafraîchir avec cette clé, sans la voir ni accéder à une autre bibliothèque ; lecteurs et relecteurs voient l'état seulement. Si l'auteur du lien se déconnecte, supprime son compte, quitte le projet, en est retiré ou perd `edit` (relecteur, lecteur), la clé quitte le lien (dans la transaction du partage, et revérifié à chaque usage) : un éditeur le refait avec la sienne. Toute clé effacée de Kaxolax (déconnexion, reconnexion, suppression du compte) est aussi révoquée chez Zotero, au mieux. Écarté : la clé de chaque utilisateur à chaque synchro (le `.bib` dépendrait de qui ouvre le projet).
+- Le `.bib` lié est entièrement géré : export Zotero (éléments de premier niveau, pages de 100, version `Last-Modified-Version` cohérente d'une page à l'autre) plus les éléments ajoutés hors collection par le sélecteur, sous un en-tête qui le dit. Écrit par le service temps réel (modification Yjs minimale attribuée au membre : historique, clients connectés) après vérification du stockage du plan ; refus au-delà de 2 Mo ou 5 000 éléments.
+- À l'ouverture du projet : au plus une tentative par 15 minutes, avec `If-Modified-Since-Version` (304 : une requête, rien d'écrit). À la demande : export complet (répare un `.bib` modifié à la main), même texte non réécrit. `Backoff` et `Retry-After` enregistrés sur le lien et respectés (429 `E_ZOTERO_BACKOFF`, synchro `open` ignorée) ; une synchro à la fois, réservée en base, reprise après 5 minutes.
+- Erreurs enregistrées sur le lien par leur code (`E_ZOTERO_…`), affichées traduites par le panneau, et annoncées par l'événement de projet `zotero.updated`.
+
+## 2026-10-03 · Zotero : sélecteur de citations
+
+- `GET /projects/:id/zotero/search?q=` (recherche rapide titre, auteurs, année de Zotero, 25 résultats, données et entrée exportée dans la même requête : la clé de citation est celle de l'export) et `POST /projects/:id/zotero/citations` (entrée ajoutée à la fin du `.bib` si sa clé manque, d'après le texte courant du service temps réel, pour ne pas écraser une frappe récente).
+- Deux entrées dans l'éditeur : l'autocomplétion de `\cite{` reçoit une source supplémentaire (`externalCitationSource` de `@kaxolax/editor` : après 2 caractères et 250 ms, sans filtrage par CodeMirror, clés déjà dans le projet exclues), et l'action Tools « Insérer une citation Zotero » (Structures) ouvre un sélecteur. Les deux insèrent la clé au curseur (ajoutée à la citation sous le curseur le cas échéant) et ajoutent l'entrée au `.bib`.
+- Les clés de citation sont celles que produit l'export de l'API Web de Zotero (pas celles de Better BibTeX, absentes de l'API) : une clé changée côté Zotero change le `.bib` à la synchro suivante.
+
+## 2026-10-03 · Zotero : clés de citation par élément, écritures sérialisées
+
+- Le traducteur BibTeX de Zotero ne garantit l'unicité des clés qu'à l'intérieur d'un même export (suffixes a, b…), et la clé d'un élément change selon qu'il est exporté seul ou avec sa collection : la synchro exporte donc chaque élément seul (`include=biblatex|bibtex`) et Kaxolax attribue les clés, suivies par clé d'élément (`zotero_links.citation_keys`). Collision : suffixe a, b… ; une clé attribuée reste tant qu'elle dérive de celle de Zotero. Une référence choisie ne peut plus être remplacée en silence par une autre de même clé.
+- La fin d'une synchro écrit le `.bib` sous le verrou de la ligne du lien (`FOR UPDATE`) ; les éléments choisis pendant une synchro sont exportés hors verrou avant son écriture (nouvelle passe s'il en arrive d'autres), aucun appel à Zotero n'est fait sous verrou. La synchro n'écrit que si sa réservation (`sync_started_at`) tient toujours : un lien refait ou supprimé entre-temps n'est ni écrasé ni réannoncé.
+- Ajout d'une citation : clé et élément retenus sous le verrou (court, sans appel externe), puis entrée ajoutée « en fin de document » par le service temps réel (`append` de la route interne `replace` : insertion seule, idempotente). Une frappe concurrente dans le `.bib` n'est plus écrasée ; sans réponse du service, le résultat est incertain (503, à refaire sans risque de doublon) et non plus annoncé comme « rien n'a changé ».
+- Pauses de Zotero (`Backoff`, `Retry-After`) enregistrées aussi par compte (`zotero_accounts.backoff_until`, même clé) : bibliothèques, collections et création du lien les respectent, la première synchro d'un lien créé pendant une pause attend.
+
+## 2026-10-03 · Zotero : portée d'un lien et droits réels de la clé
+
+- Une collection liée s'exporte avec toutes ses sous-collections (comme « Exporter la collection… » de Zotero) : une requête par sous-collection (au plus 200), même `Last-Modified-Version` pour toutes, un élément présent plusieurs fois n'a qu'une entrée. Les clés couvertes sont gardées sur le lien (`zotero_links.collection_scope`).
+- Lien à une collection : les autres éditeurs du projet ne cherchent (résultats de Zotero filtrés par `data.collections`) et n'ajoutent que dans cette portée, plus les éléments déjà ajoutés ; seul le membre qui a lié peut aller ailleurs dans sa bibliothèque (éléments retenus, au plus 500, au-delà 422). Lien à toute la bibliothèque : tout éditeur y cherche, et le formulaire le dit avant de lier. Écarté : interdire tout ajout hors collection (le cas « une référence de plus » du membre qui a lié est courant).
+- Droits de la clé : l'utilisateur peut les réduire sur zotero.org. Les bibliothèques proposées et liables sont celles que l'objet `access` de `GET /keys/current` déclare lisibles ; un 403 d'une clé qui répond encore à `/keys/current` devient `E_ZOTERO_LIBRARY_FORBIDDEN` (lien gardé avec sa clé), plus « clé révoquée ».
+- Une clé de citation nouvellement attribuée évite aussi celles des autres `.bib` du projet (pas de doublon entre fichiers) ; une clé déjà citée ne change pas.
+- OAuth : au plus 5 demandes en cours par compte, une par session, espacées de 10 s (429), réservées en base avant l'appel à Zotero : une boucle sur `POST …/connect` n'use pas la clé d'application. Connexion et déconnexion verrouillent la ligne `users` du compte et révoquent après validation exactement les clés effacées.
+
+## 2026-10-03 · Licence des templates
+
+- Les contenus des templates de kaxolax-templates sont placés sous CC0 1.0, limitée au dossier `templates/` (`templates/LICENSE`).
+- Chaque template déclare sa licence SPDX dans `metadata.json` (`CC0-1.0` pour les dix templates de départ) ; un template sous une autre licence le précise là et dans son `main.tex`.
+- L'outillage de kaxolax-templates (schéma, scripts, tests, CI) reste sans licence, comme les autres dépôts Kaxolax.
+- La renonciation CC0 est irrévocable dès la diffusion des templates : choix à confirmer par l'utilisateur avant la première publication.
+
+## 2026-10-03 · Vérification des constats de revue de l'étape 2
+
+- Les 180 constats confirmés pendant les revues de l'étape 2 (2 bloquants, 48 majeurs, 130 mineurs) ont été revérifiés contre `main` après la remise en état : 178 corrigés (preuve dans le code), 2 sans correction de code nécessaire (F092 déjà corrigé et couvert par des tests ; F078, licence CC0 des templates, consigné ci-dessus).
+
 ## 2026-10-03 · Workspaces d'équipe : miroir des Organisations Clerk
 
 - Un workspace `team` par Organisation Clerk (`workspaces.clerk_organization_id`), membres `admin`/`member` d'après `org:admin`/`org:member` (rôle personnalisé : `member`). Les équipes se gèrent dans Clerk (`<OrganizationSwitcher />`, `<CreateOrganization />`, `<OrganizationProfile />`), jamais par l'API ; invitations d'organisation laissées à Clerk.
@@ -895,3 +941,9 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Crédits : la réservation garde l'organisation ; un appel en cours pendant la dissolution est réglé sur la ligne de l'organisation (`workspace_id` NULL) et `ai_usage` est écrit sans la référence disparue. Écarté : imputer l'auteur (il paierait un appel de l'équipe).
 - Verrous consultatifs : compte (`clerk-user:`) avant organisation (`team:`), plusieurs organisations dans l'ordre des identifiants Clerk, partout (création et suppression de compte, rattrapage).
 - `POST /workspaces/sync` : en plus d'une lecture par organisation et par 10 s, au plus 10 lectures de Clerk par compte et 120 en tout par minute et par processus (429), en mémoire comme les autres limites de l'API : un compte qui crée de nombreuses organisations ne peut plus consommer le quota de l'API Backend. Le texte de `/pricing` précise que Team s'applique aux projets de l'équipe, pas aux projets personnels des membres.
+
+## 2026-10-03 · Zotero et équipes : clé d'un membre qui perd `edit` par son équipe
+
+- La règle « clé Zotero utilisable tant que le membre qui a lié garde `edit` » lit le rôle effectif (vue `project_access_roles`) et non plus la seule ligne `project_members` : un membre d'équipe sans invitation garde l'usage de sa clé, et un retrait du projet qui laisse un accès d'équipe éditeur ne l'efface pas.
+- Accès d'équipe perdus ou abaissés (départ de l'organisation, rôle, projets transférés au responsable, équipe dissoute, `PUT /projects/:id/team-access`) : `dropZoteroKeysWithoutEdit` efface la clé dans la même transaction, comme un retrait de projet. Le contrôle à chaque usage reste le filet.
+- Suppression de compte : départs d'équipe et révocation Zotero ensemble ; les clés de ses liens sont relevées avant les départs d'équipe (qui en effacent) pour être toutes révoquées chez Zotero.

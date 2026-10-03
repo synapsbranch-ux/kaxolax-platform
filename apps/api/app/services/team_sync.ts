@@ -23,6 +23,7 @@ import {
   releaseDeletedProject,
 } from '#services/project_service'
 import { ensurePersonalWorkspace } from '#services/workspace_service'
+import { dropZoteroKeysWithoutEdit } from '#services/zotero/link_access'
 
 /**
  * Workspaces d'équipe (tâche 10) : un workspace `team` par Organisation Clerk, ses membres
@@ -485,6 +486,28 @@ export async function reconcileOrganization(
   clerkOrganizationId: string,
   trx: TransactionClientContract,
 ): Promise<TeamSyncEffects> {
+  return dropLostZoteroKeys(await reconcileWorkspace(clerkOrganizationId, trx), trx)
+}
+
+/**
+ * Accès d'équipe perdus ou abaissés (départ, rôle, projet transféré, équipe dissoute) : la clé
+ * Zotero d'un compte qui n'a plus `edit` cesse de servir au lien du projet, comme pour un
+ * membre retiré du projet (`dropZoteroKeyUnlessEditor`).
+ */
+async function dropLostZoteroKeys(
+  effects: TeamSyncEffects,
+  trx: TransactionClientContract,
+): Promise<TeamSyncEffects> {
+  for (const change of effects.changes) {
+    await dropZoteroKeysWithoutEdit(change.projectIds, change.userIds, trx)
+  }
+  return effects
+}
+
+async function reconcileWorkspace(
+  clerkOrganizationId: string,
+  trx: TransactionClientContract,
+): Promise<TeamSyncEffects> {
   await lockTeam(clerkOrganizationId, trx)
   const organization = await ClerkOrganization.query({ client: trx })
     .where('clerkOrganizationId', clerkOrganizationId)
@@ -647,7 +670,7 @@ export async function releaseTeamMemberships(
     const userIds = handed.length > 0 && responsible !== null ? [user.id, responsible] : [user.id]
     if (projectIds.length > 0) changes.push({ projectIds, userIds })
   }
-  return { changes, deleted: [] }
+  return dropLostZoteroKeys({ changes, deleted: [] }, trx)
 }
 
 /**

@@ -54,6 +54,7 @@ import {
   ProjectNotFoundException,
 } from '#services/project_access'
 import { InvalidNewOwnerException, transferOwnership } from '#services/project_ownership'
+import { dropZoteroKeyUnlessEditor } from '#services/zotero/link_access'
 import {
   hashToken,
   isTokenShaped,
@@ -374,6 +375,8 @@ export async function changeMemberRole(
     if (changed) {
       member.role = role
       await member.useTransaction(trx).save()
+      // Sans `edit` (rôle d'équipe compris), sa clé Zotero ne sert plus au lien du projet.
+      await dropZoteroKeyUnlessEditor(project.id, member.userId, trx)
       await recordSharingEvent(
         {
           projectId: project.id,
@@ -404,6 +407,7 @@ export async function removeMember(user: User, projectId: string, memberId: stri
       if (!own) throw new MemberNotFoundException()
       if (own.role === 'owner') throw new OwnerCannotLeaveException()
       await own.useTransaction(trx).delete()
+      await dropZoteroKeyUnlessEditor(project.id, user.id, trx)
       await recordSharingEvent(
         {
           projectId: project.id,
@@ -425,6 +429,7 @@ export async function removeMember(user: User, projectId: string, memberId: stri
     if (!member) throw new MemberNotFoundException()
     if (member.role === 'owner') throw new OwnerRoleLockedException()
     await member.useTransaction(trx).delete()
+    await dropZoteroKeyUnlessEditor(project.id, member.userId, trx)
     await recordSharingEvent(
       {
         projectId: project.id,

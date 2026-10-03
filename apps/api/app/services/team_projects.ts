@@ -10,6 +10,7 @@ import { ProjectForbiddenException, projectFor } from '#services/project_access'
 import { serializeProject } from '#services/project_service'
 import type RealtimeClient from '#services/realtime_client'
 import { assertWorkspaceAcceptsProjects, workspaceFor } from '#services/workspace_service'
+import { dropZoteroKeysWithoutEdit } from '#services/zotero/link_access'
 
 /**
  * Projets d'un workspace d'équipe : déplacement d'un projet personnel vers une équipe, et rôle
@@ -115,12 +116,12 @@ export async function setTeamAccess(
       project.teamRole = role
       await project.useTransaction(trx).save()
     }
+    const userIds = changed ? await teamMemberIds(workspace.id, trx, 'member') : []
+    // Membres passés relecteurs ou lecteurs : leur clé Zotero ne sert plus au lien du projet.
+    await dropZoteroKeysWithoutEdit([project.id], userIds, trx)
     return {
       access: { projectId: project.id, workspaceId: workspace.id, role },
-      notice: {
-        projectId: project.id,
-        userIds: changed ? await teamMemberIds(workspace.id, trx, 'member') : [],
-      },
+      notice: { projectId: project.id, userIds },
     }
   })
 }

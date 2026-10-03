@@ -142,4 +142,11 @@ export default await Env.create(new URL('../', import.meta.url), {
    * l'IA répondent 503 `E_AI_UNAVAILABLE` et le reste de l'application fonctionne.
    */
   ANTHROPIC_API_KEY: Env.schema.secret.optional(),
+
+  /**
+   * Application OAuth 1.0a de Zotero (zotero.org/oauth/apps), facultative : sans les deux valeurs,
+   * les routes de Zotero répondent 503 `E_ZOTERO_UNAVAILABLE` et le reste fonctionne.
+   */
+  ZOTERO_CLIENT_KEY: Env.schema.string.optional(),
+  ZOTERO_CLIENT_SECRET: Env.schema.secret.optional(),
 })

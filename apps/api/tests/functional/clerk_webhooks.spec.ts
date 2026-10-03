@@ -16,8 +16,10 @@ import WorkspaceMember from '#models/workspace_member'
 import ZoteroLink from '#models/zotero_link'
 import { createPersonalAccessToken } from '#services/personal_access_tokens'
 import RealtimeClient from '#services/realtime_client'
+import ZoteroClient from '#services/zotero/client'
 import { signWebhook } from '#tests/clerk_keys'
 import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
+import { FakeZotero } from '#tests/zotero'
 
 class FakeRealtimeClient extends RealtimeClient {
   closed: string[] = []
@@ -68,14 +70,18 @@ async function send(
 }
 
 let realtime: FakeRealtimeClient
+let zotero: FakeZotero
 
 test.group('clerk: webhooks', (group) => {
   group.each.setup(() => testUtils.db().wrapInGlobalTransaction())
   group.each.setup(() => {
     realtime = new FakeRealtimeClient()
+    zotero = new FakeZotero()
     app.container.swap(RealtimeClient, () => realtime)
+    app.container.swap(ZoteroClient, () => zotero.client())
     return () => {
       app.container.restore(RealtimeClient)
+      app.container.restore(ZoteroClient)
     }
   })
 
@@ -264,6 +270,7 @@ test.group('clerk: webhooks', (group) => {
       apiKey: 'zotero-plain-key',
       syncStatus: 'idle',
     })
+    zotero.validKeys.add('zotero-plain-key')
     const { token } = await createPersonalAccessToken(user, {
       name: 'MCP',
       scopes: ['read'],
@@ -278,6 +285,8 @@ test.group('clerk: webhooks', (group) => {
     assert.isNotNull(await AiConversation.find(theirs.id))
     assert.lengthOf(await GitLink.query().where('ownerId', user.id), 0)
     assert.lengthOf(await ZoteroLink.query().where('ownerId', user.id), 0)
+    // La clé Zotero effacée est aussi révoquée chez Zotero, après validation.
+    assert.deepEqual(zotero.revokedKeys, ['zotero-plain-key'])
     await token.refresh()
     assert.isNotNull(token.revokedAt)
     // Projets des autres intacts.

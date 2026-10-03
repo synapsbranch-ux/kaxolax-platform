@@ -29,6 +29,8 @@ import {
   NO_TEAM_EFFECTS,
   type TeamSyncEffects,
 } from '#services/team_sync'
+import ZoteroClient from '#services/zotero/client'
+import { revokeZoteroKeys } from '#services/zotero/connection'
 
 const SIGNATURE_HEADERS = ['svix-id', 'svix-timestamp', 'svix-signature'] as const
 
@@ -43,6 +45,8 @@ interface WebhookEffects {
   left: { userId: string; projectIds: string[] } | null
   /** Accès d'équipe changés (organisations, adhésions) : rôles à revérifier en temps réel. */
   team: TeamSyncEffects
+  /** Clés Zotero d'un compte supprimé, à révoquer chez Zotero (au mieux). */
+  zoteroKeys: string[]
 }
 
 const NO_EFFECTS: WebhookEffects = {
@@ -51,6 +55,7 @@ const NO_EFFECTS: WebhookEffects = {
   joined: null,
   left: null,
   team: NO_TEAM_EFFECTS,
+  zoteroKeys: [],
 }
 
 /**
@@ -70,6 +75,7 @@ export default class ClerkWebhooksController {
     private readonly realtime: RealtimeClient,
     private readonly storage: ObjectStorage,
     private readonly outputs: CompileOutputStorage,
+    private readonly zotero: ZoteroClient,
   ) {}
 
   async handle({ request, response }: HttpContext) {
@@ -124,7 +130,10 @@ export default class ClerkWebhooksController {
         }
       }
       if (event.type === 'user.deleted' && typeof event.data.id === 'string') {
-        const { userId, deleted, leftProjectIds, team } = await deleteClerkUser(event.data.id, trx)
+        const { userId, deleted, leftProjectIds, team, zoteroKeys } = await deleteClerkUser(
+          event.data.id,
+          trx,
+        )
         if (userId === null) return NO_EFFECTS
         return {
           ...NO_EFFECTS,
@@ -132,6 +141,7 @@ export default class ClerkWebhooksController {
           disconnectUserId: userId,
           left: { userId, projectIds: leftProjectIds },
           team,
+          zoteroKeys,
         }
       }
       if (isOrganizationEvent(event.type)) {
@@ -158,6 +168,7 @@ export default class ClerkWebhooksController {
     }
     if (effects.left) {
       await announceDepartures(this.realtime, effects.left.userId, effects.left.projectIds, null)
+      await revokeZoteroKeys(this.zotero, effects.zoteroKeys, { userId: effects.left.userId })
     }
     // Membre retiré d'une équipe : connexions fermées, rôle relu (comme un retrait de projet).
     await applyTeamEffects(

@@ -37,6 +37,8 @@ const AiSettingsController = () => import('#controllers/ai_settings_controller')
 const PersonalAccessTokensController = () =>
   import('#controllers/personal_access_tokens_controller')
 const ClientConfigController = () => import('#controllers/client_config_controller')
+const ZoteroController = () => import('#controllers/zotero_controller')
+const ProjectZoteroController = () => import('#controllers/project_zotero_controller')
 
 router
   .group(() => {
@@ -69,6 +71,17 @@ router
         router.get('me/tokens', [PersonalAccessTokensController, 'index'])
         router.post('me/tokens', [PersonalAccessTokensController, 'store'])
         router.delete('me/tokens/:id', [PersonalAccessTokensController, 'destroy'])
+        // Zotero (packages/contracts/src/zotero.ts) : connexion OAuth 1.0a du compte. Le rappel
+        // est relayé par la page web de rappel, avec la session Clerk qui a lancé la connexion.
+        router.get('me/integrations/zotero', [ZoteroController, 'show'])
+        router.post('me/integrations/zotero/connect', [ZoteroController, 'connect'])
+        router.delete('me/integrations/zotero', [ZoteroController, 'destroy'])
+        router.get('me/integrations/zotero/libraries', [ZoteroController, 'libraries'])
+        router.get('me/integrations/zotero/libraries/:type/:libraryId/collections', [
+          ZoteroController,
+          'collections',
+        ])
+        router.get('integrations/zotero/callback', [ZoteroController, 'callback'])
         // Bannières système actives (affichées en haut de l'application).
         router.get('banners/active', [BannersController, 'active'])
         // Canal temps réel du compte (bannière système en direct sur toutes les pages).
@@ -194,6 +207,14 @@ router
         router.get('projects/:id/builds/:buildId', [BuildsController, 'show'])
         router.post('projects/:id/compiler/warm', [BuildsController, 'warm'])
         router.post('projects/:id/word-count', [WordCountsController, 'count'])
+        // Lien Zotero du projet : lecture par tout membre, le reste avec la permission `edit`
+        // (clé du membre qui a lié).
+        router.get('projects/:id/zotero', [ProjectZoteroController, 'show'])
+        router.put('projects/:id/zotero', [ProjectZoteroController, 'update'])
+        router.delete('projects/:id/zotero', [ProjectZoteroController, 'destroy'])
+        router.post('projects/:id/zotero/sync', [ProjectZoteroController, 'sync'])
+        router.get('projects/:id/zotero/search', [ProjectZoteroController, 'search'])
+        router.post('projects/:id/zotero/citations', [ProjectZoteroController, 'addCitation'])
         router.get('projects/:id/download.zip', [ExportsController, 'download'])
         router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })

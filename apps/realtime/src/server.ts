@@ -4,6 +4,7 @@ import { Database } from '@hocuspocus/extension-database'
 import { Redis as RedisExtension } from '@hocuspocus/extension-redis'
 import { type Extension, type Hocuspocus, isTransactionOrigin, Server } from '@hocuspocus/server'
 import {
+  appendTextBlock,
   documentName,
   parseDocumentName,
   parseMetaDocumentName,
@@ -342,8 +343,8 @@ export function createRealtimeServer(
   /**
    * Remplace le texte d'un document (restauration d'une version) par une modification minimale,
    * faite par une connexion directe au nom du compte qui restaure : les clients connectés la
-   * reçoivent, elle est journalisée avec cet auteur et enregistrée en base. Null : document
-   * inconnu.
+   * reçoivent, elle est journalisée avec cet auteur et enregistrée en base. `append` : bloc ajouté
+   * à la fin du texte courant s'il n'y est pas (insertion seule). Null : document inconnu.
    */
   const replaceDocument = async (
     instance: Hocuspocus,
@@ -370,7 +371,19 @@ export function createRealtimeServer(
     )
     let changed = false
     try {
-      for (let attempt = 0; attempt < REPLACE_ATTEMPTS; attempt++) {
+      if (request.append === true) {
+        // Ajout en fin de texte : insertion seule, une fois. Avec plusieurs instances, le texte
+        // d'ici rattrape d'abord celui des autres (le bloc y est peut-être déjà).
+        const document = connection.document
+        const states = (await peerStates(projectId)).get(documentId) ?? []
+        if (document && states.length > 0) {
+          await waitForStates(document, states, Date.now() + SNAPSHOT_SYNC_TIMEOUT_MS)
+        }
+        await connection.transact((current) => {
+          changed = appendTextBlock(current.getText(TEXT_FIELD), request.content)
+        })
+      }
+      for (let attempt = 0; request.append !== true && attempt < REPLACE_ATTEMPTS; attempt++) {
         await connection.transact((document) => {
           if (replaceTextMinimally(document.getText(TEXT_FIELD), request.content)) changed = true
         })

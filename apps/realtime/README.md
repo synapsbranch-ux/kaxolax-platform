@@ -166,17 +166,17 @@ rejoue ce journal pour créer les versions et attribuer chaque changement à son
 
 ## Routes HTTP
 
-| Route                                                  | Rôle                                                                                                                        |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`                                          | État du service et nombre de documents ouverts                                                                              |
-| `GET /internal/projects/:id/snapshot`                  | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe), à jour des autres instances              |
-| `POST /internal/documents/:id/close`                   | Ferme les connexions d'un document supprimé                                                                                 |
-| `POST /internal/users/:id/disconnect`                  | Ferme toutes les connexions d'un compte, son canal compris (banni, supprimé, sessions révoquées)                            |
-| `POST /internal/projects/:id/members/:userId/changed`  | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`)                                      |
-| `POST /internal/projects/:id/events`                   | Publie `{ event }` (`publishProjectEventRequestSchema`) sur le document meta du projet                                      |
-| `POST /internal/events`                                | Publie `{ event }` (`banner.changed`) sur tous les documents meta et tous les canaux des utilisateurs                       |
-| `POST /internal/projects/:id/updates/flush`            | Historique : écrit tout de suite le journal en attente du projet, sur toutes les instances (réponses attendues 2 s au plus) |
-| `POST /internal/projects/:id/documents/:docId/replace` | Restauration : remplace le texte (`{ content, userId }`) par une modification minimale                                      |
+| Route                                                  | Rôle                                                                                                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                          | État du service et nombre de documents ouverts                                                                                                                            |
+| `GET /internal/projects/:id/snapshot`                  | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe), à jour des autres instances                                                            |
+| `POST /internal/documents/:id/close`                   | Ferme les connexions d'un document supprimé                                                                                                                               |
+| `POST /internal/users/:id/disconnect`                  | Ferme toutes les connexions d'un compte, son canal compris (banni, supprimé, sessions révoquées)                                                                          |
+| `POST /internal/projects/:id/members/:userId/changed`  | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`)                                                                                    |
+| `POST /internal/projects/:id/events`                   | Publie `{ event }` (`publishProjectEventRequestSchema`) sur le document meta du projet                                                                                    |
+| `POST /internal/events`                                | Publie `{ event }` (`banner.changed`) sur tous les documents meta et tous les canaux des utilisateurs                                                                     |
+| `POST /internal/projects/:id/updates/flush`            | Historique : écrit tout de suite le journal en attente du projet, sur toutes les instances (réponses attendues 2 s au plus)                                               |
+| `POST /internal/projects/:id/documents/:docId/replace` | Restauration : remplace le texte (`{ content, userId }`) par une modification minimale ; avec `append: true`, ajoute le bloc `content` à la fin s'il n'y est pas (Zotero) |
 
 Les routes `/internal` exigent l'en-tête `X-Internal-Token`. Leurs réponses suivent les schémas
 de `@kaxolax/contracts` (`projectSnapshotSchema`, `closeDocumentResponseSchema`,

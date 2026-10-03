@@ -15,6 +15,7 @@ import Subscription from '#models/subscription'
 import User from '#models/user'
 import Workspace from '#models/workspace'
 import WorkspaceMember from '#models/workspace_member'
+import ZoteroLink from '#models/zotero_link'
 import {
   creditAccountFor,
   creditsSummary,
@@ -46,10 +47,12 @@ import {
   WorkspaceSyncRateLimitedException,
 } from '#services/team_catchup'
 import { applyOrganizationEvent } from '#services/team_sync'
+import ZoteroClient from '#services/zotero/client'
 import { adminFakes, createAdmin, FakeClerkBackend, useAdminFakes } from '#tests/admin'
 import { clerkTokenFor } from '#tests/clerk'
 import { signWebhook } from '#tests/clerk_keys'
 import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
+import { FakeZotero } from '#tests/zotero'
 
 // --- Charges utiles Clerk réalistes -----------------------------------------------------------
 
@@ -1450,5 +1453,115 @@ test.group('teams: concurrency', () => {
       .where({ workspaceId: workspace.id, userId: user.id })
       .first()
     assert.equal(member?.role, 'member')
+  })
+})
+
+// --- Zotero : clé d'un membre qui perd `edit` par son équipe ----------------------------------
+
+test.group('teams: Zotero keys', (group) => {
+  useAdminFakes(group)
+  let zotero: FakeZotero
+  group.each.setup(() => {
+    zotero = new FakeZotero()
+    app.container.swap(ZoteroClient, () => zotero.client())
+    return () => {
+      app.container.restore(ZoteroClient)
+    }
+  })
+
+  /** Lien Zotero du projet créé par `owner`, avec sa clé. */
+  async function linkZotero(projectId: string, owner: User, apiKey: string) {
+    zotero.validKeys.add(apiKey)
+    return ZoteroLink.create({
+      projectId,
+      ownerId: owner.id,
+      libraryType: 'user',
+      libraryId: '42',
+      collectionKey: null,
+      documentId: null,
+      apiKey,
+      syncStatus: 'idle',
+    })
+  }
+
+  test('a member who loses edit through the team stops lending their key', async ({
+    client,
+    assert,
+  }) => {
+    const team = await createTeam(client)
+    const demoted = await createTeamProject(client, team, team.admin, 'Demoted')
+    const teamOnly = await createTeamProject(client, team, team.admin, 'Team only')
+    const invited = await createTeamProject(client, team, team.admin, 'Invited')
+    const owned = await createTeamProject(client, team, team.member, 'Owned')
+    // Invitation individuelle éditeur : elle garde `edit` après le départ de l'équipe.
+    await ProjectMember.create({ projectId: invited.id, userId: team.member.id, role: 'editor' })
+    const links = {
+      demoted: await linkZotero(demoted.id, team.member, 'key-demoted'),
+      teamOnly: await linkZotero(teamOnly.id, team.member, 'key-team-only'),
+      invited: await linkZotero(invited.id, team.member, 'key-invited'),
+      owned: await linkZotero(owned.id, team.member, 'key-owned'),
+    }
+
+    // Rôle d'équipe abaissé sur un projet : sa clé n'y sert plus, les autres restent.
+    await setTeamRole(client, team.admin, demoted.id, 'reviewer')
+    await links.demoted.refresh()
+    assert.isNull(links.demoted.apiKey)
+    assert.equal(links.demoted.lastError, 'E_ZOTERO_KEY_INVALID')
+    await links.teamOnly.refresh()
+    assert.equal(links.teamOnly.apiKey, 'key-team-only')
+
+    // Retrait de l'invitation alors que l'équipe lui donne `edit` : la clé reste.
+    await setTeamRole(client, team.admin, demoted.id, 'editor')
+    await ProjectMember.create({ projectId: teamOnly.id, userId: team.member.id, role: 'viewer' })
+    ;(
+      await client
+        .delete(`/api/v1/projects/${teamOnly.id}/members/${team.member.id}`)
+        .loginAs(team.admin)
+    ).assertStatus(204)
+    await links.teamOnly.refresh()
+    assert.equal(links.teamOnly.apiKey, 'key-team-only')
+
+    // Départ de l'équipe : plus de clé sur les projets d'équipe (dont le sien, transféré au
+    // responsable), gardée là où une invitation lui laisse `edit`.
+    await send(
+      client,
+      'organizationMembership.deleted',
+      membershipJson(team.organization, team.member.clerkUserId, 'org:member'),
+    )
+    await owned.refresh()
+    assert.equal(owned.ownerId, team.admin.id)
+    for (const link of [links.teamOnly, links.owned]) {
+      await link.refresh()
+      assert.isNull(link.apiKey)
+      assert.equal(link.lastError, 'E_ZOTERO_KEY_INVALID')
+    }
+    await links.invited.refresh()
+    assert.equal(links.invited.apiKey, 'key-invited')
+    // Aucune révocation chez Zotero : la clé reste celle de son compte.
+    assert.deepEqual(zotero.revokedKeys, [])
+  })
+
+  test('a deleted team member hands over their projects and has every key revoked', async ({
+    client,
+    assert,
+  }) => {
+    const team = await createTeam(client)
+    const owned = await createTeamProject(client, team, team.member, 'Owned')
+    const shared = await createTeamProject(client, team, team.admin, 'Shared')
+    await linkZotero(owned.id, team.member, 'key-owned')
+    await linkZotero(shared.id, team.member, 'key-shared')
+
+    await send(client, 'user.deleted', {
+      object: 'user',
+      id: team.member.clerkUserId,
+      deleted: true,
+    })
+
+    await owned.refresh()
+    assert.equal(owned.ownerId, team.admin.id)
+    assert.notProperty(await roles(team.workspace.id), team.member.id)
+    assert.lengthOf(await ZoteroLink.query().where('ownerId', team.member.id), 0)
+    // Clés effacées par le départ de l'équipe comprises : toutes révoquées chez Zotero.
+    assert.sameMembers(zotero.revokedKeys, ['key-owned', 'key-shared'])
   })
 })

@@ -37,6 +37,7 @@ valide avec ces schémas les messages qu'il reçoit ; un module par domaine, tou
 | `suggestions.ts`         | Suggestions (suivi des modifications) d'un membre ou de l'IA : types, statuts, ancrage                                            |
 | `tokens.ts`              | Jetons d'accès personnels (`/api/v1/me/tokens`) : portées, limites, création, liste                                               |
 | `integrations.ts`        | Liens d'intégration d'un projet : dépôt Git (GitHub) et bibliothèque Zotero                                                       |
+| `zotero.ts`              | Zotero : connexion OAuth, bibliothèques, lien du projet, synchronisation, recherche et citations, codes d'erreur                  |
 
 Le paquet est compilé vers `dist/` (ESM + déclarations). Commandes :
 
