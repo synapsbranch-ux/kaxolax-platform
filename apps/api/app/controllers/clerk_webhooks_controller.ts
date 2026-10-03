@@ -22,6 +22,15 @@ import { announceAutoJoins, announceDepartures } from '#services/project_events'
 import { type DeletedProject, releaseDeletedProject } from '#services/project_service'
 import type { JoinedProject } from '#services/sharing_service'
 import RealtimeClient from '#services/realtime_client'
+import {
+  applyOrganizationEvent,
+  applyTeamEffects,
+  isOrganizationEvent,
+  NO_TEAM_EFFECTS,
+  type TeamSyncEffects,
+} from '#services/team_sync'
+import ZoteroClient from '#services/zotero/client'
+import { revokeZoteroKeys } from '#services/zotero/connection'
 
 const SIGNATURE_HEADERS = ['svix-id', 'svix-timestamp', 'svix-signature'] as const
 
@@ -34,13 +43,25 @@ interface WebhookEffects {
   joined: { userId: string; projects: JoinedProject[] } | null
   /** Projets partagés quittés par un compte supprimé, à annoncer. */
   left: { userId: string; projectIds: string[] } | null
+  /** Accès d'équipe changés (organisations, adhésions) : rôles à revérifier en temps réel. */
+  team: TeamSyncEffects
+  /** Clés Zotero d'un compte supprimé, à révoquer chez Zotero (au mieux). */
+  zoteroKeys: string[]
 }
 
-const NO_EFFECTS: WebhookEffects = { deleted: [], disconnectUserId: null, joined: null, left: null }
+const NO_EFFECTS: WebhookEffects = {
+  deleted: [],
+  disconnectUserId: null,
+  joined: null,
+  left: null,
+  team: NO_TEAM_EFFECTS,
+  zoteroKeys: [],
+}
 
 /**
- * Webhooks Clerk (user.created, user.updated, user.deleted, et Billing : subscription.*,
- * subscriptionItem.*) : signature vérifiée sur le corps brut, chaque événement traité une seule
+ * Webhooks Clerk (user.created, user.updated, user.deleted, Organisations : organization.*,
+ * organizationMembership.*, organizationInvitation.* (#services/team_sync), et Billing :
+ * subscription.*, subscriptionItem.*, personnels ou d'organisation) : signature vérifiée sur le corps brut, chaque événement traité une seule
  * fois (table clerk_webhook_events, même transaction). Le champ `banned` est reflété dans
  * `users.banned_at` ; un compte banni ou supprimé perd aussitôt ses connexions temps réel. Les
  * abonnements sont reflétés dans `subscriptions` (#services/billing_webhooks) ; leurs emails sont
@@ -54,6 +75,7 @@ export default class ClerkWebhooksController {
     private readonly realtime: RealtimeClient,
     private readonly storage: ObjectStorage,
     private readonly outputs: CompileOutputStorage,
+    private readonly zotero: ZoteroClient,
   ) {}
 
   async handle({ request, response }: HttpContext) {
@@ -97,24 +119,33 @@ export default class ClerkWebhooksController {
         const profile = profileFromWebhook(event.data)
         // Sans email principal vérifié, le compte attend : rien à refléter pour l'instant.
         if (!profile) return NO_EFFECTS
-        const { user, joined } = await upsertClerkUser(profile, trx)
+        const { user, joined, team } = await upsertClerkUser(profile, trx)
         const banState = banStateFromWebhook(event.data)
         const banned = banState !== null && (await applyBanState(user, banState, trx))
         return {
           ...NO_EFFECTS,
           disconnectUserId: banned ? user.id : null,
           joined: { userId: user.id, projects: joined },
+          team,
         }
       }
       if (event.type === 'user.deleted' && typeof event.data.id === 'string') {
-        const { userId, deleted, leftProjectIds } = await deleteClerkUser(event.data.id, trx)
+        const { userId, deleted, leftProjectIds, team, zoteroKeys } = await deleteClerkUser(
+          event.data.id,
+          trx,
+        )
         if (userId === null) return NO_EFFECTS
         return {
           ...NO_EFFECTS,
           deleted,
           disconnectUserId: userId,
           left: { userId, projectIds: leftProjectIds },
+          team,
+          zoteroKeys,
         }
+      }
+      if (isOrganizationEvent(event.type)) {
+        return { ...NO_EFFECTS, team: await applyOrganizationEvent(event, trx) }
       }
       if (isBillingEvent(event.type)) {
         await queueBillingMails(eventId, await applyBillingEvent(event, trx), trx)
@@ -137,7 +168,13 @@ export default class ClerkWebhooksController {
     }
     if (effects.left) {
       await announceDepartures(this.realtime, effects.left.userId, effects.left.projectIds, null)
+      await revokeZoteroKeys(this.zotero, effects.zoteroKeys, { userId: effects.left.userId })
     }
+    // Membre retiré d'une équipe : connexions fermées, rôle relu (comme un retrait de projet).
+    await applyTeamEffects(
+      { realtime: this.realtime, storage: this.storage, outputs: this.outputs },
+      effects.team,
+    )
     if (!(await deliverBillingMails(eventId))) {
       response.serviceUnavailable({
         code: 'E_BILLING_MAIL_PENDING',

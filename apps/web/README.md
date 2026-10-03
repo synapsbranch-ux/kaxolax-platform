@@ -28,6 +28,31 @@ l'API).
   commune (`PlanLimitDialog`, layout `(app)`) pour tout appel de l'API ; un écran qui affiche le
   refus lui-même (modale de partage) appelle `markPlanLimitHandled(error)` dans son `catch` et
   passe `error.planLimit` au composant.
+- **Équipes (Organisations Clerk)** (`components/teams/`, `lib/teams.ts`) : sélecteur de
+  workspace maison (pied de sidebar, barre du tableau de bord sur écran étroit ;
+  `components/workspace/sidebar/sidebar-footer.tsx`) branché sur `GET /api/v1/workspaces` :
+  « Personnel » puis les équipes, tableau de bord filtré (`?workspace=`) et organisation active de
+  Clerk alignée (`setActive`, aucune pour le personnel) pour que le jeton porte le plan de
+  l'équipe ; « Créer une équipe » (`/team/new`, `<CreateOrganization />`) et « Gérer l'équipe ».
+  Page de l'équipe `/team/<org_…>` : nom, rôle, sièges, badge du plan, plan et usage mutualisés
+  (`GET /workspaces/:id/plan` : stockage, compilation, invités, historique, crédits par siège),
+  lien vers ses projets et `<OrganizationProfile />` (membres, invitations, rôles, facturation
+  de l'organisation quand Billing est activé pour les organisations). L'organisation y devient
+  active ; tant que son workspace n'existe pas (webhook en route, ou absent en local sans tunnel),
+  la page appelle `POST /workspaces/sync` et relit toutes les 2 s (une minute au plus). Tableau de
+  bord : invitations d'équipe en attente (« Rejoindre », `useOrganizationList`), bandeau de
+  l'équipe affichée (sièges, rôle, plan, jauge du stockage mutualisé), badge d'équipe des projets,
+  « Déplacer vers une équipe… » (projet personnel possédé, `POST /projects/:id/move`). Modale de
+  partage d'un projet d'équipe : accès de l'équipe et rôle de ses membres
+  (`PUT /projects/:id/team-access`). `/pricing#team` : plan Team et `<PricingTable
+for="organization" />` pour l'organisation active. Les `has()` du plan personnel sont de portée
+  utilisateur (`u:pro`, `u:<feature>`) : sans préfixe, Clerk accepterait aussi ceux de
+  l'organisation active.
+- **Intégrations** (`/account/integrations`, page ajoutée à `<UserProfile />`) : connecter
+  Zotero (OAuth sur zotero.org, accès en lecture seule) ou le déconnecter
+  (`components/integrations/zotero-connection.tsx`). zotero.org renvoie sur
+  `/integrations/zotero/callback`, qui termine la connexion auprès de l'API avec la même session
+  puis revient aux intégrations.
 - 404, et `/healthz` (sonde publique).
 - **Galerie de templates** (`components/templates/`) : `/templates` (publique, rendue par le
   serveur depuis `GET /api/v1/templates`) avec recherche (sans accents, même fonction
@@ -127,6 +152,15 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
       `POST /projects/:id/word-count` (texcount dans le sandbox) après envoi des dernières
       frappes ; document principal ou fichier ouvert ; total, texte, titres, légendes, formules,
       détail par section ; chargement, erreurs traduites, Recompter.
+    - **Zotero** (étape 3, `lib/zotero.ts`) : panneau Fichier → « Zotero : bibliothèque liée »
+      (`tools/zotero-dialog.tsx` : bibliothèque, collection, `.bib` cible, format, état et date
+      de la dernière synchro, erreurs, Synchroniser, Modifier, Retirer le lien ; lecture pour
+      tous, actions pour les éditeurs) ; Structures → « Insérer une citation Zotero »
+      (`tools/zotero-citation-dialog.tsx` : recherche, `\cite{clé}` au curseur ou ajouté à la
+      citation sous le curseur, entrée ajoutée au `.bib`) ; autocomplétion de `\cite{` complétée
+      par la bibliothèque liée (`useProjectZotero`, source `externalCitationSource` de
+      `@kaxolax/editor`) ; synchro `open` à l'ouverture du projet (éditeurs, limitée par l'API) ;
+      événement `zotero.updated` pour les panneaux ouverts.
     - **Barre d'état** sous l'éditeur : ligne et colonne, mode Vim/Emacs, langue du correcteur,
       compteur de mots, paramètres.
   - PDF (pdf.js) : pastille de statut (Recompiler, Ctrl+Entrée) et son menu (auto-compilation,
@@ -291,7 +325,8 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
   passe à `ClerkProvider` et à `ThemeScript`) et `'strict-dynamic'` (scripts chargés par ceux-ci :
   Clerk UI, Turnstile, Stripe). Clerk ajoute ses origines (Frontend API de l'instance tirée de
   `CLERK_PUBLISHABLE_KEY`, `img.clerk.com`, `challenges.cloudflare.com`, Stripe pour Billing,
-  télémétrie, workers `blob:`), et `'unsafe-eval'` en développement seulement (rechargement à
+  télémétrie, workers `blob:`; les composants d'Organisations n'en demandent pas d'autre : logos
+  sur `img.clerk.com`, appels à la Frontend API), et `'unsafe-eval'` en développement seulement (rechargement à
   chaud). L'application ajoute : `connect-src` temps réel, stockage et templates ; `img-src`
   `data:`, `blob:`, stockage et templates ; `font-src 'self' data:` (polices locales, MathLive,
   pdf.js) ; `worker-src 'self' blob:` (correcteur, pdf.js) ; `frame-src blob:` (impression du
@@ -345,13 +380,15 @@ pnpm --filter @kaxolax/web exec playwright test e2e/chat.spec.ts   # un seul dom
 
 Variables (environnement du shell, pas de `.env` lu) :
 
-| Variable                                    | Rôle                                                                  |
-| ------------------------------------------- | --------------------------------------------------------------------- |
-| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | instance Clerk **de développement** (obligatoires, `global-setup.ts`) |
-| `E2E_BASE_URL`                              | application (défaut `http://localhost:3000`)                          |
-| `E2E_ADMIN_URL`                             | admin (défaut `http://localhost:3001`)                                |
-| `E2E_MAILPIT_URL`                           | API de Mailpit (défaut `http://localhost:8025`)                       |
-| `PLAYWRIGHT_CHROMIUM_EXECUTABLE`            | Chromium déjà installé, à la place de celui de Playwright             |
+| Variable                                     | Rôle                                                                  |
+| -------------------------------------------- | --------------------------------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`  | instance Clerk **de développement** (obligatoires, `global-setup.ts`) |
+| `E2E_BASE_URL`                               | application (défaut `http://localhost:3000`)                          |
+| `E2E_ADMIN_URL`                              | admin (défaut `http://localhost:3001`)                                |
+| `E2E_MAILPIT_URL`                            | API de Mailpit (défaut `http://localhost:8025`)                       |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE`             | Chromium déjà installé, à la place de celui de Playwright             |
+| `E2E_ZOTERO_USERNAME`, `E2E_ZOTERO_PASSWORD` | compte zotero.org de test (`zotero.spec.ts`, sauté sans elles)        |
+| `E2E_ZOTERO_QUERY`                           | texte d'une référence de ce compte (défaut `the`)                     |
 
 Parcours (un fichier par domaine, `e2e/*.spec.ts`), chacun indépendant : il crée ses comptes et
 ses projets, et les supprime à la fin (projets possédés par l'API, comptes par l'API Backend de
@@ -384,6 +421,10 @@ Clerk) :
   et Emacs, retour à la ligne, correcteur désactivé) appliqués à chaud, gardés après rechargement
   et sur un autre appareil, autocomplétion (`\cite{` mesurée, `\ref`, `\eqref`, commandes des
   packages chargés, chemins de `\input` et `\includegraphics`) ;
+- `zotero.spec.ts` (étape 3, sauté sans compte Zotero de test ni application OAuth sur l'API) :
+  connexion OAuth sur zotero.org, lien de la bibliothèque, synchro vers `references.bib`,
+  synchro idempotente, citation insérée par le sélecteur ; captures `zotero-panel.png` et
+  `zotero-citation-picker.png` dans `e2e/screenshots/` ;
 - `spellcheck.spec.ts` : correcteur (langue du projet changée depuis la barre d'état, commandes
   LaTeX et maths ignorées, correction proposée au clic droit, dictionnaire personnel gardé après
   rechargement) ;
@@ -400,6 +441,13 @@ Clerk) :
 - `plan-limits.spec.ts` : limites du plan Free appliquées par l'API (`E_PLAN_LIMIT`) avec le lien
   vers `/pricing` : collaborateurs (modale de partage), durée de compilation (PDF), stockage
   (upload refusé) ; onglet Billing de `/account` ;
+- `teams.spec.ts` : création d'une équipe (`<CreateOrganization />` depuis le sélecteur de
+  workspace), invitation d'un second compte depuis la page de l'équipe et acceptation dans son
+  tableau de bord, projet personnel déplacé vers l'équipe, accès du membre (éditeur, puis
+  lecteur en direct par le réglage d'équipe du partage), retrait du membre dans
+  `<OrganizationProfile />` : déconnexion du projet et 404. Organizations doit être activé sur
+  l'instance ; sans tunnel, le parcours constate le retrait par `POST /workspaces/sync`
+  (`e2e/teams.ts`), et supprime l'organisation à la fin ;
 - `admin.spec.ts` : accès refusé sans rôle ou sans MFA, ouvert avec les deux, recherche d'un
   utilisateur, bannière reçue en direct par l'application, journal ; bannir (déconnexion
   immédiate, temps réel compris, reconnexion refusée), débannir, révoquer les sessions,
@@ -438,7 +486,7 @@ démonstration est semé (fichiers, image, bibliographie, deux collaboratrices, 
 suggestions, messages, versions, lien de partage, invitation, correcteur en français), puis chaque écran
 (`SCREENS` de `e2e/screens.ts` : connexion et inscription, pages, nouveau projet depuis un
 template, bannière système active (créée puis supprimée par l'admin), menus de la pastille et
-du PDF, limite de collaborateurs atteinte, correcteur, pages pour rejoindre un projet, historique, compte et facturation, fiches de l'admin…) est capturé en
+du PDF, limite de collaborateurs atteinte, correcteur, pages pour rejoindre un projet, historique, compte et facturation, équipes (sélecteur, projets et plan de l'équipe, page de l'équipe, création), fiches et organisations de l'admin…) est capturé en
 pleine page, en thème sombre et clair, en 1440×900 et 390×844 (l'admin n'a que le thème
 sombre) : `e2e/screenshots/<écran>--<thème>--<taille>.png`, noms stables, dossier ignoré par
 git, vidé au début de chaque passage (aucune image périmée), et `e2e/screenshots/index.md`

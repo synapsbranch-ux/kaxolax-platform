@@ -27,8 +27,8 @@ import type Project from '#models/project'
 import type { ProjectRole } from '#models/project_member'
 import Suggestion from '#models/suggestion'
 import type User from '#models/user'
-import { assertStorageAvailable } from '#services/plan_enforcement'
-import { isUuid, projectFor } from '#services/project_access'
+import { assertProjectStorageAvailable } from '#services/plan_enforcement'
+import { isUuid, PROJECT_ACCESS_VIEW, projectFor } from '#services/project_access'
 import type RealtimeClient from '#services/realtime_client'
 
 /**
@@ -54,7 +54,7 @@ import type RealtimeClient from '#services/realtime_client'
  *
  * Limites : créations par fenêtre glissante, modifications et retraits par fenêtre fixe, nombre
  * de suggestions en attente par auteur et par projet ; le texte proposé passe la garde de
- * stockage du plan du propriétaire (comme à l'acceptation).
+ * stockage du compte du projet (comme à l'acceptation).
  */
 
 export class SuggestionNotFoundException extends Exception {
@@ -366,9 +366,9 @@ export async function createSuggestion(
     const now = DateTime.now()
     await enforceRateLimit(trx, project.id, user.id, now)
     await enforceOpenLimit(trx, project.id, user.id)
-    // Le texte proposé est stocké pour le propriétaire : refusé si son stockage est plein.
+    // Le texte proposé est stocké pour le compte du projet : refusé si son stockage est plein.
     const proposed = byteLength(input.proposedText)
-    if (proposed > 0) await assertStorageAvailable(project.ownerId, proposed, { requester: user })
+    if (proposed > 0) await assertProjectStorageAvailable(project, proposed, { requester: user })
     const suggestion = await Suggestion.create(
       {
         projectId: project.id,
@@ -450,7 +450,7 @@ export async function updateSuggestion(
     const accepted = await acceptIfApplied(trx, realtime, project, suggestion, user, role)
     if (accepted !== null) return accepted
     const growth = byteLength(input.proposedText) - byteLength(suggestion.proposedText)
-    if (growth > 0) await assertStorageAvailable(project.ownerId, growth, { requester: user })
+    if (growth > 0) await assertProjectStorageAvailable(project, growth, { requester: user })
     suggestion.kind = input.kind
     suggestion.anchor = anchor
     suggestion.originalText = input.originalText
@@ -552,8 +552,8 @@ async function applyAccepted(
       sum + byteLength(suggestion.proposedText) - byteLength(suggestion.originalText),
     0,
   )
-  // Le texte accepté entre dans le stockage du plan du propriétaire (comme une frappe).
-  if (growth > 0) await assertStorageAvailable(project.ownerId, growth, { requester: user })
+  // Le texte accepté entre dans le stockage du compte du projet (comme une frappe).
+  if (growth > 0) await assertProjectStorageAvailable(project, growth, { requester: user })
   const statuses = new Map<string, 'accepted' | 'stale'>()
   for (const [documentId, list] of byDocument(suggestions)) {
     for (let start = 0; start < list.length; start += SUGGESTION_APPLY_BATCH) {
@@ -627,7 +627,7 @@ async function appliedDeciders(
     candidates.length === 0
       ? []
       : ((await trx
-          .from('project_members')
+          .from(PROJECT_ACCESS_VIEW)
           .where('project_id', project.id)
           .whereIn('user_id', candidates)
           .select('user_id', 'role')) as { user_id: string; role: ProjectRole }[])

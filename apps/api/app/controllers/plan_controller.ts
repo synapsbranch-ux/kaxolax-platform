@@ -4,7 +4,7 @@ import { pricingUrl } from '#exceptions/plan_limit'
 import Subscription from '#models/subscription'
 import { creditsSummary } from '#services/ai_credits'
 import { isoString } from '#services/dates'
-import { limitsOf } from '#services/entitlements'
+import { limitsOf, userAccount } from '#services/entitlements'
 import { maxCollaboratorsInOwnedProjects, storageUsage } from '#services/plan_enforcement'
 
 export default class PlanController {
@@ -32,7 +32,8 @@ export default class PlanController {
         storageBytes: limits.storageBytes,
       },
       usage: {
-        storageBytes: await storageUsage(user.id),
+        // Projets personnels seulement : ceux d'une équipe comptent dans son stockage mutualisé.
+        storageBytes: await storageUsage(userAccount(user.id)),
         maxCollaboratorsInProject: await maxCollaboratorsInOwnedProjects(user.id),
       },
       // Crédits du mois : imputés au compte qui lance l'action, sur son propre plan.

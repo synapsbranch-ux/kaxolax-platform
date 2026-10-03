@@ -14,6 +14,7 @@ import {
   type SuggestionUpdatedEvent,
   type VersionCreatedEvent,
   type SpellcheckLanguage,
+  type ZoteroUpdatedEvent,
 } from '@kaxolax/contracts'
 
 /**
@@ -65,6 +66,8 @@ export type EventEffect =
   | { kind: 'history'; event: VersionCreatedEvent }
   /** Réglages communs du projet à recopier (langue du correcteur). */
   | { kind: 'project'; changes: { spellcheckLanguage?: SpellcheckLanguage } }
+  /** Lien Zotero du projet modifié ou synchronisé : transmis à `zoteroFeed` (lib/zotero.ts). */
+  | { kind: 'zotero'; event: ZoteroUpdatedEvent }
   | { kind: 'none' }
 
 /**
@@ -97,6 +100,8 @@ export function eventEffect(event: ProjectEvent, selfId: string | null): EventEf
       return event.spellcheckLanguage === undefined
         ? { kind: 'none' }
         : { kind: 'project', changes: { spellcheckLanguage: event.spellcheckLanguage } }
+    case 'zotero.updated':
+      return { kind: 'zotero', event }
     default:
       return { kind: 'none' }
   }

@@ -30,6 +30,11 @@ reconnecter en validant la MFA. L'admin n'a pas d'inscription (`/sign-in` seulem
   fiche (plan et limites, inscription, dernière connexion et activité lues chez Clerk, MFA,
   projets possédés et partagés, stockage) ; bannir, débannir, révoquer toutes les sessions,
   supprimer le compte (confirmation, email à recopier pour la suppression).
+- **Organisations** (`/organizations`) : workspaces d'équipe (miroir des Organisations Clerk),
+  recherche par nom, slug ou id `org_…` ; plan d'organisation et état de l'abonnement, membres et
+  administrateurs, projets, stockage mutualisé, responsable ; fiche (`/organizations/<org_…>`)
+  avec les membres (rôles d'après Clerk) et les projets (métadonnées). Lecture seule : les équipes
+  se gèrent dans le Dashboard Clerk.
 - **Projets** (`/projects`) : recherche par nom, propriétaire (email ou id) ou id, filtre
   Tous / Actifs / Archivés / Corbeille ; fiche de métadonnées (taille, fichiers, documents,
   membres, dernière compilation) ; transférer la propriété (recherche du destinataire), archiver,

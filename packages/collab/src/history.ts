@@ -361,6 +361,37 @@ export function replaceTextMinimally(field: Y.Text, next: string): boolean {
 }
 
 /**
+ * Texte à ajouter à la fin de `current` pour y mettre le bloc `block` (paragraphe séparé par une
+ * ligne vide, fin de ligne finale) ; null s'il y est déjà (ajout idempotent). Ne dépend que de la
+ * fin du texte : une frappe ailleurs dans le document n'est pas touchée.
+ */
+export function blockAppendix(current: string, block: string): string | null {
+  const trimmed = block.trim()
+  if (trimmed === '' || current.includes(trimmed)) return null
+  const separator =
+    current.trimEnd() === ''
+      ? ''
+      : current.endsWith('\n\n')
+        ? ''
+        : current.endsWith('\n')
+          ? '\n'
+          : '\n\n'
+  // Texte vide ou fait seulement d'espaces : le bloc s'y ajoute tel quel.
+  return `${separator}${trimmed}\n`
+}
+
+/**
+ * Ajoute un bloc à la fin d'un Y.Text (insertion seule, aucune suppression : les modifications
+ * concurrentes sont gardées). À appeler dans une transaction. Faux si le bloc y était déjà.
+ */
+export function appendTextBlock(field: Y.Text, block: string): boolean {
+  const appendix = blockAppendix(field.toJSON(), block)
+  if (appendix === null) return false
+  field.insert(field.length, appendix)
+  return true
+}
+
+/**
  * Remplace le texte d'un état Yjs persisté par une modification minimale. Renvoie le nouvel état
  * et la mise à jour produite (null si rien n'a changé), pour le journal.
  */

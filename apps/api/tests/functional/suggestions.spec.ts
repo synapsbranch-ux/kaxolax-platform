@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   anchorToBase64,
   APPLIED_SUGGESTIONS_FIELD,
@@ -31,6 +32,8 @@ import Document from '#models/document'
 import ProjectMember from '#models/project_member'
 import Suggestion from '#models/suggestion'
 import type User from '#models/user'
+import Workspace from '#models/workspace'
+import WorkspaceMember from '#models/workspace_member'
 import RealtimeClient from '#services/realtime_client'
 import { createUser } from '#tests/helpers'
 
@@ -264,6 +267,64 @@ test.group('suggestions: permissions', (group) => {
     ;(
       await client.post(`/api/v1/projects/${target.projectId}/suggestions/decide`).json({})
     ).assertStatus(401)
+  })
+
+  test('team members suggest and decide with their effective role', async ({ client, assert }) => {
+    // Accès par le workspace d'équipe seulement (aucune ligne `project_members`) : rôle effectif
+    // de la vue `project_access_roles` (`projects.team_role` pour un membre de l'équipe).
+    const owner = await createUser()
+    const target = await newProject(client, owner)
+    const teammate = await createUser()
+    const team = await Workspace.create({
+      name: 'Lab',
+      type: 'team',
+      ownerId: owner.id,
+      clerkOrganizationId: `org_${randomUUID().replaceAll('-', '').slice(0, 24)}`,
+    })
+    await WorkspaceMember.createMany([
+      { workspaceId: team.id, userId: owner.id, role: 'admin' },
+      { workspaceId: team.id, userId: teammate.id, role: 'member' },
+    ])
+    const setTeamRole = (role: ProjectRole) =>
+      db
+        .from('projects')
+        .where('id', target.projectId)
+        .update({ workspace_id: team.id, team_role: role })
+    await setTeamRole('reviewer')
+
+    // Relecteur par l'équipe : suggère, ne décide pas.
+    const first = await suggestionOf(client, teammate, target, insertBody(target, 0, '% '))
+    const second = await suggestionOf(client, teammate, target, insertBody(target, 2, 'b'))
+    ;(await decide(client, teammate, target, { decision: 'accept', ids: [first.id] })).assertStatus(
+      403,
+    )
+
+    // Éditeur par l'équipe : décide.
+    await setTeamRole('editor')
+    const accepted = await decide(client, teammate, target, {
+      decision: 'accept',
+      ids: [first.id],
+    })
+    accepted.assertStatus(200)
+    const body = decideSuggestionsResponseSchema.parse(accepted.body())
+    assert.deepEqual(body.results, [{ id: first.id, outcome: 'accepted' }])
+    assert.equal(body.suggestions[0]?.decidedBy?.id, teammate.id)
+    assert.isTrue((await realtime.text(target.documentId)).toJSON().startsWith('% \\docu'))
+    assert.isNull(
+      await ProjectMember.query()
+        .where({ projectId: target.projectId, userId: teammate.id })
+        .first(),
+    )
+
+    // Acceptation interrompue inscrite au nom du membre de l'équipe : il peut décider, il reste
+    // le décideur enregistré quand le propriétaire refuse ensuite.
+    const applied = (await realtime.text(target.documentId)).doc?.getMap<string>(
+      APPLIED_SUGGESTIONS_FIELD,
+    )
+    applied?.set(second.id, teammate.id)
+    const rejected = await decide(client, owner, target, { decision: 'reject', ids: [second.id] })
+    rejected.assertStatus(200)
+    assert.equal((await Suggestion.findOrFail(second.id)).decidedBy, teammate.id)
   })
 
   test('only the author changes or withdraws an open suggestion', async ({ client, assert }) => {

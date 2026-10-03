@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hasAdminAccess } from './access'
 import { formatBytes, formatDuration, isoToLocalInput, localInputToIso } from './format'
+import { organizationPlanText, planName, projectStateText, seatsSummary } from './organizations'
 import { cancelledSummary, compileStatusRows } from './stats'
 
 describe('hasAdminAccess', () => {
@@ -83,5 +84,35 @@ describe('statistiques des compilations', () => {
       byStatus: { success: 0, failure: 0, timeout: 0, error: 0 },
     }
     expect(compileStatusRows(empty).every((row) => row.display === '0 · —')).toBe(true)
+  })
+})
+
+describe('organizations', () => {
+  it('names the plan and the subscription state', () => {
+    expect(planName('team')).toBe('Team')
+    expect(
+      organizationPlanText({ planSlug: 'free', subscriptionStatus: null, periodEnd: null }),
+    ).toBe('Free')
+    expect(
+      organizationPlanText({ planSlug: 'team', subscriptionStatus: 'past_due', periodEnd: null }),
+    ).toBe('Team · paiement en retard')
+    expect(
+      organizationPlanText({ planSlug: 'team', subscriptionStatus: 'active', periodEnd: null }),
+    ).toBe('Team · actif')
+  })
+
+  it('summarizes the seats and the project state', () => {
+    expect(seatsSummary({ memberCount: 3, adminCount: 1 })).toBe('3 membres, dont 1 administrateur')
+    expect(seatsSummary({ memberCount: 1, adminCount: 0 })).toBe('1 membre')
+    expect(projectStateText({ archivedAt: null, trashedAt: null })).toBe('Actif')
+    expect(projectStateText({ archivedAt: '2026-10-01T00:00:00.000Z', trashedAt: null })).toBe(
+      'Archivé',
+    )
+    expect(
+      projectStateText({
+        archivedAt: '2026-10-01T00:00:00.000Z',
+        trashedAt: '2026-10-02T00:00:00.000Z',
+      }),
+    ).toBe('Corbeille')
   })
 })

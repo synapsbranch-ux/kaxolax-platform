@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { assignableRoleSchema } from './permissions.js'
 import { projectRoleSchema } from './realtime.js'
+import { teamMemberRoleSchema } from './workspaces.js'
 
 /**
  * Partage d'un projet : invitations par email, membres, transfert de propriété et liens de
@@ -130,6 +131,20 @@ export const projectMembersResponseSchema = z.object({
   members: z.array(projectMemberSchema),
   invitations: z.array(projectInvitationSchema),
   collaborators: collaboratorUsageSchema.nullable(),
+  /**
+   * Accès d'équipe d'un projet de workspace d'équipe : ses membres y accèdent sans figurer dans
+   * `members` (administrateurs : propriétaires effectifs ; membres : `memberRole`). Null pour un
+   * projet personnel.
+   */
+  team: z
+    .object({
+      workspaceId: z.uuid(),
+      name: z.string(),
+      memberRole: teamMemberRoleSchema,
+      memberCount: count,
+    })
+    .nullable()
+    .optional(),
 })
 export type ProjectMembersResponse = z.infer<typeof projectMembersResponseSchema>
 

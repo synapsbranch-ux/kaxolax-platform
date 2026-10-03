@@ -22,7 +22,7 @@ import CommentThread from '#models/comment_thread'
 import Document from '#models/document'
 import type Project from '#models/project'
 import type User from '#models/user'
-import { isUuid, projectFor } from '#services/project_access'
+import { isUuid, PROJECT_ACCESS_VIEW, projectFor } from '#services/project_access'
 
 /**
  * Commentaires ancrés et panneau Review (contrats dans `packages/contracts/src/comments.ts`).
@@ -257,12 +257,13 @@ export interface PostedComment {
 }
 
 /**
- * Membres mentionnés à prévenir : membres actifs du projet (tout rôle), autres que l'auteur, à
- * qui aucun email de mention de commentaire n'est parti pendant l'intervalle
- * (`COMMENT_MENTION_EMAIL_INTERVAL_MINUTES`) : au plus un email par intervalle et par projet, et
- * la mention suivante après l'intervalle en redonne un. La date d'envoi est réservée par une mise
- * à jour conditionnelle (`project_members.comment_mention_emailed_at`) : deux commentaires
- * simultanés ne donnent qu'un email.
+ * Membres mentionnés à prévenir : personnes actives qui ont accès au projet (tout rôle, par
+ * invitation ou par leur workspace d'équipe, vue `project_access_roles` comme pour le chat),
+ * autres que l'auteur, à qui aucun email de mention de commentaire n'est parti pendant
+ * l'intervalle (`COMMENT_MENTION_EMAIL_INTERVAL_MINUTES`) : au plus un email par intervalle et par
+ * projet, et la mention suivante après l'intervalle en redonne un. La date d'envoi est réservée
+ * par une écriture conditionnelle (`comment_mention_emails`, INSERT … ON CONFLICT … WHERE) : deux
+ * commentaires simultanés ne donnent qu'un email.
  */
 async function mentionsToNotify(
   trx: TransactionClientContract,
@@ -275,7 +276,7 @@ async function mentionsToNotify(
   if (mentioned.length === 0) return { notify: [], names: new Map() }
   const since = comment.createdAt.minus({ minutes: COMMENT_MENTION_EMAIL_INTERVAL_MINUTES })
   const members = (await trx
-    .from('project_members as pm')
+    .from(`${PROJECT_ACCESS_VIEW} as pm`)
     .join('users as u', 'u.id', 'pm.user_id')
     .where('pm.project_id', projectId)
     .whereIn('pm.user_id', mentioned)
@@ -287,26 +288,21 @@ async function mentionsToNotify(
     full_name: string | null
   }[]
   const reachable = members.filter((member) => member.email !== '')
+  const sentAt = comment.createdAt.toJSDate()
   const claimed =
     reachable.length === 0
       ? new Set<string>()
       : new Set(
           (
-            (await trx
-              .from('project_members')
-              .where('project_id', projectId)
-              .whereIn(
-                'user_id',
-                reachable.map((member) => member.id),
-              )
-              .where((query) => {
-                void query
-                  .whereNull('comment_mention_emailed_at')
-                  .orWhere('comment_mention_emailed_at', '<=', since.toJSDate())
-              })
-              .update({ comment_mention_emailed_at: comment.createdAt.toJSDate() })
-              .returning('user_id')) as { user_id: string }[]
-          ).map((row) => row.user_id),
+            await trx.rawQuery<{ rows: { user_id: string }[] }>(
+              `INSERT INTO comment_mention_emails (project_id, user_id, emailed_at)
+               VALUES ${reachable.map(() => '(?, ?, ?)').join(', ')}
+               ON CONFLICT (project_id, user_id) DO UPDATE SET emailed_at = EXCLUDED.emailed_at
+                 WHERE comment_mention_emails.emailed_at <= ?
+               RETURNING user_id`,
+              [...reachable.flatMap((member) => [projectId, member.id, sentAt]), since.toJSDate()],
+            )
+          ).rows.map((row) => row.user_id),
         )
   return {
     notify: reachable

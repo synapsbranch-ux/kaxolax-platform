@@ -8,7 +8,64 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '@/lib/api'
 import { planLabel } from '@/lib/plan-limits'
-import { BILLING_URL, PLAN_FEATURE_LABELS, planUsageView, sessionPlan } from '@/lib/plan-usage'
+import {
+  BILLING_URL,
+  PLAN_FEATURE_LABELS,
+  type PlanUsageRow,
+  planUsageView,
+  sessionPlan,
+  USER_PRO_PLAN,
+  userFeature,
+} from '@/lib/plan-usage'
+
+/** Lignes d'usage (libellé, valeur, jauge éventuelle), compte ou équipe. */
+export function UsageRows({ rows }: { rows: readonly PlanUsageRow[] }) {
+  return (
+    <dl className="grid gap-3">
+      {rows.map((row) => (
+        <div key={row.label} className="grid gap-1 sm:grid-cols-[11rem_minmax(0,1fr)]">
+          <dt className="font-medium">{row.label}</dt>
+          <dd className="flex min-w-0 flex-col gap-1.5">
+            <span>{row.value}</span>
+            {row.ratio === undefined ? null : (
+              <span
+                role="meter"
+                aria-label={`${row.label} utilisé`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(row.ratio * 100)}
+                className="h-2 w-full overflow-hidden rounded-full bg-muted"
+              >
+                <span
+                  className={cn(
+                    'block h-full rounded-full',
+                    row.ratio >= 1
+                      ? 'bg-destructive'
+                      : row.ratio >= 0.8
+                        ? 'bg-warning'
+                        : 'bg-primary',
+                  )}
+                  style={{ width: `${String(Math.round(row.ratio * 100))}%` }}
+                />
+              </span>
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/** Usage en cours de chargement. */
+export function UsageSkeleton() {
+  return (
+    <div className="flex flex-col gap-2" aria-busy>
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-2 w-full" />
+      <Skeleton className="h-4 w-1/2" />
+    </div>
+  )
+}
 
 /**
  * Plan et usage du compte (présentation) : plan, stockage utilisé avec sa jauge, limites,
@@ -50,44 +107,9 @@ export function PlanUsageCard({
       {error !== null ? (
         <Alert variant="destructive">Plan et usage indisponibles : {error}</Alert>
       ) : view === null ? (
-        <div className="flex flex-col gap-2" aria-busy>
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-2 w-full" />
-          <Skeleton className="h-4 w-1/2" />
-        </div>
+        <UsageSkeleton />
       ) : (
-        <dl className="grid gap-3">
-          {view.rows.map((row) => (
-            <div key={row.label} className="grid gap-1 sm:grid-cols-[11rem_minmax(0,1fr)]">
-              <dt className="font-medium">{row.label}</dt>
-              <dd className="flex min-w-0 flex-col gap-1.5">
-                <span>{row.value}</span>
-                {row.ratio === undefined ? null : (
-                  <span
-                    role="meter"
-                    aria-label={`${row.label} utilisé`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(row.ratio * 100)}
-                    className="h-2 w-full overflow-hidden rounded-full bg-muted"
-                  >
-                    <span
-                      className={cn(
-                        'block h-full rounded-full',
-                        row.ratio >= 1
-                          ? 'bg-destructive'
-                          : row.ratio >= 0.8
-                            ? 'bg-warning'
-                            : 'bg-primary',
-                      )}
-                      style={{ width: `${String(Math.round(row.ratio * 100))}%` }}
-                    />
-                  </span>
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <UsageRows rows={view.rows} />
       )}
       {view?.storageFull === true ? (
         <Alert variant="warning">
@@ -159,8 +181,10 @@ export function PlanUsage({ className }: { className?: string }) {
     <PlanUsageCard
       plan={plan}
       error={error}
-      sessionPlanSlug={sessionPlan(has({ plan: PRO_PLAN }))}
-      hasFeature={(feature) => (plan !== null ? plan.features.includes(feature) : has({ feature }))}
+      sessionPlanSlug={sessionPlan(has({ plan: USER_PRO_PLAN }))}
+      hasFeature={(feature) =>
+        plan !== null ? plan.features.includes(feature) : has({ feature: userFeature(feature) })
+      }
       className={className}
     />
   )

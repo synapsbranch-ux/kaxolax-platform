@@ -86,6 +86,12 @@ export const SCREENS = [
   { id: '25-admin-banners', title: 'Admin : bannière système' },
   { id: '26-admin-stats', title: 'Admin : statistiques' },
   { id: '27-admin-audit-log', title: 'Admin : journal' },
+  { id: '28-workspace-switcher', title: 'Équipes : sélecteur de workspace (personnel, équipes)' },
+  { id: '28-team-dashboard', title: 'Équipes : projets de l’équipe, plan et stockage mutualisé' },
+  { id: '28-team', title: 'Équipes : page de l’équipe (plan, usage, membres et invitations)' },
+  { id: '28-team-new', title: 'Équipes : création d’une équipe' },
+  { id: '29-admin-organizations', title: 'Admin : organisations' },
+  { id: '29-admin-organization', title: 'Admin : fiche d’une organisation (membres, projets)' },
 ] as const
 
 export type ScreenId = (typeof SCREENS)[number]['id']

@@ -23,6 +23,8 @@ import {
   ROLE_OPTIONS,
   shareDialogView,
 } from '@/lib/sharing'
+import { TeamAccess } from '@/components/teams/team-access'
+import { TEAM_ROLE_LABELS } from '@/lib/teams'
 import { InvitationList, MemberList } from './member-list'
 import { ShareLinks } from './share-links'
 import { SharingError } from './sharing-error'
@@ -30,7 +32,8 @@ import { SharingError } from './sharing-error'
 /**
  * Contenu de la modale de partage. Propriétaire : invitation par email avec un rôle, membres
  * (changer un rôle, retirer, transférer la propriété), invitations en attente (relancer,
- * annuler) et liens de partage. Autres rôles : vue limitée (liste des membres, quitter le
+ * annuler), accès de l'équipe (projet d'un workspace d'équipe : rôle de ses membres) et liens de
+ * partage. Autres rôles : vue limitée (liste des membres, quitter le
  * projet). Relu à l'ouverture et à chaque événement de membre (`version`).
  */
 export function SharePanel({
@@ -221,6 +224,20 @@ export function SharePanel({
           propriétaire invite et gère les membres.
         </p>
       )}
+
+      {members.team ? (
+        <TeamAccess
+          team={members.team}
+          canManage={view === 'manage'}
+          busy={busy !== null}
+          onChange={(teamRole) => {
+            void run('team-access', async () => {
+              await api.setTeamAccess(projectId, teamRole)
+              return `Les membres de l’équipe sont maintenant ${TEAM_ROLE_LABELS[teamRole].toLowerCase()}s de ce projet.`
+            })
+          }}
+        />
+      ) : null}
 
       {error !== null ? (
         <SharingError

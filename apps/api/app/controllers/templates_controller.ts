@@ -12,6 +12,7 @@ import {
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import ObjectStorage from '#services/object_storage'
+import { accountForNewProject } from '#services/entitlements'
 import { assertStorageAvailable } from '#services/plan_enforcement'
 import { serializeProject } from '#services/project_service'
 import RealtimeClient from '#services/realtime_client'
@@ -22,7 +23,7 @@ import {
   templateSummary,
 } from '#services/template_catalog'
 import { createProjectFromZip } from '#services/upload_service'
-import { workspaceFor } from '#services/workspace_service'
+import { checkNewProjectWorkspace } from '#services/workspace_service'
 import { validateWithZod } from '#validators/zod'
 
 /** Mise en cache par le CDN et le navigateur des réponses publiques de la galerie. */
@@ -70,8 +71,12 @@ export default class TemplatesController {
     const user = auth.getUserOrFail()
     const template = await findTemplate(input.templateId)
     // Refus anticipés, avant tout téléchargement : workspace et taille du zip.
-    if (input.workspaceId !== undefined) await workspaceFor(user, input.workspaceId)
-    await assertStorageAvailable(user.id, template.files.zip.bytes, { requester: user })
+    await checkNewProjectWorkspace(user, input.workspaceId)
+    await assertStorageAvailable(
+      await accountForNewProject(user, input.workspaceId),
+      template.files.zip.bytes,
+      { requester: user },
+    )
 
     const zipPath = join(tmpdir(), `kaxolax-template-${randomUUID()}.zip`)
     try {

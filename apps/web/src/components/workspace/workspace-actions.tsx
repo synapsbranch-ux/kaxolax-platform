@@ -4,6 +4,7 @@ import {
   type ActionContext,
   type ActionHost,
   type ActionRegistry,
+  canEdit as canEditContext,
   createDefaultRegistry,
   hasEditor,
   openSpellcheckMenu,
@@ -22,6 +23,7 @@ import { NameDialog } from '@/components/name-dialog'
 import { useSettings } from '@/components/preferences/settings-provider'
 import { actionsReadOnly, type EditMode } from '@/lib/suggestions'
 import type { WordCountPayload } from '@/lib/word-count'
+import { ZOTERO_DIALOGS } from '@/lib/zotero'
 import { ACTION_DIALOGS, WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle } from './editor/code-editor'
 import { useFileActions } from './file-actions'
@@ -94,7 +96,8 @@ export function WorkspaceActionsProvider({
   const { openSettings } = useSettings()
 
   // Outils de l'application (tâche 10) : compteur de mots et paramètres (menu Fichier),
-  // suggestions du correcteur pour le mot sous le curseur (menu Remplacer, F7).
+  // suggestions du correcteur pour le mot sous le curseur (menu Remplacer, F7) ; Zotero (étape 3,
+  // tâche 9) : panneau du lien (menu Fichier) et sélecteur de citations (menu Structures).
   useEffect(
     () =>
       registry.register([
@@ -119,6 +122,30 @@ export function WorkspaceActionsProvider({
           icon: 'settings',
           run: () => {
             openSettings()
+            return true
+          },
+        },
+        {
+          id: ZOTERO_DIALOGS.panel,
+          label: 'Zotero : bibliothèque liée',
+          menu: 'file',
+          group: 'integrations',
+          icon: 'library',
+          when: (context) => context.host.openDialog !== undefined,
+          run: (context) => {
+            context.host.openDialog?.(ZOTERO_DIALOGS.panel)
+            return true
+          },
+        },
+        {
+          id: ZOTERO_DIALOGS.cite,
+          label: 'Insérer une citation Zotero',
+          menu: 'structures',
+          group: 'references',
+          icon: 'book-marked',
+          when: (context) => canEditContext(context) && context.host.openDialog !== undefined,
+          run: (context) => {
+            context.host.openDialog?.(ZOTERO_DIALOGS.cite)
             return true
           },
         },

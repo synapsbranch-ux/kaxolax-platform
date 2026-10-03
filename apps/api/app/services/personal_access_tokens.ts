@@ -18,7 +18,7 @@ import { DateTime } from 'luxon'
 import PersonalAccessToken from '#models/personal_access_token'
 import User from '#models/user'
 import { isoString, isoStringOrNull } from '#services/dates'
-import { isUuid } from '#services/project_access'
+import { isUuid, PROJECT_ACCESS_VIEW } from '#services/project_access'
 
 /**
  * Jetons d'accès personnels (serveur MCP, tâche 7).
@@ -172,8 +172,9 @@ export async function createPersonalAccessToken(
     }
     if (input.projectIds !== null) {
       const ids = input.projectIds.filter(isUuid)
+      // Accès effectif (membre, ou membre de l'équipe du projet).
       const members = (await trx
-        .from('project_members')
+        .from(PROJECT_ACCESS_VIEW)
         .where('user_id', user.id)
         .whereIn('project_id', ids)
         .select('project_id')) as { project_id: string }[]

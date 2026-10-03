@@ -16,6 +16,8 @@ export const createImportValidator = vine.create({
     .use(singleLineRule())
     .regex(/\.zip$/i),
   sizeBytes: vine.number().withoutDecimals().min(1).max(MAX_IMPORT_ZIP_BYTES),
+  /** Workspace du futur projet (vérifié avant l'upload) ; absent : workspace personnel. */
+  workspaceId: vine.string().uuid().optional(),
 })
 
 export const completeImportValidator = vine.create({

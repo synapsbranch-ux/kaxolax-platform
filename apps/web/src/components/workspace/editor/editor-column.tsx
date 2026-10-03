@@ -4,7 +4,12 @@ import type { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import type { Extension } from '@codemirror/state'
 import type { ResolvedAnchor, SuggestionResolution } from '@kaxolax/collab'
 import type { DecideSuggestionsInput, PresenceUser, ProjectRole } from '@kaxolax/contracts'
-import type { CompletionSources, EditorSettings, SuggestionAction } from '@kaxolax/editor'
+import type {
+  CitationProvider,
+  CompletionSources,
+  EditorSettings,
+  SuggestionAction,
+} from '@kaxolax/editor'
 import { Button, SimpleTooltip, Spinner, ToggleGroup, ToggleGroupItem, cn } from '@kaxolax/ui'
 import {
   EyeIcon,
@@ -111,7 +116,12 @@ export function EditorColumn({
   /** Paramètres de l'éditeur (préférences, correcteur), appliqués à chaud. */
   settings: EditorSettings
   /** Autocomplétion : index du projet et chemin du document ouvert. */
-  completion: { sources: () => CompletionSources | null; currentFile: () => string | null }
+  completion: {
+    sources: () => CompletionSources | null
+    currentFile: () => string | null
+    /** Citations d'une source externe (bibliothèque Zotero liée), null sans source. */
+    citationProvider?: () => CitationProvider | null
+  }
   /** Extensions de l'application ajoutées à chaque éditeur. */
   extensions?: Extension
   /** Barre d'état sous l'éditeur. */

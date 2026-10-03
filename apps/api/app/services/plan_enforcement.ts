@@ -8,31 +8,70 @@ import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { PlanLimitException, planLimitBody } from '#exceptions/plan_limit'
 import type User from '#models/user'
-import { has, limitsOf } from '#services/entitlements'
+import {
+  accountKey,
+  accountOfProject,
+  type BillingAccount,
+  has,
+  limitsOfAccount,
+  userAccount,
+} from '#services/entitlements'
 
 /**
- * Limites du plan appliquées par l'API. Pour une action sur un projet, ce sont celles du
- * propriétaire du projet, même quand un collaborateur agit.
+ * Limites du plan appliquées par l'API. Pour une action sur un projet, ce sont celles du compte
+ * du projet (`accountOfProject`) : son propriétaire pour un projet personnel, même quand un
+ * collaborateur agit ; le plan de l'organisation pour un projet d'équipe.
  */
 
 /**
- * Stockage d'un compte : octets des fichiers binaires et des états Yjs des documents de tous les
- * projets dont il est propriétaire (archivés et corbeille compris).
+ * Projets d'un compte, en SQL : projets personnels dont il est propriétaire (hors workspaces
+ * d'équipe), ou tous les projets du workspace d'équipe. `p` : alias de la table projects.
+ */
+function accountProjectsFilter(account: BillingAccount): { sql: string; binding: string } {
+  if (account.type === 'team') return { sql: 'p.workspace_id = ?', binding: account.workspaceId }
+  return {
+    sql: `p.owner_id = ? AND NOT EXISTS (SELECT 1 FROM workspaces w
+                                         WHERE w.id = p.workspace_id AND w.type = 'team')`,
+    binding: account.id,
+  }
+}
+
+/**
+ * Stockage d'un compte : octets des fichiers binaires et des états Yjs des documents de ses
+ * projets (archivés et corbeille compris) : projets personnels dont il est propriétaire, ou tous
+ * les projets d'un workspace d'équipe (stockage mutualisé).
  */
 export async function storageUsage(
-  ownerId: string,
+  account: BillingAccount,
   client?: TransactionClientContract,
 ): Promise<number> {
+  const filter = accountProjectsFilter(account)
   const result = await (client ?? db).rawQuery<{ rows: { used: string | number | null }[] }>(
     `SELECT
        (SELECT COALESCE(SUM(f.size_bytes), 0) FROM files f
-          JOIN projects p ON p.id = f.project_id WHERE p.owner_id = ?)
+          JOIN projects p ON p.id = f.project_id WHERE ${filter.sql})
        + (SELECT COALESCE(SUM(octet_length(d.yjs_state)), 0) FROM documents d
-          JOIN projects p ON p.id = d.project_id WHERE p.owner_id = ?) AS used`,
-    [ownerId, ownerId],
+          JOIN projects p ON p.id = d.project_id WHERE ${filter.sql}) AS used`,
+    [filter.binding, filter.binding],
   )
   // SUM d'un bigint : numeric, renvoyé en texte par pg.
   return Number(result.rows[0]?.used ?? 0)
+}
+
+/** Vrai si `user` voit l'usage du compte : son titulaire, ou un membre de l'équipe. */
+async function seesUsage(
+  account: BillingAccount,
+  requester: User | null | undefined,
+  client?: TransactionClientContract,
+): Promise<boolean> {
+  if (!requester) return false
+  if (account.type === 'user') return requester.id === account.id
+  const row = (await (client ?? db)
+    .from('workspace_members')
+    .where({ workspace_id: account.workspaceId, user_id: requester.id })
+    .select('id')
+    .first()) as { id: string } | null
+  return row !== null
 }
 
 /** Stockage d'un projet : octets de ses fichiers binaires et des états Yjs de ses documents. */
@@ -74,42 +113,59 @@ export async function projectCollaboratorCount(
 
 /**
  * Refuse (403 `E_PLAN_LIMIT`, limite `storage`) d'ajouter `addedBytes` au stockage du compte
- * `ownerId` au-delà de son plan ; un stockage déjà plein refuse aussi un ajout vide (document
- * vide). L'usage (`current`) n'est joint au refus que si `requester` est le titulaire du compte.
- * Dans une transaction, un verrou consultatif par compte sérialise les ajouts simultanés
+ * au-delà de son plan ; un stockage déjà plein refuse aussi un ajout vide (document vide).
+ * L'usage (`current`) n'est joint au refus que si `requester` est le titulaire du compte (ou un
+ * membre de l'équipe). Dans une transaction, un verrou consultatif par compte sérialise les ajouts simultanés
  * (aucun verrou de ligne : pas de conflit d'ordre avec ceux des projets). `applied` : les
  * `addedBytes` sont déjà écrits dans la transaction (restauration de l'historique, dont l'ajout
  * n'est connu qu'une fois l'arborescence remise) ; l'usage d'avant l'ajout en est déduit.
  */
 export async function assertStorageAvailable(
-  ownerId: string,
+  account: BillingAccount,
   addedBytes: number,
   options: { requester?: User | null; trx?: TransactionClientContract; applied?: boolean } = {},
 ): Promise<void> {
   const { requester, trx } = options
   if (trx) {
-    await trx.rawQuery('SELECT pg_advisory_xact_lock(hashtext(?))', [`storage:${ownerId}`])
+    // Clé d'un compte personnel inchangée (`storage:<id>`) : même verrou que les versions
+    // précédentes pendant un déploiement progressif.
+    const key = account.type === 'user' ? account.id : accountKey(account)
+    await trx.rawQuery('SELECT pg_advisory_xact_lock(hashtext(?))', [`storage:${key}`])
   }
-  const limits = await limitsOf({ id: ownerId }, requester, trx)
-  const used = (await storageUsage(ownerId, trx)) - (options.applied ? addedBytes : 0)
+  const limits = await limitsOfAccount(account, requester, trx)
+  const used = (await storageUsage(account, trx)) - (options.applied ? addedBytes : 0)
   if (used >= limits.storageBytes || used + addedBytes > limits.storageBytes) {
     throw new PlanLimitException({
       name: 'storage',
       plan: limits.entitlements.plan,
       max: limits.storageBytes,
-      // Usage de tout le compte : réservé à son titulaire (un collaborateur ne voit que le refus).
-      ...(requester?.id === ownerId ? { current: used } : {}),
+      // Usage de tout le compte : réservé à son titulaire ou à l'équipe (un collaborateur
+      // invité ne voit que le refus).
+      ...((await seesUsage(account, requester, trx)) ? { current: used } : {}),
     })
   }
 }
 
+/** Stockage du compte d'un projet (voir `assertStorageAvailable`). */
+export async function assertProjectStorageAvailable(
+  project: { ownerId: string; workspaceId: string },
+  addedBytes: number,
+  options: { requester?: User | null; trx?: TransactionClientContract; applied?: boolean } = {},
+): Promise<void> {
+  await assertStorageAvailable(await accountOfProject(project, options.trx), addedBytes, options)
+}
+
 /**
  * Durée maximale de compilation d'un projet (ms), envoyée dans chaque demande : celle du plan du
- * propriétaire (`requester` : compte qui compile, dont les claims servent s'il est le
- * propriétaire), bornée à la plage acceptée par le contrat.
+ * compte du projet (`requester` : compte qui compile, dont les claims servent s'ils concernent ce
+ * compte), bornée à la plage acceptée par le contrat.
  */
-export async function compileTimeoutMs(ownerId: string, requester?: User | null): Promise<number> {
-  return clampedCompileTimeoutMs((await limitsOf({ id: ownerId }, requester)).maxCompileSeconds)
+export async function compileTimeoutMs(
+  project: { ownerId: string; workspaceId: string },
+  requester?: User | null,
+): Promise<number> {
+  const limits = await limitsOfAccount(await accountOfProject(project), requester)
+  return clampedCompileTimeoutMs(limits.maxCompileSeconds)
 }
 
 /** Durée maximale (ms) d'un plan, bornée à la plage acceptée par le contrat. */
@@ -133,10 +189,14 @@ export async function compileTimeLimitNotice(
   const project = (await db
     .from('projects')
     .where('id', compile.projectId)
-    .select('owner_id')
-    .first()) as { owner_id: string } | null
+    .select('owner_id', 'workspace_id')
+    .first()) as { owner_id: string; workspace_id: string } | null
   if (!project) return undefined
-  const limits = await limitsOf({ id: project.owner_id }, requester)
+  const account = await accountOfProject({
+    ownerId: project.owner_id,
+    workspaceId: project.workspace_id,
+  })
+  const limits = await limitsOfAccount(account, requester)
   if (has(limits.entitlements, { feature: 'long_compile' })) return undefined
   // Build lancé sous un autre plan (changement depuis) : sa durée n'est pas la limite actuelle.
   if (compile.timeoutMs !== clampedCompileTimeoutMs(limits.maxCompileSeconds)) return undefined
@@ -157,7 +217,10 @@ export async function withCompileTimeLimit(
   return planLimit ? { ...result, planLimit } : result
 }
 
-/** Plus grand nombre de collaborateurs (membres hors propriétaire et invitations en attente). */
+/**
+ * Plus grand nombre de collaborateurs (membres hors propriétaire et invitations en attente) parmi
+ * ses projets personnels (ceux d'une équipe suivent le plan de l'organisation).
+ */
 export async function maxCollaboratorsInOwnedProjects(ownerId: string): Promise<number> {
   const result = await db.rawQuery<{ rows: { used: number | null }[] }>(
     `SELECT MAX(
@@ -165,32 +228,34 @@ export async function maxCollaboratorsInOwnedProjects(ownerId: string): Promise<
        + (SELECT COUNT(*)::int FROM project_invitations i
             WHERE i.project_id = p.id AND i.accepted_at IS NULL AND i.cancelled_at IS NULL
               AND i.expires_at > now())) AS used
-     FROM projects p WHERE p.owner_id = ?`,
+     FROM projects p WHERE ${accountProjectsFilter(userAccount(ownerId)).sql}`,
     [ownerId],
   )
   return result.rows[0]?.used ?? 0
 }
 
 /**
- * Transfert de propriété : le projet passe sous les limites du nouveau propriétaire. Refuse
- * (403 `E_PLAN_LIMIT`) si son stockage ne peut pas accueillir le projet (même règle que
- * `assertStorageAvailable`, verrou consultatif du compte compris), ou si les collaborateurs du
- * projet après le transfert (ancien propriétaire devenu éditeur compris, nouveau propriétaire
- * exclu) dépassent sa limite. À appeler dans la transaction du transfert, projet verrouillé,
- * membres déjà mis à jour. `requester` : compte qui agit (ses claims ne servent que s'il est le
- * nouveau propriétaire, jamais le cas ici).
+ * Changement de compte d'un projet (transfert de propriété, déplacement vers une équipe) : le
+ * projet passe sous les limites du compte `target`. Refuse (403 `E_PLAN_LIMIT`) si son stockage
+ * ne peut pas accueillir le projet (même règle que `assertStorageAvailable`, verrou consultatif
+ * du compte compris), ou si les collaborateurs du projet après le changement (ancien propriétaire
+ * devenu éditeur compris, nouveau propriétaire exclu) dépassent sa limite. Sans effet si le compte
+ * ne change pas (transfert entre membres d'une même équipe). À appeler dans la transaction,
+ * projet verrouillé, membres déjà mis à jour. `requester` : compte qui agit.
  */
-export async function assertTransferWithinLimits(
+export async function assertMoveWithinLimits(
   projectId: string,
-  newOwnerId: string,
+  source: BillingAccount,
+  target: BillingAccount,
   trx: TransactionClientContract,
   requester?: User | null,
 ): Promise<void> {
-  await assertStorageAvailable(newOwnerId, await projectStorageUsage(projectId, trx), {
+  if (accountKey(source) === accountKey(target)) return
+  await assertStorageAvailable(target, await projectStorageUsage(projectId, trx), {
     requester,
     trx,
   })
-  const limits = await limitsOf({ id: newOwnerId }, requester, trx)
+  const limits = await limitsOfAccount(target, requester, trx)
   const collaborators = await projectCollaboratorCount(projectId, trx)
   if (limits.maxCollaborators !== null && collaborators > limits.maxCollaborators) {
     throw new PlanLimitException({
