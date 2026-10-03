@@ -33,6 +33,7 @@
     "@adonisjs/lucid": "catalog:",
     "@adonisjs/mail": "catalog:",
     "@adonisjs/shield": "catalog:",
+    "@anthropic-ai/sdk": "catalog:",
     "@aws-sdk/client-s3": "catalog:",
     "@aws-sdk/s3-request-presigner": "catalog:",
     "@clerk/backend": "catalog:",

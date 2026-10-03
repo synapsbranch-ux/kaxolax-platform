@@ -29,6 +29,7 @@ export function serializeProject(project: Project, role: ProjectRole) {
     compiler: project.compiler,
     mainDocumentId: project.mainDocumentId,
     spellcheckLanguage: project.spellcheckLanguage,
+    aiEnabled: project.aiEnabled,
     role,
     archivedAt: iso(project.archivedAt),
     trashedAt: iso(project.trashedAt),

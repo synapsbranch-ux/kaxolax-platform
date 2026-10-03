@@ -30,6 +30,21 @@ describe('billing contracts', () => {
 
   it('lifts each limit with exactly one feature', () => {
     expect(new Set(Object.values(PLAN_LIMIT_FEATURES))).toEqual(new Set(PLAN_FEATURES))
+    // Crédits IA et images : une seule feature `ai` dans le Dashboard Clerk.
+    expect([PLAN_LIMIT_FEATURES.ai_credits, PLAN_LIMIT_FEATURES.image_credits]).toEqual([
+      'ai',
+      'ai',
+    ])
+  })
+
+  it('refuses beyond the monthly AI credits with the `ai` feature', () => {
+    const credits = {
+      ...refusal,
+      limit: { name: 'ai_credits', plan: 'free', max: 100 },
+      feature: 'ai',
+      current: 100,
+    }
+    expect(planLimitErrorSchema.parse(credits)).toEqual(credits)
   })
 
   it('describes the plan of the signed-in account', () => {
@@ -44,11 +59,18 @@ describe('billing contracts', () => {
         storageBytes: 1024,
       },
       usage: { storageBytes: 12, maxCollaboratorsInProject: 3 },
+      credits: {
+        periodStart: '2026-10-01T00:00:00.000Z',
+        resetsAt: '2026-11-01T00:00:00.000Z',
+        ai: { monthly: 2000, used: 12.34, remaining: 1987.66 },
+        images: { monthly: 100, used: 3, remaining: 97 },
+      },
       subscription: { status: 'active', periodEnd: '2026-11-01T00:00:00.000Z' },
       upgradeUrl: 'http://localhost:3000/pricing',
     }
     expect(mePlanResponseSchema.parse(plan)).toEqual(plan)
     expect(mePlanResponseSchema.safeParse({ ...plan, source: 'cookie' }).success).toBe(false)
+    expect(mePlanResponseSchema.safeParse({ ...plan, credits: undefined }).success).toBe(false)
   })
 
   it('accepts a compile result that points to the compile time limit', () => {

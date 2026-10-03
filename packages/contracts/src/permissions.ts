@@ -4,7 +4,8 @@ import { type ProjectRole, projectRoleSchema } from './realtime.js'
  * Matrice des permissions d'un projet, seule source de vérité partagée par l'API, le service
  * temps réel et l'interface. Fonctions pures, sans état.
  *
- * - owner : tout, y compris membres, liens de partage, transfert, renommage, archivage, suppression ;
+ * - owner : tout, y compris membres, liens de partage, transfert, renommage, archivage, suppression,
+ *   activation de l'IA ;
  * - editor : lit, édite, compile, commente ;
  * - reviewer : lit, compile, commente ;
  * - viewer : lit et compile.
@@ -27,6 +28,8 @@ export const PROJECT_PERMISSIONS = [
   'transferOwnership',
   /** Renommer, archiver, mettre à la corbeille, restaurer, supprimer le projet. */
   'manageProject',
+  /** Activer ou désactiver l'IA pour le projet. */
+  'manageAi',
   /** Quitter le projet de soi-même (le propriétaire doit d'abord transférer la propriété). */
   'leave',
 ] as const
@@ -42,6 +45,7 @@ const MATRIX: Record<ProjectRole, ReadonlySet<ProjectPermission>> = {
     'manageShareLinks',
     'transferOwnership',
     'manageProject',
+    'manageAi',
   ]),
   editor: new Set<ProjectPermission>(['read', 'compile', 'comment', 'edit', 'leave']),
   reviewer: new Set<ProjectPermission>(['read', 'compile', 'comment', 'leave']),
@@ -82,6 +86,7 @@ export const canManageShareLinks = (role: ProjectRole): boolean =>
 export const canTransferOwnership = (role: ProjectRole): boolean =>
   hasPermission(role, 'transferOwnership')
 export const canManageProject = (role: ProjectRole): boolean => hasPermission(role, 'manageProject')
+export const canManageAi = (role: ProjectRole): boolean => hasPermission(role, 'manageAi')
 export const canLeave = (role: ProjectRole): boolean => hasPermission(role, 'leave')
 
 /** Vrai si `role` vaut au moins `minimum` (owner > editor > reviewer > viewer). */

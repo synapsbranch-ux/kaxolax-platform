@@ -53,11 +53,13 @@ passe de l'équipe.
 | `COMPILE_WORKER_SECRET` (≥ 32 caractères) | `openssl rand -base64 48`          | api, Worker (`wrangler secret put`)  |
 | `CLERK_*`                                 | Dashboard Clerk (production)       | api, web, admin                      |
 | `SMTP_*`                                  | fournisseur SMTP                   | api                                  |
+| `ANTHROPIC_API_KEY` (facultative)         | Console Anthropic, API keys        | api                                  |
 | Jetons R2 `app`, `backup`                 | Terraform (`kaxolax-infra`)        | api ; backup                         |
 | Clé age des sauvegardes                   | `age-keygen -o kaxolax-backup.key` | clé **publique** seule dans `backup` |
 
 `kaxolax-infra/railway/provision.sh` génère `APP_KEY`, `REALTIME_TOKEN_SECRET`,
 `INTERNAL_TOKEN` et `COMPILE_WORKER_SECRET` s'ils manquent et ne les remplace jamais.
+Sans `ANTHROPIC_API_KEY`, l'IA est désactivée : toute route d'IA répond 503 `E_AI_UNAVAILABLE`.
 
 ## 3. Cloudflare : zone, DNS, WAF, R2
 

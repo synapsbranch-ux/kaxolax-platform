@@ -58,12 +58,16 @@ le dépôt.
 | `TEMPLATES_CATALOG_URL`                                                   | `https://templates.<domaine>/templates.json` (bucket public de la galerie) |
 | `TEMPLATES_PUBLIC_URL`                                                    | facultative : base des fichiers, défaut = dossier du catalogue             |
 | `TEXLIVE_INDEX_BUCKET`, `TEXLIVE_INDEX_KEY`                               | bucket R2 de l'index (‡), `texlive/2026/packages.json`                     |
+| `ANTHROPIC_API_KEY`                                                       | secret de la Console Anthropic (API keys), facultatif (§)                  |
 
 `COMPILE_GATEWAY_URL` n'est pas posée en production (mode `gateway` seulement).
 
 (‡) Bucket `R2_PUBLIC_BUCKET` où la CI de kaxolax-texlive-images publie l'index des packages ;
 le jeton R2 de l'API (`S3_ACCESS_KEY_ID`) doit pouvoir le lire. Sans cette variable, les routes
 `/texlive/*` répondent 503 en production.
+
+(§) Clé de l'API Anthropic (Claude), côté API seulement. Sans elle, l'IA est désactivée : toute
+route d'IA répond 503 `E_AI_UNAVAILABLE` et la santé de l'admin (`/admin/ai/health`) l'indique.
 
 ### realtime
 

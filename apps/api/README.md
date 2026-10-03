@@ -72,6 +72,7 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   | `manageShareLinks`  |   ✓   |        |          |        |
   | `transferOwnership` |   ✓   |        |          |        |
   | `manageProject`     |   ✓   |        |          |        |
+  | `manageAi`          |   ✓   |        |          |        |
   | `leave`             |       |   ✓    |    ✓     |   ✓    |
 
 - **Partage** (contrats zod : `packages/contracts/src/sharing.ts` ; erreurs : `SHARING_ERRORS`).
@@ -407,6 +408,86 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
     organisation ignoré. Emails (`app/mails/billing_mails.ts`, français) après validation, un
     par transition : bienvenue quand un plan payant devient `active` (pas après un retard de
     paiement ni une résiliation annulée), paiement en retard à l'entrée en `past_due`.
+- **IA (Claude)** (contrats : `packages/contracts/src/ai.ts` ; service : `app/services/claude/*`).
+  Socle de l'étape 3 ; les routes conversationnelles viennent avec l'assistant (tâche 3).
+  - Variable `ANTHROPIC_API_KEY` (facultative, côté API seulement) : sans elle, `configured` est
+    faux et toute opération d'IA répond 503 `E_AI_UNAVAILABLE` ; le reste de l'API fonctionne.
+  - Client unique du SDK officiel `@anthropic-ai/sdk` (`ClaudeClient`, `client.ts`), créé une
+    fois depuis la clé (2 nouvelles tentatives, délai de 10 min) et résolu par le conteneur :
+    les tests le remplacent par un client relié à une fausse API (`tests/claude.ts`).
+  - Enveloppe `ClaudeService.run` (`claude_service.ts`) : modèle `claude-opus-5-5`, réflexion
+    adaptative, profondeur `output_config.effort` fixée par opération (`operations.ts` :
+    `assistant` medium, `quick_action` low, `figure` high, `markdown_cleanup` low), streaming
+    (`beta.messages.stream`, `finalMessage()`, événements relayés par `onEvent`), repli serveur
+    en cas de refus (beta `server-side-fallback-2026-07-01`, `fallbacks: "default"`), cache du
+    prompt (outils puis système figés, `cache_control` éphémère sur le système, cache automatique
+    de la fin de conversation), outils `strict` avec `tool_choice` `auto`, `stop_reason` vérifié
+    (`refusal` → 422 `E_AI_REFUSED` avec la catégorie ; `max_tokens` ou contexte plein → 422
+    `E_AI_TRUNCATED`, sauf réponse texte acceptée tronquée ; une entrée d'outil coupée n'est
+    jamais rendue). Erreurs du SDK converties d'après leurs classes typées : 429 et 529 (après
+    les nouvelles tentatives) → 503 `E_AI_OVERLOADED`, clé refusée → 503 `E_AI_UNAVAILABLE`,
+    autres → 502 `E_AI_UPSTREAM`, interruption → 499 `E_AI_CANCELLED`.
+  - Avant chaque appel : IA configurée (503), activée pour le projet et son workspace (403
+    `E_AI_DISABLED`, `scope` `workspace` ou `project`), limite de débit par utilisateur (20 appels
+    par minute glissante, 3 en cours, en mémoire par instance : 429 `E_AI_RATE_LIMITED` avec
+    `retryAfterSeconds`), coût maximal réservé sur les crédits (403 `E_PLAN_LIMIT`, `max_tokens`
+    réduit au solde disponible). Après : une ligne `ai_usage`
+    (utilisateur, projet, workspace, opération, modèle servi, tokens d'entrée, de sortie, lus et
+    écrits en cache, coût en micro-dollars, `stop_reason`, `request-id`) et le règlement des
+    crédits, dans une même transaction. Une réponse interrompue en cours de flux (erreur, client
+    parti) est comptée aussi : le flux ne donne la sortie qu'à la fin, donc sortie estimée d'après
+    le contenu reçu, et au moins le coût attendu de l'opération (entrée et sortie attendue). Si
+    l'écriture de `ai_usage` échoue, la réponse est rendue quand même (`usageId` null), l'usage
+    journalisé en erreur et les crédits réglés à part. Chaque appel est journalisé avec `cacheRead` (préfixe instable si toujours 0).
+  - Tarifs (`pricing.ts`, seule table de prix) : Opus 5.5 4 $ / 20 $ par million de tokens,
+    lecture du cache 0,20 $, écriture 5 $ (5 min) ou 8 $ (1 h) ; Opus 5 et Opus 4.8 (cibles du
+    repli) 5 $ / 25 $. Chaque itération de `usage.iterations` est comptée au prix de son modèle ;
+    un modèle inconnu, au prix le plus élevé de la table (avertissement dans le journal).
+  - Activation : `GET /projects/:id/ai` (tout membre : réglages du projet et du workspace,
+    `configured`, `enabled`, `canManage`), `PUT /projects/:id/ai` `{ enabled }` (permission
+    `manageAi` : propriétaire) ; `GET /workspaces/:id/ai` et `PUT` (propriétaire du workspace,
+    sinon 403 `E_WORKSPACE_FORBIDDEN`). Activée par défaut ; `aiEnabled` figure aussi dans les
+    projets et les workspaces renvoyés par l'API.
+  - Admin : `GET /admin/ai/health` (clé configurée, modèle accessible par l'API Models, sans
+    tokens consommés, latence, code d'erreur).
+- **Crédits IA** (`app/services/ai_credits.ts`, `plan_limits.ai_monthly_credits` et
+  `image_monthly_credits`, feature Clerk `ai`). 1 crédit IA = 0,01 $ de coût d'API ; 1 crédit
+  image = une image bitmap. Valeurs de départ proposées, à confirmer : Free 100 crédits IA et
+  5 images, Pro 2000 crédits IA et 100 images par mois. Sans la feature `ai` dans les claims, un
+  plan est ramené aux crédits de Free (comme les autres limites).
+  - Imputation : au compte de l'utilisateur qui lance l'action, sur son propre plan (un
+    collaborateur Free sur le projet d'un compte Pro consomme ses crédits Free).
+  - Mois civil UTC : `ai_credit_periods` (agrégat par compte et par mois) repart de zéro le 1er.
+  - Avant l'appel, le coût maximal est réservé (`ai_credit_reservations` : entrée estimée à un
+    token pour 3 caractères et `max_tokens` entier, aux prix les plus élevés de la table, repli
+    serveur compris). Si le solde ne couvre pas ce pire cas mais couvre celui de la sortie
+    attendue de l'opération, la réservation est ramenée au solde et `max_tokens` réduit d'autant ;
+    sinon refus 403 `E_PLAN_LIMIT` (`limit.name` `ai_credits` ou `image_credits`, `feature` `ai`,
+    `current` = crédits consommés). Après, règlement au coût réel (au-delà de la réservation
+    seulement par l'erreur d'estimation de l'entrée) ou libération. Une réservation est prolongée
+    toutes les 5 min pendant l'appel ; jamais réglée (processus arrêté), elle expire au bout de
+    40 min (plus que le délai du SDK × 3 tentatives). Ligne d'agrégat verrouillée pendant la
+    réservation : la somme des réservations d'appels simultanés reste dans le plan.
+  - `GET /me/plan` renvoie `credits` : `periodStart`, `resetsAt`, et pour `ai` et `images` :
+    `monthly`, `used` (centièmes de crédit, arrondi supérieur), `remaining`.
+- **Jetons d'accès personnels** (contrats : `packages/contracts/src/tokens.ts` ;
+  `app/services/personal_access_tokens.ts`), pour le serveur MCP (tâche 7) :
+  `GET /me/tokens`, `POST /me/tokens` `{ name, scopes, projectIds?, expiresInDays? }` → 201
+  `{ token, secret }` (`cache-control: no-store`), `DELETE /me/tokens/:id` (révocation,
+  idempotente, 204). Secret `kxp_<identifiant public>_<32 octets base64url>`, affiché une seule
+  fois ; la base garde le préfixe et le SHA-256 du secret. Vérification
+  (`verifyPersonalAccessToken`) : recherche par préfixe, comparaison des hachages à temps
+  constant, refus d'un jeton révoqué, expiré, ou d'un compte supprimé ou banni ; `last_used_at`
+  mis à jour au plus une fois par minute. Portées `read`/`write` (`write` inclut `read`),
+  projets nommés (le compte doit en être membre, sinon 422 `E_TOKEN_INVALID_PROJECT`) ou tous ;
+  expiration obligatoire (1 à 365 jours, 90 par défaut) ; 20 jetons actifs au plus (409
+  `E_TOKEN_LIMIT`). Création et révocation journalisées (identifiant et préfixe, jamais le secret).
+- **Intégrations** (schéma seulement, logique : tâches 8 et 9 ; contrats :
+  `packages/contracts/src/integrations.ts`) : `git_links` et `zotero_links`, un lien de chaque
+  sorte au plus par projet. Jetons OAuth chiffrés au repos par l'encryption d'AdonisJS
+  (AES-256-GCM avec `APP_KEY`, `app/services/encrypted_column.ts`) : colonnes `*_encrypted`,
+  chiffrement lié à sa colonne, jamais sérialisés. Changer `APP_KEY` sans garder l'ancienne clé
+  dans `config/encryption.ts` rend les jetons illisibles (lus `null` : à redemander).
 - **Admin** (`/admin/*`, pour `apps/admin`) : middleware `auth` puis `admin`
   (`app/middleware/admin_middleware.ts`) : claim `metadata.role` = `admin` (sinon 403
   `E_ADMIN_REQUIRED`), second facteur vérifié dans la session (claim `fva[1] !== -1`) et MFA
@@ -467,6 +548,14 @@ est anonymisé et jamais supprimé (voir `docs/decisions.md`). Les tables d'asso
 substitution et un couple unique : Lucid ne gère qu'une colonne de clé primaire, et `save()` ou
 `delete()` sur une instance ne doivent toucher que sa ligne.
 
+Étape 3, socle (migrations `…0130` à `…0136`, colonnes ajoutées avec une valeur par défaut,
+nouvelles tables seulement) : `projects.ai_enabled`, `workspaces.ai_enabled` (défaut vrai) et
+`workspaces.clerk_organization_id` (unique, workspaces d'équipe seulement) ;
+`plan_limits.ai_monthly_credits` et `image_monthly_credits` ; `ai_conversations`, `ai_messages`
+(contenu jsonb des blocs de l'API, gardé tel quel) ; `ai_usage`, `ai_credit_periods`,
+`ai_credit_reservations` ; `suggestions` (ancre au format des commentaires, contraintes sur le
+type, les textes et la décision) ; `personal_access_tokens` ; `git_links`, `zotero_links`.
+
 Déploiement de l'étape 2 : les migrations peuvent passer pendant que l'API de l'étape 1 sert
 encore. Ses créations de projet (sans `workspace_id`) sont rattachées au workspace personnel du
 propriétaire par le déclencheur `projects_default_workspace_id` (migration `…0014`), à retirer
@@ -518,6 +607,21 @@ des claims `pla`/`fea`, repli sur le miroir, cache de `plan_limits`, chaque limi
 (durée de compilation envoyée, y compris par un collaborateur, stockage, collaborateurs,
 transfert de propriété, invitation acceptée sous le plan relevé dans les claims du propriétaire),
 webhooks rejoués ou désordonnés sans effet, un email par transition, payeur inconnu.
+
+IA (`tests/functional/claude_service.spec.ts`, `tests/unit/claude.spec.ts`, fausse API
+Anthropic de `tests/claude.ts` derrière le vrai SDK, aucun appel réseau) : paramètres envoyés
+(modèle, effort, réflexion, repli, cache, outils `strict`), usage et coût enregistrés, repli
+compté par modèle, refus et `max_tokens`, 429 et 529 retentés puis signalés, erreurs en cours
+de flux (plancher facturé, sortie visible comptée), écriture de `ai_usage` en échec, pire cas
+réservé et `max_tokens` réduit au solde, appels simultanés qui épuisent leur `max_tokens`,
+interruption, IA non configurée ou désactivée, crédits épuisés, limite de débit, santé.
+Crédits (`tests/functional/ai_credits.spec.ts`) : réservation, règlement, refus, plan de
+l'utilisateur qui agit, remise à zéro mensuelle, expiration et prolongation, réservation
+ramenée au solde, `GET /me/plan`, réservations
+simultanées (sans transaction globale). Jetons d'accès (`personal_access_tokens.spec.ts`) :
+secret affiché une fois, hachage, vérification, portées, projets, révocation, expiration,
+plafond. Activation (`ai_settings.spec.ts`). Schéma (`ai_schema.spec.ts`) : jetons chiffrés,
+contraintes, migrations de la tâche 1 annulées puis rejouées sans perte de données.
 
 Admin (`tests/functional/admin_*.spec.ts`, faux Clerk et faux service temps réel dans
 `tests/admin.ts`) : refus sans rôle, sans second facteur, sans MFA activée chez Clerk ; journal

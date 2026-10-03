@@ -707,3 +707,40 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Import zip et projet depuis un template passent tous deux par `createProjectFromZip` : contenu attribué à la personne qui crée le projet dans le journal de l'historique (`recordInitialStates`) et compté dans son stockage (`assertStorageAvailable`).
 - Restauration d'une version : stockage du propriétaire vérifié pour ce qu'elle ajoute (textes plus longs avant tout remplacement ; documents et binaires recréés mesurés dans la transaction, option `applied` de `assertStorageAvailable`) ; une restauration qui libère de la place passe toujours. `tree.changed` publié après la validation.
 - Temps réel : journal des mises à jour par auteur et garde du stockage côte à côte ; une connexion en lecture seule (stockage plein) ne produit aucune mise à jour à journaliser, le document meta reste en lecture seule.
+
+## 2026-10-03 · IA : Claude Opus 5.5 par le SDK officiel, effort fixé par usage
+
+- Dépendance `@anthropic-ai/sdk` 0.131.0 (MIT, SDK officiel d'Anthropic, publié le 2026-09-30) dans l'API seulement : streaming, nouvelles tentatives (429, 5xx, réseau) et classes d'erreurs typées sans code maison ; jamais d'appel HTTP brut ni de shim OpenAI. Un seul client (`ClaudeClient`), créé depuis `ANTHROPIC_API_KEY` (facultative : sans elle, 503 `E_AI_UNAVAILABLE`), résolu par le conteneur ; les tests branchent le vrai SDK sur une fausse API par son option `fetch`, ce qui exerce aussi ses nouvelles tentatives.
+- Modèle `claude-opus-5-5`, réflexion adaptative (jamais désactivée ni budgétée), `output_config.effort` toujours explicite par opération (`assistant` medium, `quick_action` low, `figure` high, `markdown_cleanup` low), dans `app/services/claude/operations.ts` seulement.
+- Repli serveur en cas de refus activé par défaut (beta `server-side-fallback-2026-07-01`, `fallbacks: "default"`, routage par catégorie) ; chaque itération de `usage.iterations` est facturée au prix de son modèle (table unique `pricing.ts` ; un modèle inconnu prend le prix le plus élevé).
+- Cache du prompt : outils puis système figés en tête avec `cache_control` éphémère, plus le cache automatique de la fin de conversation ; rien de variable avant le point de cache. `cache_read_input_tokens` enregistré dans `ai_usage` et journalisé à chaque appel.
+- Limite de débit par utilisateur en mémoire, par instance (20 appels par minute glissante, 3 simultanés), comme les autres bornes de l'API : elle arrête une boucle de requêtes ; la limite de coût reste les crédits, vérifiés en base.
+
+## 2026-10-03 · Crédits IA mensuels par plan
+
+- 1 crédit IA = 0,01 $ de coût d'API (10 000 micro-dollars) ; crédits images à l'unité. Colonnes `ai_monthly_credits` et `image_monthly_credits` de `plan_limits`, levées au-delà de Free par une seule feature Clerk `ai` (à rattacher à Pro dans le Dashboard). Valeurs de départ proposées, à confirmer par l'utilisateur : Free 100 crédits et 5 images, Pro 2000 crédits et 100 images.
+- Consommation imputée à l'utilisateur qui lance l'action, sur son propre plan, et non au propriétaire du projet : le coût suit la personne qui sollicite l'IA, et un propriétaire ne voit pas ses crédits vidés par ses collaborateurs.
+- Réservation du coût maximal avant l'appel (entrée : un token pour 3 caractères ; `max_tokens` entier ; prix les plus élevés de la table, car le repli serveur peut servir un modèle plus cher), règlement au coût réel après, dans la transaction qui écrit `ai_usage`. Solde insuffisant pour le pire cas mais suffisant pour la sortie attendue : réservation ramenée au solde et `max_tokens` réduit, plutôt qu'un refus. Ainsi des appels simultanés (3 par utilisateur) ne dépassent pas le plan ; seule l'erreur d'estimation de l'entrée peut le faire. Écarté : réserver la sortie attendue seulement (un appel peut produire `max_tokens`, jusqu'à 160 crédits pour `markdown_cleanup`).
+- Réponse interrompue (erreur en cours de flux, client parti) : le flux ne donne la sortie qu'à la fin, donc facturation de la sortie visible estimée et au moins du coût attendu de l'opération (la réflexion n'est pas visible), dans la limite de la réservation.
+- Réservation prolongée toutes les 5 min pendant l'appel (le délai du SDK ne borne pas le corps du flux) ; jamais réglée (processus arrêté), elle expire après 40 min, plus que 10 min × 3 tentatives. Écriture de `ai_usage` en échec : réponse rendue, usage journalisé en erreur, crédits réglés à part.
+- Mois civil UTC (agrégat `ai_credit_periods` par compte et par mois) plutôt que la période de facturation Clerk : identique pour Free et Pro, sans dépendre d'un webhook ; remise à zéro implicite le 1er.
+
+## 2026-10-03 · Jetons des intégrations chiffrés au repos
+
+- Jetons OAuth de GitHub et clé d'API Zotero chiffrés par l'encryption d'AdonisJS (AES-256-GCM, clé `APP_KEY`, `config/encryption.ts`), dans des colonnes `*_encrypted` ; l'instance Lucid les porte en clair, la base et les sérialisations jamais.
+- Chiffrement lié à sa colonne (`purpose`) : un texte chiffré recopié ailleurs ne se déchiffre pas. Un texte illisible (clé changée) se lit `null` : jeton à redemander, aucune erreur. Pour changer `APP_KEY` sans perdre les jetons, garder l'ancienne clé en second dans `keys`.
+- Pas de dépendance ni de clé supplémentaires : `APP_KEY` est déjà un secret obligatoire des déploiements.
+
+## 2026-10-03 · Jetons d'accès personnels
+
+- Secret `kxp_<identifiant public de 12 caractères>_<32 octets aléatoires en base64url>` : le préfixe `kxp_` le rend repérable par les scanners de secrets ; l'identifiant public sert de clé de recherche et d'affichage.
+- Stockage du seul SHA-256 du secret (pas de bcrypt : 256 bits d'entropie rendent une attaque par dictionnaire inutile, et la vérification reste rapide à chaque requête MCP) ; comparaison à temps constant (`timingSafeEqual`), aussi pour un préfixe inconnu.
+- Expiration obligatoire (1 à 365 jours, 90 par défaut), portées `read`/`write`, projets nommés ou tous, 20 jetons actifs au plus, révocation douce ; l'appartenance au projet et le rôle restent vérifiés à chaque utilisation.
+- Table bornée sans pagination : 50 créations par compte sur 30 jours glissants, révoqués compris (429 `E_TOKEN_RATE_LIMIT`, arrête la boucle « créer, révoquer ») ; un jeton révoqué ou expiré depuis plus de 30 jours est supprimé à la création suivante et n'est plus listé. La liste compte donc au plus 70 jetons. Écarté : la pagination, inutile à cette taille.
+- Compte supprimé (`deleteClerkUser`, ligne anonymisée et jamais supprimée, donc sans CASCADE) : ses jetons d'accès sont révoqués, ses conversations IA (messages compris) et ses liens Git et Zotero (jetons chiffrés compris) supprimés, aussi dans les projets des autres, dans la même transaction.
+
+## 2026-10-03 · IA désactivable par projet et par workspace
+
+- `ai_enabled` sur `projects` et `workspaces` (vrai par défaut) ; l'IA ne sert un projet que si les deux sont vrais (403 `E_AI_DISABLED` avec `scope`). Le refus du workspace l'emporte.
+- Nouvelle permission `manageAi` (propriétaire) dans la matrice des projets, et première matrice des workspaces (`WORKSPACE_PERMISSIONS` : `read` pour tous, `manageAi` pour le propriétaire), que les rôles d'équipe (tâche 10) compléteront.
+- Interrupteur dans l'onglet Projet des paramètres (web) : lu à l'ouverture, modifiable par le propriétaire, raison affichée aux autres membres.

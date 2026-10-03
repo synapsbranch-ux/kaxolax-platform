@@ -41,6 +41,7 @@ import type {
   PdfPosition,
   PlanLimitError,
   PreferencesResponse,
+  ProjectAiSettings,
   ProjectRole,
   ProjectSearchQuery,
   ProjectSearchResponse,
@@ -54,6 +55,7 @@ import type {
   TexlivePackagesQuery,
   UserPreferences,
   Workspace,
+  WorkspaceAiSettings,
 } from '@kaxolax/contracts'
 
 import { planLimitOf, reportPlanLimit } from './plan-limits'
@@ -97,6 +99,8 @@ export interface Project {
   compiler: Compiler
   mainDocumentId: string | null
   spellcheckLanguage: SpellcheckLanguage
+  /** IA autorisée pour ce projet (réglage du propriétaire). */
+  aiEnabled: boolean
   role: ProjectRole
   archivedAt: string | null
   trashedAt: string | null
@@ -269,6 +273,16 @@ export const api = {
       spellcheckLanguage?: SpellcheckLanguage
     },
   ) => request<{ project: Project }>('PATCH', `/projects/${id}`, changes),
+  /** Activation de l'IA du projet et de son workspace (tout membre). */
+  projectAi: (id: string) => request<ProjectAiSettings>('GET', `/projects/${id}/ai`),
+  /** Active ou désactive l'IA du projet (propriétaire). */
+  updateProjectAi: (id: string, enabled: boolean) =>
+    request<ProjectAiSettings>('PUT', `/projects/${id}/ai`, { enabled }),
+  /** Activation de l'IA du workspace (membre du workspace). */
+  workspaceAi: (id: string) => request<WorkspaceAiSettings>('GET', `/workspaces/${id}/ai`),
+  /** Active ou désactive l'IA de tous les projets du workspace (propriétaire du workspace). */
+  updateWorkspaceAi: (id: string, enabled: boolean) =>
+    request<WorkspaceAiSettings>('PUT', `/workspaces/${id}/ai`, { enabled }),
   setProjectState: (id: string, action: 'archive' | 'unarchive' | 'trash' | 'restore') =>
     request<{ project: Project }>('POST', `/projects/${id}/${action}`),
   deleteProject: (id: string) => request<null>('DELETE', `/projects/${id}`),

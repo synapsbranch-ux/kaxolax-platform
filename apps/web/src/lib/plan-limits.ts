@@ -66,6 +66,16 @@ export function planLimitMessage(error: PlanLimitError): { title: string; descri
         title: 'Historique limité',
         description: `Le plan ${plan} conserve l'historique ${String(max)} jour${max > 1 ? 's' : ''}. Un plan supérieur conserve l'historique complet.`,
       }
+    case 'ai_credits':
+      return {
+        title: 'Crédits IA épuisés',
+        description: `Votre plan ${plan} inclut ${String(max)} crédits IA par mois${error.current === undefined ? '' : ` (utilisés : ${String(error.current)})`}. Ils sont renouvelés le 1er du mois ; un plan supérieur en offre davantage.`,
+      }
+    case 'image_credits':
+      return {
+        title: "Crédits d'images épuisés",
+        description: `Votre plan ${plan} permet ${String(max)} image${max > 1 ? 's' : ''} par mois. Elles sont renouvelées le 1er du mois ; un plan supérieur en offre davantage.`,
+      }
   }
 }
 

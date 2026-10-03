@@ -13,6 +13,12 @@ export class WorkspaceNotFoundException extends Exception {
   static override message = 'Workspace not found'
 }
 
+export class WorkspaceForbiddenException extends Exception {
+  static override status = 403
+  static override code = 'E_WORKSPACE_FORBIDDEN'
+  static override message = 'Your role in this workspace does not allow this action'
+}
+
 export interface WorkspaceAccess {
   workspace: Workspace
   role: WorkspaceRole
@@ -25,6 +31,7 @@ export function serializeWorkspace(workspace: Workspace, role: WorkspaceRole) {
     type: workspace.type,
     ownerId: workspace.ownerId,
     role,
+    aiEnabled: workspace.aiEnabled,
     createdAt: workspace.createdAt.toUTC().toISO(),
   }
 }

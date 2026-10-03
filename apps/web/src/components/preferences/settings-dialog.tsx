@@ -44,6 +44,7 @@ import {
   personalWordMessage,
 } from '@/lib/editor-settings'
 import { usePreferences } from './preferences-provider'
+import { ProjectAiSetting } from './project-ai-setting'
 import type { ProjectSettings, SettingsSection } from './settings-provider'
 
 const LANGUAGES: { id: SpellcheckLanguage; label: string }[] = [
@@ -60,8 +61,9 @@ const SAMPLE = [
 /**
  * Paramètres : onglet Éditeur (thème, coloration, police, taille, hauteur de ligne, raccourcis,
  * retour à la ligne), Correcteur (activation, dictionnaire personnel) et Projet (langue du
- * correcteur, sur la page projet). Chaque changement est appliqué tout de suite aux éditeurs
- * ouverts et enregistré dans les préférences de l'utilisateur (tous ses appareils).
+ * correcteur, assistant IA, sur la page projet). Chaque changement est appliqué tout de suite aux
+ * éditeurs ouverts et enregistré dans les préférences de l'utilisateur (tous ses appareils) ; les
+ * réglages du projet, dans le projet.
  */
 export default function SettingsDialog({
   section,
@@ -497,6 +499,14 @@ function ProjectSection({ project }: { project: ProjectSettings }) {
         </NativeSelect>
       </Row>
       {error ? <Alert variant="destructive">{error}</Alert> : null}
+      <ProjectAiSetting
+        load={project.loadAiSettings}
+        update={project.onAiEnabledChange}
+        workspace={{
+          load: project.loadWorkspaceAiSettings,
+          update: project.onWorkspaceAiEnabledChange,
+        }}
+      />
     </div>
   )
 }
