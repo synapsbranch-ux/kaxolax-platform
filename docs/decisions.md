@@ -891,3 +891,14 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Droits de la clé : l'utilisateur peut les réduire sur zotero.org. Les bibliothèques proposées et liables sont celles que l'objet `access` de `GET /keys/current` déclare lisibles ; un 403 d'une clé qui répond encore à `/keys/current` devient `E_ZOTERO_LIBRARY_FORBIDDEN` (lien gardé avec sa clé), plus « clé révoquée ».
 - Une clé de citation nouvellement attribuée évite aussi celles des autres `.bib` du projet (pas de doublon entre fichiers) ; une clé déjà citée ne change pas.
 - OAuth : au plus 5 demandes en cours par compte, une par session, espacées de 10 s (429), réservées en base avant l'appel à Zotero : une boucle sur `POST …/connect` n'use pas la clé d'application. Connexion et déconnexion verrouillent la ligne `users` du compte et révoquent après validation exactement les clés effacées.
+
+## 2026-10-03 · Licence des templates
+
+- Les contenus des templates de kaxolax-templates sont placés sous CC0 1.0, limitée au dossier `templates/` (`templates/LICENSE`).
+- Chaque template déclare sa licence SPDX dans `metadata.json` (`CC0-1.0` pour les dix templates de départ) ; un template sous une autre licence le précise là et dans son `main.tex`.
+- L'outillage de kaxolax-templates (schéma, scripts, tests, CI) reste sans licence, comme les autres dépôts Kaxolax.
+- La renonciation CC0 est irrévocable dès la diffusion des templates : choix à confirmer par l'utilisateur avant la première publication.
+
+## 2026-10-03 · Vérification des constats de revue de l'étape 2
+
+- Les 180 constats confirmés pendant les revues de l'étape 2 (2 bloquants, 48 majeurs, 130 mineurs) ont été revérifiés contre `main` après la remise en état : 178 corrigés (preuve dans le code), 2 sans correction de code nécessaire (F092 déjà corrigé et couvert par des tests ; F078, licence CC0 des templates, consigné ci-dessus).
