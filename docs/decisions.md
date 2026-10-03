@@ -169,11 +169,12 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 ## 2026-09-30 · Images Docker des services
 
 - Un seul `docker/Dockerfile` à cibles multiples (web, api, realtime, compile-gateway, compile-agent) : un étage construit tout le monorepo, puis `pnpm deploy --prod` isole chaque service avec ses seules dépendances de production. Next.js tourne en mode `standalone`.
-- Les images sont en arm64, comme les instances Graviton du staging, et construites sur des runners arm. Elles vont dans ECR depuis `main` quand le rôle OIDC est configuré.
+- ~~Les images sont en arm64, comme les instances Graviton du staging, et construites sur des runners arm. Elles vont dans ECR depuis `main` quand le rôle OIDC est configuré.~~ Périmé depuis l'étape 2 (Railway et Cloudflare, plus d'AWS) : images linux/amd64, construites par Railway au déploiement depuis `docker/Dockerfile` (étape `service`) ; la CI les construit en amd64 pour vérification, sans les pousser nulle part.
 - L'agent tourne dans un conteneur qui pilote Docker par le socket de l'hôte. Son répertoire de travail est monté au même chemin des deux côtés : les montages des compilations désignent des chemins de l'hôte. Les compilations restent des conteneurs neufs, sans réseau et sans le socket.
 
 ## 2026-09-30 · Déploiement du staging par SSM, parcours Playwright ensuite
 
+- Périmé depuis l'étape 2 : plus de staging AWS ni de SSM ; Railway déploie la production depuis `main` (`deploy/railway/`, `docs/deploy.md`). Entrée gardée pour l'historique.
 - Décision : après le push des images dans ECR, la CI lance `kaxolax-deploy` sur les deux instances par SSM Run Command (rôle OIDC `kaxolax-github-deploy`, instances étiquetées `Project=kaxolax`), attend le résultat, puis lance le parcours de la « Définition de terminé » contre l'URL CloudFront.
 - Emails de test sur staging : adresses en `@e2e-mail.<domaine>`, reçues par SES et lues dans S3 par `e2e/mail.ts` (Mailpit en local).
 - Écartés : SSH (aucun port ouvert, instances sans IP publique) ; CodeDeploy, une pièce de plus pour deux instances.
@@ -455,9 +456,9 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 ## 2026-10-01 · Railway : config as code et étape finale par argument de build
 
-- `deploy/railway/<service>.json` (web, api, realtime, pg-backup, pg-restore-test) : Dockerfile, healthchecks, `preDeployCommand` des migrations (api), réplicas (2 pour web et api, 1 pour realtime), cron. Chemin à déclarer dans les réglages de chaque service ; `kaxolax-infra/railway/provision.sh` pose les mêmes valeurs.
+- `deploy/railway/<service>.json` (web, admin, api, realtime, pg-backup, pg-restore-test) : Dockerfile, healthchecks, `preDeployCommand` des migrations (api), réplicas (2 pour web, api et realtime, 1 pour admin), cron. Chemin à déclarer dans les réglages de chaque service ; `kaxolax-infra/railway/provision.sh` le déclare et applique ces fichiers (voir l'entrée du 2026-10-03).
 - Railway ne choisit pas de cible de build : dernière étape `service` de `docker/Dockerfile` = `FROM ${KAXOLAX_SERVICE}` (variable du service, passée en argument de build). `--target` reste valable pour la CI.
-- realtime à plusieurs réplicas suppose l'extension Redis de Hocuspocus (tâche 5) : 1 réplica jusque-là, 2 avec elle.
+- realtime à plusieurs réplicas suppose l'extension Redis de Hocuspocus : elle existe (`apps/realtime/src/cluster.ts`), realtime tourne donc à 2 réplicas avec `REDIS_URL` (décision C.5 de l'étape 3).
 - `API_INTERNAL_URL` (cible des réécritures `/api` du web) est figée par `next build` : `ARG` de l'étape `builder`, remplie par Railway depuis la variable du service.
 
 ## 2026-10-01 · Sauvegardes PostgreSQL chiffrées vers R2
@@ -707,3 +708,23 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Import zip et projet depuis un template passent tous deux par `createProjectFromZip` : contenu attribué à la personne qui crée le projet dans le journal de l'historique (`recordInitialStates`) et compté dans son stockage (`assertStorageAvailable`).
 - Restauration d'une version : stockage du propriétaire vérifié pour ce qu'elle ajoute (textes plus longs avant tout remplacement ; documents et binaires recréés mesurés dans la transaction, option `applied` de `assertStorageAvailable`) ; une restauration qui libère de la place passe toujours. `tree.changed` publié après la validation.
 - Temps réel : journal des mises à jour par auteur et garde du stockage côte à côte ; une connexion en lecture seule (stockage plein) ne produit aucune mise à jour à journaliser, le document meta reste en lecture seule.
+
+## 2026-10-03 · Production : configuration remise en état (tâche 0b)
+
+- `docker/Dockerfile` : plus de cache mount `--mount=type=cache,id=pnpm-store` (Railway n'accepte que des identifiants `s/<service-id>-…`, propres à chaque service) ; installation reproductible par `--frozen-lockfile` et l'image Node épinglée. `KAXOLAX_SERVICE` n'a plus de valeur par défaut : sans lui, l'étape `service` mène à `missing-kaxolax-service`, qui échoue avec un message clair (au lieu de construire l'api en silence) ; les builds par `--target` ne sont pas touchés.
+- Admin sur le port 3001 (celui de son image et de `next dev`), `PORT=3001` et domaine sur 3001 dans `provision.sh` ; `ADMIN_URL=https://admin.<domaine>` posée sur l'api (sinon ses jetons sont refusés par le claim `azp`). `REDIS_URL` retirée de l'api, qui n'utilise plus Redis.
+- `kaxolax-infra/railway/provision.sh` ne recopie plus la configuration des services : il lit `deploy/railway/*.json` (seule source) et les déclare comme « Railway Config File ». Galerie et index TeX Live : `TEMPLATES_CATALOG_URL`, `TEMPLATES_PUBLIC_URL`, `TEXLIVE_INDEX_BUCKET=kaxolax-texlive-index`, `TEXLIVE_INDEX_KEY` sortis par Terraform. L'index a son bucket privé : R2 ne limite pas un jeton à un préfixe, et le jeton `texlive_publish` de la CI de kaxolax-texlive-images aurait sinon pu réécrire le catalogue, les zip des templates (et leur sha256) et le contenu de `templates.<domaine>` ; `templates_publish` reste le seul rédacteur de la galerie, `app` lit l'index.
+- `TRUSTED_PROXY_HOPS=2` documenté : le proxy de Railway (ou Next.js, qui relaie `/api` sans ajouter d'adresse à `X-Forwarded-For`) puis Cloudflare ; à vérifier au premier déploiement. IP et `X-Forwarded-*` restent forgeables : Railway n'authentifie pas Cloudflare, une connexion directe à son edge contourne aussi le WAF et la limitation de débit. Aucune règle ne repose sur l'IP ; il faudrait d'abord un en-tête secret posé par une Transform Rule de Cloudflare, vérifié par l'API, puis `CF-Connecting-IP` seul.
+- SMTP de production en TLS implicite : `SMTP_PORT=465` **et** `SMTP_SECURE=true` (nodemailer parle sinon en clair et chaque envoi attend le délai d'attente) ; `provision.sh` avertit si 465 est posé sans `SMTP_SECURE=true`.
+
+## 2026-10-03 · Données des projets supprimés et durée de vie des sorties
+
+- La suppression définitive d'un projet (propriétaire, admin, compte supprimé par Clerk ou par l'admin) efface aussi `outputs/<projectId>/` du bucket des sorties (`releaseDeletedProject`, `CompileOutputStorage` injecté) : les demandes de compilation y gardent toutes les sources, et les PDF leur contenu. Au mieux, comme pour `projects/<id>/` : un échec est journalisé, l'expiration du bucket fait le reste.
+- Cycle de vie R2 (kaxolax-infra) aligné sur le local : sorties expirées à 7 jours, téléversements en attente (`uploads/`) à 1 jour.
+
+## 2026-10-03 · Empreinte de l'image TeX Live : un point par dépôt, build refusé sans elle
+
+- `apps/compile-worker/container/Dockerfile` : une seule référence épinglée, `ARG TEXLIVE_IMAGE=ghcr.io/…/kaxolax-texlive:2026-medium@sha256:…` ; kaxolax-templates : `texlive_reference` et `texlive_digest` en tête de `scripts/build.sh`, seule référence de sa CI. L'empreinte `sha256:` se pose après la republication de `2026-medium`, jamais inventée.
+- Sans empreinte, la production refuse l'image : une étiquette republiée (compte GHCR ou CI de texlive-images compromis) passerait sinon en production sans commit. Dans la plateforme, `wrangler deploy` passe `TEXLIVE_REQUIRE_PINNED=1` (`image_vars` de `wrangler.jsonc`) et l'étape `builder` du Dockerfile échoue sans `@sha256:` ; la CI (`images.yml`) et le poste local construisent sans cet argument, donc restent verts tant que l'empreinte n'est pas posée. Dans kaxolax-templates, `build.sh` refuse l'image par défaut sans empreinte, sauf `TEXLIVE_ALLOW_UNPINNED=1` (CI hors publication, poste local).
+- Écartée : un refus par défaut levé par `--build-arg TEXLIVE_ALLOW_UNPINNED=1` dans le Dockerfile. Le job `compile-container` de la CI ne passe aucun argument : il échouait à chaque exécution tant que l'empreinte n'était pas posée.
+- Écartée : une empreinte à part (`TEXLIVE_DIGEST`) ajoutée à `TEXLIVE_IMAGE`. Un `--build-arg TEXLIVE_IMAGE=…` gardait l'ancienne empreinte : l'image épinglée était construite à la place de la variante demandée sans avertissement (même dépôt), ou le build échouait (autre dépôt). Remplacer toute la référence perd l'empreinte, et le build sans empreinte est refusé : c'est le comportement sûr.

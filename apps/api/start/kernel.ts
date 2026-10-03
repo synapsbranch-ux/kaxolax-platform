@@ -8,7 +8,7 @@ import server from '@adonisjs/core/services/server'
 
 server.errorHandler(() => import('#exceptions/handler'))
 
-/** Pas de CORS : le navigateur appelle l'API par la même origine (rewrites Next.js, CloudFront). */
+/** Pas de CORS : le navigateur appelle l'API par la même origine (réécriture /api de Next.js). */
 server.use([
   () => import('#middleware/force_json_response_middleware'),
   () => import('#middleware/container_bindings_middleware'),

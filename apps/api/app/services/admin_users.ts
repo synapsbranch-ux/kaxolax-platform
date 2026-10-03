@@ -18,6 +18,7 @@ import type ClerkBackend from '#services/clerk_backend'
 import { applyBanState, deleteClerkUser } from '#services/clerk_users'
 import { isoString, isoStringOrNull } from '#services/dates'
 import type ObjectStorage from '#services/object_storage'
+import type { CompileOutputStorage } from '#services/object_storage'
 import { CURRENT_SUBSCRIPTION_STATUSES, FREE_PLAN_SLUG } from '#services/plans'
 import { isUuid } from '#services/project_access'
 import { announceDepartures } from '#services/project_events'
@@ -47,6 +48,7 @@ export interface AdminUserDependencies {
   clerk: ClerkBackend
   realtime: RealtimeClient
   storage: ObjectStorage
+  outputs: CompileOutputStorage
 }
 
 /** Motif ILIKE qui cherche le texte tel quel (%, _ et \ échappés). */

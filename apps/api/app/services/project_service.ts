@@ -8,7 +8,11 @@ import ProjectMember, { type ProjectRole } from '#models/project_member'
 import type User from '#models/user'
 import { starterDocument } from '#services/latex'
 import type ObjectStorage from '#services/object_storage'
-import { projectPrefix } from '#services/object_storage'
+import {
+  type CompileOutputStorage,
+  projectOutputsPrefix,
+  projectPrefix,
+} from '#services/object_storage'
 import { assertStorageAvailable } from '#services/plan_enforcement'
 import type RealtimeClient from '#services/realtime_client'
 import { createDocument } from '#services/tree_service'
@@ -119,6 +123,13 @@ export interface DeletedProject {
   documentIds: string[]
 }
 
+/** Services qui libèrent ce qu'un projet supprimé laisse hors de la base. */
+export interface ProjectReleaseServices {
+  realtime: RealtimeClient
+  storage: ObjectStorage
+  outputs: CompileOutputStorage
+}
+
 /**
  * Supprime un projet de la base (transaction de l'appelant si fournie). Les connexions temps réel
  * et les objets S3 se libèrent ensuite avec `releaseDeletedProject`, une fois la transaction validée.
@@ -135,11 +146,16 @@ export async function deleteProjectRows(
   return { projectId: project.id, documentIds: documents.map((document) => document.id) }
 }
 
-/** Ferme les documents ouverts et efface les objets S3 d'un projet supprimé (au mieux). */
+/**
+ * Ferme les documents ouverts et efface les objets S3 d'un projet supprimé, au mieux : ses
+ * fichiers (`projects/<id>/`) et les sorties de toutes ses compilations (`outputs/<id>/`), qui
+ * contiennent ses sources et ses PDF.
+ */
 export async function releaseDeletedProject(
   deleted: DeletedProject,
-  services: { realtime: RealtimeClient; storage: ObjectStorage },
+  services: ProjectReleaseServices,
 ): Promise<void> {
   await services.realtime.closeDocuments(deleted.documentIds)
   await services.storage.deletePrefix(projectPrefix(deleted.projectId))
+  await services.outputs.deletePrefix(projectOutputsPrefix(deleted.projectId))
 }

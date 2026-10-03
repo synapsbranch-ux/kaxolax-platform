@@ -34,7 +34,8 @@ for bucket in "$S3_BUCKET_PROJECT_FILES" "$S3_BUCKET_COMPILE_OUTPUTS"; do
 done
 echo "cors: applied for $WEB_ORIGIN"
 
-# Mêmes règles d'expiration qu'en staging.
+# Mêmes règles d'expiration qu'en production (cycle de vie R2 de kaxolax-infra) : sorties de
+# compilation à 7 jours, téléversements en attente (uploads/) à 1 jour.
 s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET_COMPILE_OUTPUTS" \
   --lifecycle-configuration '{"Rules":[{"ID":"expire-outputs","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":7}}]}'
 s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET_PROJECT_FILES" \

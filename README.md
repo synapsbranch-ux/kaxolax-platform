@@ -119,7 +119,7 @@ functions/
   upload-processor/   vérification et classement d'un fichier uploadé
   zip-importer/       extraction et validation d'un projet zip
 packages/
-  collab/             conventions Yjs (nom des documents, champ texte)
+  collab/             conventions Yjs (noms des documents, ancres, historique, jeton temps réel)
   config/             tsconfig, ESLint, Prettier
   contracts/          schémas zod partagés entre services
   editor/             CodeMirror : langage LaTeX, thèmes, registre d'actions, outline, auto-compilation
@@ -150,7 +150,7 @@ Guide pas à pas : [docs/deploy.md](docs/deploy.md). En résumé :
   déploiement, réplicas). `docker/Dockerfile` choisit son étape finale avec `KAXOLAX_SERVICE`
   (Railway) ou `--target web|api|realtime|compile-gateway|compile-agent` (CI, local).
 - **Cloudflare** : DNS, CDN, WAF, R2 (SDK S3 existant, `S3_REGION=auto`), Worker de compilation
-  `apps/compile-worker` avec un conteneur par projet (`pnpm --filter @kaxolax/compile-worker deploy`).
+  `apps/compile-worker` avec un conteneur par projet (`pnpm --filter @kaxolax/compile-worker run deploy`).
 - **Compilation** : `COMPILE_BACKEND=gateway` (défaut local et CI : synchrone, compile-gateway et
   agents Docker + gVisor) ou `cloudflare` (production : asynchrone, `buildId` puis résultat par
   le service temps réel).

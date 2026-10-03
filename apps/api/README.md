@@ -43,7 +43,11 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   projets dont l'utilisateur est membre, partagés compris), création avec un `main.tex` minimal
   qui compile (dans le workspace `workspaceId` ou, par défaut, le workspace personnel),
   renommage, compilateur, document principal, langue du correcteur (`spellcheckLanguage` : `en`
-  ou `fr`, rôle editor), archive, corbeille, suppression depuis la corbeille.
+  ou `fr`, rôle editor), archive, corbeille, suppression depuis la corbeille. Une suppression
+  définitive (propriétaire, admin, compte supprimé) efface ensuite, au mieux, les fichiers du
+  projet (`projects/<id>/`) et les sorties de toutes ses compilations (`outputs/<id>/`, sources
+  envoyées au compilateur et PDF) ; le cycle de vie des buckets expire de toute façon les
+  sorties à 7 jours et les téléversements en attente à 1 jour.
 - **Arborescence** : dossiers et documents texte (état Yjs dès l'étape 1), renommage,
   déplacement, suppression récursive. Chemins calculés, jamais stockés. Noms uniques dans un
   dossier, tous types confondus, vérifiés en transaction avec le projet verrouillé.
@@ -369,7 +373,6 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   retour sur l'onglet ; `RealtimeClient.notifyBannerChanged`, appelée à chaque création,
   modification ou suppression, diffuse aussi `banner.changed` en direct à tous les clients
   connectés à un document meta.
-  modification ou suppression, sera branchée sur le document meta des projets (tâche 5).
 - **Abonnements (Clerk Billing)** (contrats : `packages/contracts/src/billing.ts`).
   - Droits (`app/services/entitlements.ts`) : plan et features lus dans les claims `pla`
     (`u:pro`) et `fea` (`u:long_compile,…`) du jeton vérifié (`has({ plan })`/`has({ feature })`,

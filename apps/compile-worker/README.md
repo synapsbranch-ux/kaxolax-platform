@@ -50,7 +50,9 @@ Le conteneur n'a ni réseau ni identifiants : tout passe par le Worker et ses bi
 ## Conteneur
 
 `container/Dockerfile` (linux/amd64, contexte = racine du monorepo) : agent de compilation sur
-l'image TeX Live durcie de `kaxolax-texlive-images`. Protections : `latexmk -norc`, texmf.cnf
+l'image TeX Live durcie de `kaxolax-texlive-images`, épinglée par son empreinte dans
+`TEXLIVE_IMAGE` (sans elle, `wrangler deploy` échoue : `image_vars` de `wrangler.jsonc` passe
+`TEXLIVE_REQUIRE_PINNED=1` ; la CI et le poste local construisent sans cet argument). Protections : `latexmk -norc`, texmf.cnf
 durci, UID 1000 sans privilège (`setpriv`), `prlimit`, timeout, processus tués après chaque
 compilation (voir `docs/decisions.md`, écart de sandbox).
 
@@ -59,8 +61,11 @@ compilation (voir `docs/decisions.md`, écart de sandbox).
 ```bash
 pnpm --filter @kaxolax/compile-worker test       # vitest, doubles des bindings (sans réseau)
 pnpm --filter @kaxolax/compile-worker build      # wrangler deploy --dry-run (bundle dans dist/)
-pnpm --filter @kaxolax/compile-worker deploy     # déploiement réel : voir docs/deploy.md
+pnpm --filter @kaxolax/compile-worker run deploy # déploiement réel : voir docs/deploy.md
 ```
+
+`run` est obligatoire pour le déploiement : `pnpm deploy` est une commande intégrée de pnpm
+(copie d'un paquet du workspace), qui passe avant le script `deploy` du paquet.
 
 Secret : `pnpm --filter @kaxolax/compile-worker exec wrangler secret put COMPILE_WORKER_SECRET`
 (même valeur que l'API). Domaine et noms de buckets : `wrangler.jsonc`.

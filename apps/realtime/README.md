@@ -98,9 +98,10 @@ transferts au-delà. Ici :
 - L'état est relu au plus toutes les `STORAGE_CHECK_MS` (10 s) par projet, et après chaque
   enregistrement d'un de ses documents. Base indisponible : l'édition reste permise (journalisé).
 - Dépassement possible, borné : ce qui arrive entre deux enregistrements (10 s au plus) et deux
-  lectures de l'usage. L'affichage du message `plan.storage` dans l'éditeur reste à brancher avec
-  la connexion du web (tâche 5) ; en attendant, l'éditeur voit ses modifications non
-  synchronisées et les autres actions affichent le refus `E_PLAN_LIMIT` avec le lien des tarifs.
+  lectures de l'usage.
+- Côté web, l'éditeur traite ce message (`apps/web/src/lib/plan-limits.ts`, branché dans
+  `code-editor.tsx`) : stockage plein, il affiche le refus `E_PLAN_LIMIT` (boîte des limites,
+  lien des tarifs) ; place libérée, il se resynchronise pour renvoyer les éditions refusées.
 
 ## Persistance
 

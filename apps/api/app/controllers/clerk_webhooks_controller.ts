@@ -17,7 +17,7 @@ import {
   profileFromWebhook,
   upsertClerkUser,
 } from '#services/clerk_users'
-import ObjectStorage from '#services/object_storage'
+import ObjectStorage, { CompileOutputStorage } from '#services/object_storage'
 import { announceAutoJoins, announceDepartures } from '#services/project_events'
 import { type DeletedProject, releaseDeletedProject } from '#services/project_service'
 import type { JoinedProject } from '#services/sharing_service'
@@ -53,6 +53,7 @@ export default class ClerkWebhooksController {
   constructor(
     private readonly realtime: RealtimeClient,
     private readonly storage: ObjectStorage,
+    private readonly outputs: CompileOutputStorage,
   ) {}
 
   async handle({ request, response }: HttpContext) {
@@ -122,7 +123,11 @@ export default class ClerkWebhooksController {
     })
 
     for (const project of effects.deleted) {
-      await releaseDeletedProject(project, { realtime: this.realtime, storage: this.storage })
+      await releaseDeletedProject(project, {
+        realtime: this.realtime,
+        storage: this.storage,
+        outputs: this.outputs,
+      })
     }
     if (effects.disconnectUserId !== null) {
       await this.realtime.disconnectUser(effects.disconnectUserId)

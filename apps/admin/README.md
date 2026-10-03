@@ -45,11 +45,11 @@ reconnecter en validant la MFA. L'admin n'a pas d'inscription (`/sign-in` seulem
 - **Journal** (`/audit-log`) : actions de l'admin (auteur, action, cible, résultat, détails),
   filtres par action, type et id de cible, résultat, auteur et période.
 
-## Variables (`apps/admin/.env`, lues à l'exécution)
+## Variables (`apps/admin/.env`)
 
 | Variable                | Rôle                                                                |
 | ----------------------- | ------------------------------------------------------------------- |
-| `API_INTERNAL_URL`      | API vue par le serveur Next.js (réécriture de `/api`)               |
+| `API_INTERNAL_URL`      | API vue par le serveur Next.js (réécriture de `/api`), lue au build |
 | `CLERK_PUBLISHABLE_KEY` | même instance Clerk que `apps/web`                                  |
 | `CLERK_SECRET_KEY`      | idem                                                                |
 | `CLERK_JWT_KEY`         | clé publique PEM sur une ligne avec des `\n` (sessions sans réseau) |
@@ -68,3 +68,5 @@ pnpm --filter @kaxolax/admin test   # Vitest (contrôle des claims, formats)
 ```
 
 Image : `docker build -f docker/Dockerfile --target admin .` (Next.js `standalone`, port 3001).
+Production : service Railway `admin` (`deploy/railway/admin.json`, `KAXOLAX_SERVICE=admin`,
+`PORT=3001`), domaine `admin.<domaine>` ; variables dans `deploy/railway/README.md`.

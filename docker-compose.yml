@@ -1,4 +1,4 @@
-# Services d'infrastructure pour le développement local (jamais utilisé en staging).
+# Services d'infrastructure pour le développement local et la CI (jamais en production).
 # Les identifiants ci-dessous sont des valeurs de dev locales, sans valeur ailleurs.
 name: kaxolax
 

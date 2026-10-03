@@ -69,6 +69,11 @@ function s3() {
 
 export const uploadKey = (uploadId: string) => `uploads/${uploadId}`
 export const projectPrefix = (projectId: string) => `projects/${projectId}/`
+/**
+ * Sorties de toutes les compilations d'un projet (bucket des sorties) : `compileOutputPrefix` de
+ * `@kaxolax/contracts` sans le build.
+ */
+export const projectOutputsPrefix = (projectId: string) => `outputs/${projectId}/`
 export const fileKey = (projectId: string, fileId: string) =>
   `${projectPrefix(projectId)}files/${fileId}`
 
@@ -258,7 +263,10 @@ export default class ObjectStorage extends BucketStorage {
   }
 }
 
-/** Bucket des sorties de compilation (PDF, log ; expiration à 7 jours). */
+/**
+ * Bucket des sorties de compilation (demandes, PDF, journaux, SyncTeX) : expiration à 7 jours
+ * (cycle de vie du bucket, en local comme en production), et effacées avec leur projet.
+ */
 export class CompileOutputStorage extends BucketStorage {
   constructor() {
     super(storageConfig.compileOutputsBucket)

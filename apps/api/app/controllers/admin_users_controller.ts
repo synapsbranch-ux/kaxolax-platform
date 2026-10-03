@@ -13,7 +13,7 @@ import {
   userSummary,
 } from '#services/admin_users'
 import ClerkBackend from '#services/clerk_backend'
-import ObjectStorage from '#services/object_storage'
+import ObjectStorage, { CompileOutputStorage } from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
 import { adminUsersQueryValidator } from '#validators/admin'
 
@@ -22,8 +22,13 @@ import { adminUsersQueryValidator } from '#validators/admin'
 export default class AdminUsersController {
   private readonly deps: AdminUserDependencies
 
-  constructor(clerk: ClerkBackend, realtime: RealtimeClient, storage: ObjectStorage) {
-    this.deps = { clerk, realtime, storage }
+  constructor(
+    clerk: ClerkBackend,
+    realtime: RealtimeClient,
+    storage: ObjectStorage,
+    outputs: CompileOutputStorage,
+  ) {
+    this.deps = { clerk, realtime, storage, outputs }
   }
 
   async index({ request }: HttpContext) {
