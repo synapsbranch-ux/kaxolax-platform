@@ -1,5 +1,6 @@
 'use client'
 
+import { useAuth, useClerk } from '@clerk/nextjs'
 import {
   Alert,
   Badge,
@@ -24,6 +25,7 @@ import {
   LayoutTemplateIcon,
   PlusIcon,
   SearchIcon,
+  UsersIcon,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -34,6 +36,9 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DashboardSidebar, PROJECT_VIEWS } from '@/components/dashboard/dashboard-sidebar'
 import { NameDialog } from '@/components/name-dialog'
 import { useSettings } from '@/components/preferences/settings-provider'
+import { MoveProjectDialog } from '@/components/teams/move-project-dialog'
+import { TeamInvitations } from '@/components/teams/team-invitations'
+import { TeamSummary } from '@/components/teams/team-plan'
 import { TemplatePickerDialog } from '@/components/templates/template-picker-dialog'
 import { COMPILERS } from '@/components/workspace/pdf/compile-status'
 import { WorkspaceSwitcher } from '@/components/workspace/sidebar/sidebar-footer'
@@ -45,6 +50,13 @@ import {
   type ProjectView,
   type Workspace,
 } from '@/lib/api'
+import {
+  isTeamWorkspace,
+  moveTargets,
+  teamErrorMessage,
+  teamOfProject,
+  workspaceLabel,
+} from '@/lib/teams'
 
 const ROLE_LABELS: Record<Project['role'], string> = {
   owner: 'Propriétaire',
@@ -64,8 +76,10 @@ const dateFormat = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeS
 /**
  * Tableau de bord : projets du workspace choisi (ou de tous, partagés compris), vues actifs,
  * archivés et corbeille, recherche, tri, création (vide ou depuis un template), import d'un zip,
- * et actions par projet (renommer, archiver, corbeille, restaurer, supprimer). Le workspace vient de l'URL
- * (`?workspace=`), réglée par le sélecteur du pied de sidebar.
+ * et actions par projet (renommer, archiver, corbeille, restaurer, supprimer, déplacer vers une
+ * équipe). Le workspace vient de l'URL (`?workspace=`), réglée par le sélecteur du pied de
+ * sidebar ; une équipe affiche son bandeau (sièges, plan, stockage mutualisé) et devient
+ * l'organisation active de la session Clerk.
  */
 export default function DashboardPage() {
   const user = useRequiredUser()
@@ -84,6 +98,10 @@ export default function DashboardPage() {
   const [pickingTemplate, setPickingTemplate] = useState(false)
   const [renaming, setRenaming] = useState<Project | null>(null)
   const [deleting, setDeleting] = useState<Project | null>(null)
+  const [moving, setMoving] = useState<Project | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const { orgId, isLoaded: authLoaded } = useAuth()
+  const { setActive } = useClerk()
   const [importing, setImporting] = useState(false)
   const importInput = useRef<HTMLInputElement>(null)
 
@@ -151,7 +169,7 @@ export default function DashboardPage() {
       await action()
       await load()
     } catch (caught) {
-      setError(errorMessage(caught))
+      setError(teamErrorMessage(caught, errorMessage))
     }
   }
 
@@ -162,7 +180,7 @@ export default function DashboardPage() {
       const project = await importZip(file, workspaceId)
       router.push(`/project/${project.id}`)
     } catch (caught) {
-      setError(errorMessage(caught))
+      setError(teamErrorMessage(caught, errorMessage))
       setImporting(false)
     }
   }
@@ -172,6 +190,15 @@ export default function DashboardPage() {
     setView(next)
   }
   const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
+  const team = workspace !== undefined && isTeamWorkspace(workspace) ? workspace : null
+  const teamOrganizationId = team?.clerkOrganizationId ?? null
+
+  // Équipe affichée : organisation active de la session (plan de l'équipe dans le jeton).
+  useEffect(() => {
+    if (!authLoaded || teamOrganizationId === null || orgId === teamOrganizationId) return
+    void setActive({ organization: teamOrganizationId }).catch(() => undefined)
+  }, [authLoaded, orgId, teamOrganizationId, setActive])
+
   const viewLabel = PROJECT_VIEWS.find((item) => item.id === view)?.label ?? 'Projets'
 
   return (
@@ -236,11 +263,14 @@ export default function DashboardPage() {
           <div className="mb-5">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">{viewLabel}</h1>
-              <p className="text-sm text-muted-foreground">
-                {workspace?.name ?? 'Tous les workspaces'}
+              <p className="text-sm text-muted-foreground" data-testid="dashboard-workspace">
+                {workspace ? workspaceLabel(workspace) : 'Tous les workspaces'}
               </p>
             </div>
           </div>
+
+          <TeamInvitations />
+          {team ? <TeamSummary key={team.id} workspace={team} /> : null}
 
           <nav aria-label="Vues" className="mb-4 flex rounded-md border p-0.5 md:hidden">
             {PROJECT_VIEWS.map((item) => (
@@ -321,6 +351,11 @@ export default function DashboardPage() {
               {error}
             </Alert>
           ) : null}
+          {notice ? (
+            <Alert variant="success" role="status" className="mb-4" data-testid="dashboard-notice">
+              {notice}
+            </Alert>
+          ) : null}
 
           <div className="overflow-hidden rounded-lg border bg-card">
             {projects === null ? (
@@ -382,14 +417,18 @@ export default function DashboardPage() {
                         project.compiler}
                     </p>
                   </div>
-                  {project.role !== 'owner' ? (
-                    <Badge variant="secondary" className="hidden sm:inline-flex">
-                      Partagé · {ROLE_LABELS[project.role]}
-                    </Badge>
-                  ) : null}
+                  <ProjectBadge
+                    project={project}
+                    workspaces={workspaces}
+                    filtered={team !== null}
+                  />
                   <ProjectMenu
                     project={project}
                     view={view}
+                    canMove={moveTargets(project, workspaces).length > 0}
+                    onMove={() => {
+                      setMoving(project)
+                    }}
                     onRename={() => {
                       setRenaming(project)
                     }}
@@ -436,6 +475,18 @@ export default function DashboardPage() {
           await load()
         }}
       />
+      <MoveProjectDialog
+        key={moving?.id}
+        project={moving}
+        teams={moving ? moveTargets(moving, workspaces) : []}
+        onOpenChange={(open) => {
+          if (!open) setMoving(null)
+        }}
+        onMoved={(moved, target) => {
+          setNotice(`« ${moved.name} » fait maintenant partie de l’équipe ${target.name}.`)
+          void load()
+        }}
+      />
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => {
@@ -452,16 +503,57 @@ export default function DashboardPage() {
   )
 }
 
-/** Actions d'un projet selon la vue : renommer, archiver, corbeille, restaurer, supprimer. */
+/**
+ * Badge d'un projet : son équipe (sauf si la liste est déjà celle de l'équipe) et le rôle qu'il
+ * y donne, ou « Partagé » avec le rôle pour un projet personnel d'un autre compte.
+ */
+function ProjectBadge({
+  project,
+  workspaces,
+  filtered,
+}: {
+  project: Project
+  workspaces: readonly Workspace[]
+  /** Liste filtrée sur une équipe : son nom n'est pas répété. */
+  filtered: boolean
+}) {
+  const team = teamOfProject(project, workspaces)
+  if (team !== null) {
+    if (filtered && project.role === 'owner') return null
+    return (
+      <Badge variant="outline" className="hidden max-w-56 sm:inline-flex" data-testid="team-badge">
+        <UsersIcon aria-hidden />
+        <span className="truncate">
+          {filtered ? ROLE_LABELS[project.role] : `${team.name} · ${ROLE_LABELS[project.role]}`}
+        </span>
+      </Badge>
+    )
+  }
+  if (project.role === 'owner') return null
+  return (
+    <Badge variant="secondary" className="hidden sm:inline-flex">
+      Partagé · {ROLE_LABELS[project.role]}
+    </Badge>
+  )
+}
+
+/**
+ * Actions d'un projet selon la vue : renommer, archiver, corbeille, restaurer, supprimer, et
+ * déplacer vers une équipe (projet personnel dont l'utilisateur est propriétaire).
+ */
 function ProjectMenu({
   project,
   view,
+  canMove,
+  onMove,
   onRename,
   onDelete,
   onAct,
 }: {
   project: Project
   view: ProjectView
+  canMove: boolean
+  onMove: () => void
   onRename: () => void
   onDelete: () => void
   onAct: (action: 'archive' | 'unarchive' | 'trash' | 'restore') => void
@@ -476,6 +568,11 @@ function ProjectMenu({
       <DropdownMenuContent align="end">
         {view !== 'trashed' ? (
           <DropdownMenuItem onSelect={onRename}>Renommer</DropdownMenuItem>
+        ) : null}
+        {view !== 'trashed' && canMove ? (
+          <DropdownMenuItem onSelect={onMove} data-testid="move-project">
+            Déplacer vers une équipe…
+          </DropdownMenuItem>
         ) : null}
         {view === 'active' ? (
           <DropdownMenuItem

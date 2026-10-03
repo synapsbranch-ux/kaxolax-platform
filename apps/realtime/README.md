@@ -13,8 +13,10 @@ connecté a enfin son canal, `user:{userId}` (`userChannelName`), sans contenu n
    `{ token, url, expiresAt }` (5 minutes).
 2. Il ouvre `url` avec `HocuspocusProvider`, le nom du document et ce jeton.
 3. Le service vérifie la signature et l'expiration, puis que le document appartient au projet
-   du jeton, qu'il existe et que l'utilisateur est membre. Le rôle est relu en base (celui du
-   jeton n'est pas cru) : selon la matrice de `@kaxolax/contracts` (`canEdit`), owner et editor
+   du jeton, qu'il existe et que l'utilisateur y a accès. Le rôle est relu en base (celui du
+   jeton n'est pas cru) dans la vue `project_access_roles` de l'API : ligne de `project_members`
+   ou rôle dérivé du workspace d'équipe du projet (administrateur : owner ; membre : rôle
+   d'équipe du projet), le plus élevé des deux : selon la matrice de `@kaxolax/contracts` (`canEdit`), owner et editor
    écrivent, viewer et reviewer sont en lecture seule (`connection.readOnly`).
 
 ## Permissions sur les connexions ouvertes
@@ -27,8 +29,9 @@ Toute la logique est dans `src/access.ts` :
   le rôle est relu en base si la dernière lecture date de plus de `ROLE_RECHECK_MS` (5 s) : un
   rôle abaissé passe la connexion en lecture seule avant que la mise à jour ne s'applique.
 - `POST /internal/projects/:id/members/:userId/changed` (appelée par l'API après un changement
-  de rôle, un retrait ou un transfert) relit le rôle et l'applique aussitôt aux connexions de
-  ce membre sur le projet : fermeture (4403) s'il n'est plus membre, sinon lecture seule ou
+  de rôle, un retrait ou un transfert, y compris un retrait de l'équipe ou un changement de son
+  rôle d'équipe, pour chaque projet du workspace) relit le rôle et l'applique aussitôt aux
+  connexions de ce membre sur le projet : fermeture (4403) s'il n'est plus membre, sinon lecture seule ou
   écriture et message sans état `member.role-changed` (`roleChangedMessageSchema`).
 - Toutes les `ROLE_SWEEP_MS` (30 s), le rôle de toutes les connexions est relu : filet si une
   notification de l'API s'est perdue ; un balayage ne démarre pas tant que le précédent tourne.
@@ -118,14 +121,17 @@ coûte environ 2 s par document).
 
 ## Limite de stockage du plan
 
-`src/storage.ts` applique aux éditions la limite de stockage du plan du propriétaire du projet
-(Clerk Billing ; valeurs dans `plan_limits`). Le stockage d'un compte compte les fichiers et les
-états Yjs enregistrés de tous ses projets ; l'API refuse déjà les créations, uploads, imports et
+`src/storage.ts` applique aux éditions la limite de stockage du plan du propriétaire du projet,
+ou de l'organisation pour un projet d'équipe (Clerk Billing ; valeurs dans `plan_limits`). Le
+stockage d'un compte compte les fichiers et les états Yjs enregistrés de ses projets personnels ;
+celui d'une équipe, de tous les projets du workspace ; l'API refuse déjà les créations, uploads, imports et
 transferts au-delà. Ici :
 
 - Plan du propriétaire lu en base (`DocumentStore.ownerStorage`), même règle que l'API sans
   claims de requête : relevé des claims de son dernier jeton (`users.claimed_plan_*`) s'il est
-  plus récent que le miroir `subscriptions` des webhooks, sinon le miroir, sinon `free`.
+  plus récent que le miroir `subscriptions` des webhooks, sinon le miroir, sinon `free`. Projet
+  d'équipe : abonnement de l'organisation dans le miroir (`clerk_organization_id`), sinon
+  `free`.
 - À chaque message de synchronisation d'une connexion qui édite (après le contrôle du rôle) :
   si l'usage enregistré atteint la limite, la connexion passe en lecture seule (les mises à jour
   sont refusées, sans compter dans `MAX_REJECTED_UPDATES`) ; quand de la place se libère, elle

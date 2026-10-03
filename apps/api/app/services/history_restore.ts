@@ -26,7 +26,7 @@ import {
   restoredDocumentState,
   VersionNotFoundException,
 } from '#services/history_service'
-import { assertStorageAvailable, projectStorageUsage } from '#services/plan_enforcement'
+import { assertProjectStorageAvailable, projectStorageUsage } from '#services/plan_enforcement'
 import { isUuid, projectFor } from '#services/project_access'
 import {
   assertNameAvailable,
@@ -423,7 +423,9 @@ export async function restoreVersion(
       ),
     0,
   )
-  if (textGrowth > 0) await assertStorageAvailable(project.ownerId, textGrowth, { requester: user })
+  if (textGrowth > 0) {
+    await assertProjectStorageAvailable(project, textGrowth, { requester: user })
+  }
   const replaced: string[] = []
   const fail = async (error: unknown): Promise<never> => {
     if (await revertTexts(deps, project.id, backup.version, replaced, user.id)) throw error
@@ -471,7 +473,7 @@ export async function restoreVersion(
       // le stockage du plan ne les accueille pas ; une restauration qui libère passe toujours.
       const added = (await projectStorageUsage(project.id, trx)) - usedBefore
       if (added > 0) {
-        await assertStorageAvailable(locked.ownerId, added, { requester: user, trx, applied: true })
+        await assertProjectStorageAvailable(locked, added, { requester: user, trx, applied: true })
       }
       await touchProject(trx, project.id)
       return result

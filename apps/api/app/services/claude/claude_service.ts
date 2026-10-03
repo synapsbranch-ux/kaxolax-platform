@@ -5,17 +5,20 @@ import { inject } from '@adonisjs/core'
 import { Exception } from '@adonisjs/core/exceptions'
 import logger from '@adonisjs/core/services/logger'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import AiUsage from '#models/ai_usage'
 import type User from '#models/user'
 import aiConfig from '#config/ai'
 import {
+  creditAccountFor,
   type CreditReservation,
   releaseCredits,
   renewCredits,
   reserveCredits,
+  liveWorkspaceId,
   settleCredits,
 } from '#services/ai_credits'
-import { assertAiEnabled } from '#services/ai_settings'
+import { type AiWorkspace, assertAiEnabled } from '#services/ai_settings'
 import ClaudeClient, { type ClaudeStreamOutcome } from '#services/claude/client'
 import {
   AiRefusedException,
@@ -55,6 +58,19 @@ import { aiRateLimiter } from '#services/claude/rate_limiter'
  *   règlement des crédits, dans une même transaction.
  */
 
+/** Identifiant du projet s'il existe encore (verrouillé FOR KEY SHARE), sinon null. */
+async function liveProjectId(
+  projectId: string | null,
+  trx: TransactionClientContract,
+): Promise<string | null> {
+  if (projectId === null) return null
+  const result = await trx.rawQuery<{ rows: { id: string }[] }>(
+    'SELECT id FROM projects WHERE id = ? FOR KEY SHARE',
+    [projectId],
+  )
+  return result.rows[0]?.id ?? null
+}
+
 /** Outil défini par l'appelant : schéma JSON figé (pas de `strict`, ajouté ici). */
 export type ClaudeTool = Omit<
   Anthropic.Beta.BetaTool,
@@ -62,7 +78,10 @@ export type ClaudeTool = Omit<
 >
 
 export interface ClaudeRequest {
-  /** Utilisateur qui lance l'action : droits, limite de débit et crédits (son plan). */
+  /**
+   * Utilisateur qui lance l'action : droits, limite de débit et crédits (son plan ; ceux de
+   * l'équipe pour un projet d'équipe).
+   */
   user: User
   operation: ClaudeOperation
   /** Projet concerné (accès déjà vérifié par l'appelant) : IA activée exigée, comptage. */
@@ -145,7 +164,7 @@ export default class ClaudeService {
   }
 
   /** Lève avant tout appel : IA non configurée (503) ou désactivée (403). Renvoie le workspace. */
-  async assertUsable(project?: { id: string } | null): Promise<string | null> {
+  async assertUsable(project?: { id: string } | null): Promise<AiWorkspace | null> {
     if (!this.client.configured) throw new AiUnavailableException()
     return project ? assertAiEnabled(project) : null
   }
@@ -156,7 +175,8 @@ export default class ClaudeService {
     if (request.messages.length === 0 || request.messages.at(-1)?.role === 'assistant') {
       throw new Error('The conversation sent to Claude must end with a user turn (no prefill)')
     }
-    const workspaceId = await this.assertUsable(request.project)
+    const workspace = await this.assertUsable(request.project)
+    const workspaceId = workspace?.id ?? null
     const release = aiRateLimiter.acquire(request.user.id)
     try {
       const settings = OPERATION_SETTINGS[request.operation]
@@ -169,7 +189,11 @@ export default class ClaudeService {
         request.user,
         'ai',
         worstCaseCostMicros(requested, requested.max_tokens),
-        { minimum: worstCaseCostMicros(requested, minOutput) },
+        {
+          minimum: worstCaseCostMicros(requested, minOutput),
+          // Membre d'une équipe à plan actif : réserve mutualisée ; sinon crédits de l'auteur.
+          account: await creditAccountFor(request.user, workspace),
+        },
       )
       const params: BetaMessageStreamParams = {
         ...requested,
@@ -288,11 +312,14 @@ export default class ClaudeService {
     let id: string | null = null
     try {
       const row = await db.transaction(async (trx) => {
+        // Workspace dissous (ou projet supprimé) pendant l'appel : l'usage reste enregistré,
+        // sans la référence disparue (comme le fait ON DELETE SET NULL pour les lignes passées).
+        const projectId = await liveProjectId(request.project?.id ?? null, trx)
         const created = await AiUsage.create(
           {
             userId: request.user.id,
-            projectId: request.project?.id ?? null,
-            workspaceId,
+            projectId,
+            workspaceId: await liveWorkspaceId(workspaceId, trx),
             aiMessageId: request.aiMessageId ?? null,
             operation: request.operation,
             creditKind: 'ai',

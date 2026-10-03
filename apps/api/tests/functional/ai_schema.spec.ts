@@ -295,6 +295,8 @@ test.group('ai schema: migrations round trip', () => {
       assert.deepEqual(credits, [
         { plan_slug: 'free', ai_monthly_credits: 100, image_monthly_credits: 5 },
         { plan_slug: 'pro', ai_monthly_credits: 2000, image_monthly_credits: 100 },
+        // Plan d'organisation (tâche 10), crédits par siège.
+        { plan_slug: 'team', ai_monthly_credits: 2000, image_monthly_credits: 100 },
       ])
       // Clés étrangères SET NULL vers les messages et workspaces indexées côté référençant.
       const indexes = (await db

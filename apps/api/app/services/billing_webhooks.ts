@@ -20,7 +20,9 @@ import User from '#models/user'
 /**
  * Webhooks Billing de Clerk (`subscription.*`, `subscriptionItem.*`) : miroir des éléments
  * d'abonnement dans `subscriptions` (plan, statut, fin de période), pour l'admin, les statistiques,
- * les emails et le repli des droits sans claims. L'ordre de livraison n'est pas garanti : chaque
+ * les emails et le repli des droits sans claims. Payeur : un compte, ou une organisation (plan
+ * d'équipe `team`, ligne avec `clerk_organization_id`, sans email : la facturation d'une
+ * organisation passe par Clerk). L'ordre de livraison n'est pas garanti : chaque
  * ligne garde dans `updated_at` la date Clerk de l'état reflété, et un événement plus ancien ne
  * l'écrase pas. Les événements rejoués sont écartés en amont (clerk_webhook_events).
  */
@@ -84,26 +86,39 @@ function isPaidPlan(slug: string, plan: ClerkBillingItem['plan']): boolean {
   return slug !== FREE_PLAN && plan?.is_default !== true
 }
 
+/** Payeur local d'un élément : un compte (`userId`) ou une organisation Clerk. */
+type LocalPayer =
+  { userId: string; organizationId: null } | { userId: null; organizationId: string }
+
 /**
- * Reflète un élément d'abonnement. Renvoie le statut précédent (null : nouvelle ligne) et le plan,
- * ou null si l'événement est ignoré (plus ancien que l'état connu, payeur organisation, compte
- * supprimé, élément inconnu sans plan).
+ * Reflète un élément d'abonnement. Renvoie le statut précédent (null : nouvelle ligne), le plan et
+ * le payeur, ou null si l'événement est ignoré (plus ancien que l'état connu, sans payeur, compte
+ * supprimé, élément inconnu sans plan). Un payeur organisation n'a pas besoin d'être connu
+ * localement : ses droits sont lus par `clerk_organization_id`.
  */
 async function applyItem(
   item: ClerkBillingItem,
   payer: ClerkBillingPayer,
   eventAt: DateTime,
   trx: TransactionClientContract,
-): Promise<{ previous: string | null; planSlug: string; userId: string } | null> {
+): Promise<{ previous: string | null; planSlug: string; payer: LocalPayer } | null> {
   const clerkUserId = item.payer?.user_id ?? payer?.user_id
-  if (!clerkUserId) {
-    // Plans d'organisation : hors périmètre (workspaces d'équipe à l'étape 3).
-    logger.info({ itemId: item.id }, 'billing webhook without user payer ignored')
+  const organizationId = item.payer?.organization_id ?? payer?.organization_id
+  let local: LocalPayer
+  // `user_id` et `organization_id` sont tous deux facultatifs dans `BillingPayerJSON` : un payeur
+  // qui porte une organisation est un payeur organisation, même s'il nomme aussi le membre qui a
+  // souscrit.
+  if (organizationId) {
+    local = { userId: null, organizationId }
+  } else if (clerkUserId) {
+    const user = await User.query({ client: trx }).where('clerkUserId', clerkUserId).first()
+    if (!user) throw new BillingPayerUnknownException()
+    if (user.deletedAt) return null
+    local = { userId: user.id, organizationId: null }
+  } else {
+    logger.info({ itemId: item.id }, 'billing webhook without payer ignored')
     return null
   }
-  const user = await User.query({ client: trx }).where('clerkUserId', clerkUserId).first()
-  if (!user) throw new BillingPayerUnknownException()
-  if (user.deletedAt) return null
 
   let row = await Subscription.query({ client: trx })
     .where('clerkSubscriptionItemId', item.id)
@@ -123,7 +138,8 @@ async function applyItem(
       .table('subscriptions')
       .insert({
         id: randomUUID(),
-        user_id: user.id,
+        user_id: local.userId,
+        clerk_organization_id: local.organizationId,
         clerk_subscription_item_id: item.id,
         plan_slug: item.plan.slug,
         status: item.status,
@@ -134,7 +150,7 @@ async function applyItem(
       .onConflict('clerk_subscription_item_id')
       .ignore()
       .returning('id')
-    if (inserted.length > 0) return { previous: null, planSlug: item.plan.slug, userId: user.id }
+    if (inserted.length > 0) return { previous: null, planSlug: item.plan.slug, payer: local }
     // Insérée entre-temps par un autre événement : traitée comme une mise à jour.
     row = await Subscription.query({ client: trx })
       .where('clerkSubscriptionItemId', item.id)
@@ -146,13 +162,14 @@ async function applyItem(
   if (row.updatedAt > eventAt) return null
   const planSlug = item.plan?.slug ?? row.planSlug
   await Subscription.query({ client: trx }).where('id', row.id).update({
-    userId: user.id,
+    userId: local.userId,
+    clerkOrganizationId: local.organizationId,
     planSlug,
     status: item.status,
     periodEnd,
     updatedAt: eventAt.toSQL(),
   })
-  return { previous: row.status, planSlug, userId: user.id }
+  return { previous: row.status, planSlug, payer: local }
 }
 
 /**
@@ -186,10 +203,12 @@ export async function applyBillingEvent(
   const mails: BillingMail[] = []
   for (const item of items) {
     const applied = await applyItem(item, payer, eventAt, trx)
-    if (!applied) continue
+    // Abonnement d'organisation : pas d'email (Clerk facture et prévient l'organisation).
+    const userId = applied?.payer.userId
+    if (!applied || !userId) continue
     const paid = isPaidPlan(applied.planSlug, item.plan)
     for (const kind of mailsForTransition(applied.previous, item.status, paid)) {
-      mails.push({ kind, userId: applied.userId, planName: item.plan?.name ?? applied.planSlug })
+      mails.push({ kind, userId, planName: item.plan?.name ?? applied.planSlug })
     }
   }
   return mails

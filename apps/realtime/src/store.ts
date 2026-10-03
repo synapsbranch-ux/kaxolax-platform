@@ -1,6 +1,18 @@
 import { type ProjectRole, projectRoleSchema } from '@kaxolax/contracts'
 import pg from 'pg'
 
+/**
+ * Projets du compte d'un projet (`p`), d'après la ligne `sizes` : tous ceux de son workspace
+ * d'équipe, sinon les projets personnels de son propriétaire (hors équipes), comme
+ * `storageUsage` de l'API.
+ */
+const ACCOUNT_PROJECTS = `CASE WHEN sizes.team_org IS NOT NULL
+                                THEN p.workspace_id = sizes.workspace_id
+                                ELSE p.owner_id = sizes.owner_id
+                                     AND NOT EXISTS (SELECT 1 FROM workspaces w
+                                                      WHERE w.id = p.workspace_id
+                                                        AND w.type = 'team') END`
+
 /** Accès à PostgreSQL : seulement les colonnes dont le service temps réel a besoin. */
 export class DocumentStore {
   constructor(private readonly pool: pg.Pool) {}
@@ -16,9 +28,11 @@ export class DocumentStore {
   }
 
   /**
-   * Rôle d'un membre du projet ; null s'il n'en est pas membre, si son compte est banni ou
-   * supprimé, ou si ses sessions ont été révoquées après l'émission du jeton (`issuedAt`, en
-   * secondes ; arrondi à la seconde : un jeton émis dans la seconde de la révocation est refusé).
+   * Rôle effectif d'une personne sur le projet (vue `project_access_roles` de l'API : membre du
+   * projet, ou membre de son workspace d'équipe, le plus élevé des deux) ; null sans accès, si son
+   * compte est banni ou supprimé, ou si ses sessions ont été révoquées après l'émission du jeton
+   * (`issuedAt`, en secondes ; arrondi à la seconde : un jeton émis dans la seconde de la
+   * révocation est refusé). Un membre retiré de l'équipe perd donc l'accès à la relecture.
    */
   async memberRole(
     projectId: string,
@@ -26,7 +40,7 @@ export class DocumentStore {
     issuedAt: number,
   ): Promise<ProjectRole | null> {
     const result = await this.pool.query<{ role: string }>(
-      `SELECT m.role FROM project_members m JOIN users u ON u.id = m.user_id
+      `SELECT m.role FROM project_access_roles m JOIN users u ON u.id = m.user_id
        WHERE m.project_id = $1 AND m.user_id = $2
          AND u.banned_at IS NULL AND u.deleted_at IS NULL
          AND (u.sessions_revoked_at IS NULL OR u.sessions_revoked_at <= to_timestamp($3))`,
@@ -140,12 +154,17 @@ export class DocumentStore {
   }
 
   /**
-   * Stockage du propriétaire d'un projet : octets utilisés (fichiers et états Yjs enregistrés de
-   * tous ses projets) et limite de son plan. Même règle que l'API (`#services/entitlements`) sans
-   * les claims de la requête : relevé des claims du compte s'il est plus récent que le miroir des
-   * webhooks (et date de moins de 35 jours), sinon plan du miroir, sinon `free` ; valeur de
-   * plan_limits, ramenée à celle de Free si la feature `extra_storage` manque au relevé. Null si
-   * le projet n'existe plus.
+   * Stockage du compte d'un projet : octets utilisés (fichiers et états Yjs enregistrés) et limite
+   * de son plan. Même règle que l'API (`#services/entitlements`, `#services/plan_enforcement`)
+   * sans les claims de la requête :
+   * - projet personnel : projets personnels du propriétaire ; relevé des claims du compte s'il est
+   *   plus récent que le miroir des webhooks (et date de moins de 35 jours), sinon plan du miroir,
+   *   sinon `free` ; valeur de plan_limits, ramenée à celle de Free si la feature `extra_storage`
+   *   manque au relevé ;
+   * - projet d'équipe : tous les projets du workspace (stockage mutualisé), plan de
+   *   l'organisation d'après le miroir des abonnements d'organisation, sinon `free`.
+   * `ownerId` : propriétaire du projet (seul destinataire de l'usage). Null si le projet n'existe
+   * plus.
    */
   async ownerStorage(
     projectId: string,
@@ -157,23 +176,30 @@ export class DocumentStore {
       used: string
     }>(
       `WITH owner AS (
-         SELECT u.id, u.claimed_plan_slug, u.claimed_plan_features,
-                (u.claimed_plan_slug IS NOT NULL
+         SELECT u.id, u.claimed_plan_slug, u.claimed_plan_features, p.workspace_id,
+                w.clerk_organization_id AS team_org,
+                (w.clerk_organization_id IS NULL
+                 AND u.claimed_plan_slug IS NOT NULL
                  AND u.claimed_plan_at > now() - make_interval(days => 35)
                  AND NOT EXISTS (SELECT 1 FROM subscriptions s
                                   WHERE s.user_id = u.id AND s.updated_at >= u.claimed_plan_at))
                   AS use_claims
-           FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id = $1
+           FROM projects p JOIN users u ON u.id = p.owner_id
+           LEFT JOIN workspaces w ON w.id = p.workspace_id AND w.type = 'team'
+          WHERE p.id = $1
        ),
        mirror AS (
-         SELECT s.plan_slug FROM subscriptions s JOIN owner ON s.user_id = owner.id
+         SELECT s.plan_slug FROM subscriptions s JOIN owner
+             ON (owner.team_org IS NULL AND s.user_id = owner.id)
+             OR (owner.team_org IS NOT NULL AND s.clerk_organization_id = owner.team_org)
           WHERE s.status IN ('active', 'past_due')
              OR (s.status = 'canceled' AND s.period_end > now())
           ORDER BY (s.plan_slug = 'free') ASC, s.updated_at DESC
           LIMIT 1
        ),
        plan AS (
-         SELECT owner.id AS owner_id, owner.use_claims, owner.claimed_plan_features AS features,
+         SELECT owner.id AS owner_id, owner.workspace_id, owner.team_org, owner.use_claims,
+                owner.claimed_plan_features AS features,
                 CASE WHEN owner.use_claims THEN owner.claimed_plan_slug
                      ELSE COALESCE((SELECT plan_slug FROM mirror), 'free') END AS slug
            FROM owner
@@ -190,9 +216,9 @@ export class DocumentStore {
                    THEN COALESCE(plan_bytes, free_bytes)
                    ELSE LEAST(COALESCE(plan_bytes, free_bytes), free_bytes) END AS limit_bytes,
               (SELECT COALESCE(SUM(f.size_bytes), 0) FROM files f
-                 JOIN projects p ON p.id = f.project_id WHERE p.owner_id = sizes.owner_id)
+                 JOIN projects p ON p.id = f.project_id WHERE ${ACCOUNT_PROJECTS})
               + (SELECT COALESCE(SUM(octet_length(d.yjs_state)), 0) FROM documents d
-                 JOIN projects p ON p.id = d.project_id WHERE p.owner_id = sizes.owner_id)
+                 JOIN projects p ON p.id = d.project_id WHERE ${ACCOUNT_PROJECTS})
                 AS used
          FROM sizes`,
       [projectId],

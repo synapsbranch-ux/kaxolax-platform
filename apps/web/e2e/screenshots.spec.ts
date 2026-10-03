@@ -23,6 +23,7 @@ import {
   runTool,
   selectText,
 } from './project'
+import { createTeam, deleteTeam, teamPlanActive } from './teams'
 import {
   clearScreenshots,
   SCREENSHOT_DIR,
@@ -54,6 +55,9 @@ const VARIANT_TIMEOUT_MS = 600_000
 /** Mot mal orthographié de la démonstration (menu du correcteur). */
 const MISSPELLED = 'dimenssions'
 const VERSION_LABEL = 'Version soumise'
+/** Équipe de démonstration (Ada administratrice, Grace membre) et son projet. */
+const TEAM_NAME = 'Laboratoire Fourier'
+const TEAM_PROJECT_NAME = 'Rapport d’équipe'
 const TOOL_MENUS = [
   ['file', '06-tools-file'],
   ['format', '06-tools-format'],
@@ -77,6 +81,11 @@ interface Demo {
   invitation: string | null
   /** Session de l'admin dans l'application admin (bannière active), ouverte à la demande. */
   adminPage: Page | null
+  /**
+   * Équipe de démonstration (Organisation Clerk et workspace d'équipe) ; `active` : plan
+   * d'équipe actif, avec un projet d'équipe (sans plan, l'API refuse d'en créer).
+   */
+  team: { organizationId: string; workspaceId: string; active: boolean }
 }
 
 let demo: Demo | null = null
@@ -180,7 +189,18 @@ async function seedDemo(accounts: Accounts): Promise<Demo> {
   // Les outils de la préparation (recherche) ont ouvert la barre Tools, préférence du compte :
   // refermée, toutes les variantes de 04-project sont prises sans elle.
   await hideTools(owner.page)
+  // Équipe : Ada administratrice, Grace membre, un projet d'équipe.
+  const created = await createTeam(owner, TEAM_NAME, [collaborator])
+  const team = { ...created, active: await teamPlanActive(owner.page, created.organizationId) }
+  // Projet d'équipe : seulement si l'organisation a un plan actif (sinon refusé par l'API).
+  if (team.active) {
+    await api(owner.page, 'POST', '/projects', {
+      name: TEAM_PROJECT_NAME,
+      workspaceId: team.workspaceId,
+    })
+  }
   return {
+    team,
     accounts,
     owner,
     collaborator,
@@ -247,6 +267,7 @@ test.afterAll(async () => {
     })
   }
   await demo?.accounts.dispose()
+  if (demo) await deleteTeam(demo.team.organizationId)
   demo = null
   await writeScreenshotIndex()
 })
@@ -440,6 +461,38 @@ async function captureOutside(shots: Shots, page: Page, viewport: ScreenViewport
       await expect(page.getByTestId('join-card')).toContainText('comme relecteur')
     })
   }
+  await captureTeams(shots, page)
+}
+
+/** Écrans des équipes : sélecteur, projets de l'équipe, page de l'équipe, création. */
+async function captureTeams(shots: Shots, page: Page): Promise<void> {
+  const { team } = seeded()
+  await shots.take('28-workspace-switcher', async () => {
+    await page.goto('/dashboard')
+    await expect(page.getByTestId('project-row').first()).toBeVisible()
+    await page.getByTestId('workspace-switcher').filter({ visible: true }).first().click()
+    await expect(page.getByRole('menuitemradio', { name: TEAM_NAME })).toBeVisible()
+  })
+  await tidy(() => page.keyboard.press('Escape'))
+  await shots.take('28-team-dashboard', async () => {
+    await page.goto(`/dashboard?workspace=${team.workspaceId}`)
+    await expect(page.getByTestId('team-summary').getByTestId('team-plan-badge')).toBeVisible()
+    if (team.active) {
+      await expect(
+        page.getByTestId('project-row').filter({ hasText: TEAM_PROJECT_NAME }),
+      ).toBeVisible()
+    }
+  })
+  await shots.take('28-team', async () => {
+    await page.goto(`/team/${team.organizationId}`)
+    await expect(page.getByTestId('team-name')).toHaveText(TEAM_NAME)
+    await expect(page.getByTestId('team-plan').getByRole('meter').first()).toBeVisible()
+    await expect(page.locator('.cl-organizationProfile-root')).toBeVisible()
+  })
+  await shots.take('28-team-new', async () => {
+    await page.goto('/team/new')
+    await expect(page.locator('.cl-createOrganization-root input[name="name"]')).toBeVisible()
+  })
 }
 
 /** Page projet : éditeur, PDF, barre Tools et ses menus. */
@@ -689,7 +742,7 @@ async function captureDialogs(shots: Shots, page: Page) {
 
 /** Écrans de l'admin (thème sombre uniquement), avec une bannière programmée dans la liste. */
 async function captureAdmin(shots: Shots, page: Page) {
-  const { admin, collaborator, projectId } = seeded()
+  const { admin, collaborator, projectId, team } = seeded()
   await signInAdmin(page, admin.user)
   try {
     await shots.take('23-admin-users', async () => {
@@ -709,6 +762,15 @@ async function captureAdmin(shots: Shots, page: Page) {
       await page.goto(adminUrl(`/projects/${projectId}`))
       await expect(page.getByRole('heading', { level: 1, name: DEMO_NAME })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Archiver', exact: true })).toBeVisible()
+    })
+    await shots.take('29-admin-organizations', async () => {
+      await page.goto(adminUrl('/organizations'))
+      await expect(page.getByRole('row').filter({ hasText: TEAM_NAME }).first()).toBeVisible()
+    })
+    await shots.take('29-admin-organization', async () => {
+      await page.goto(adminUrl(`/organizations/${team.organizationId}`))
+      await expect(page.getByRole('heading', { level: 1, name: TEAM_NAME })).toBeVisible()
+      await expect(page.getByRole('row').filter({ hasText: TEAM_PROJECT_NAME })).toBeVisible()
     })
     await shots.take('25-admin-banners', async () => {
       await page.goto(adminUrl('/banners'))

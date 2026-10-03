@@ -191,7 +191,15 @@ Avec `kaxolax-infra/railway/provision.sh` (procédure §4), ou à la main :
    changer exige un nouveau build.
 4. Domaines personnalisés de chaque service, puis cibles CNAME reportées dans Cloudflare
    (`railway_targets` de Terraform) ; attendre les certificats, puis TLS `strict`.
-5. Clerk : domaine de production, URL du webhook `https://api.<domaine>/api/v1/webhooks/clerk`.
+5. Clerk : domaine de production, URL du webhook `https://api.<domaine>/api/v1/webhooks/clerk`
+   abonnée aux événements `user.*`, `subscription.*`, `subscriptionItem.*`, `organization.*`,
+   `organizationMembership.*` et `organizationInvitation.*`. Workspaces d'équipe : activer
+   Organizations (rôles `org:admin` et `org:member`), activer Billing pour les organisations
+   et créer le plan d'organisation de slug `team` (prix par siège, features `long_compile`,
+   `unlimited_collaborators`, `full_history`, `extra_storage`, `ai`) ; ses limites Kaxolax sont
+   dans la ligne `team` de `plan_limits` (valeurs à confirmer). Après la mise en service, ou si
+   des webhooks ont été perdus : `node ace clerk:sync-organizations` (sur le service api ;
+   `--dry-run` pour voir, `--prune` pour supprimer les organisations absentes de Clerk).
 
 Réplicas de realtime : 2 dans `realtime.json`. `REDIS_URL` est obligatoire sur realtime en
 production (refus de démarrer sans elle), et nécessaire à plusieurs instances (extension

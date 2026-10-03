@@ -11,6 +11,7 @@ const AdminProjectsController = () => import('#controllers/admin_projects_contro
 const AdminBannersController = () => import('#controllers/admin_banners_controller')
 const AdminInsightsController = () => import('#controllers/admin_insights_controller')
 const AdminAiController = () => import('#controllers/admin_ai_controller')
+const AdminOrganizationsController = () => import('#controllers/admin_organizations_controller')
 
 /** Déclare les routes de l'admin ; appelée dans le groupe `/api/v1` de `start/routes.ts`. */
 export function registerAdminRoutes() {
@@ -31,6 +32,10 @@ export function registerAdminRoutes() {
       router.post('projects/:id/trash', [AdminProjectsController, 'trash'])
       router.post('projects/:id/restore', [AdminProjectsController, 'restore'])
       router.delete('projects/:id', [AdminProjectsController, 'destroy'])
+
+      // Organisations Clerk (workspaces d'équipe) et leur plan d'organisation.
+      router.get('organizations', [AdminOrganizationsController, 'index'])
+      router.get('organizations/:id', [AdminOrganizationsController, 'show'])
 
       router.get('banners', [AdminBannersController, 'index'])
       router.post('banners', [AdminBannersController, 'store'])

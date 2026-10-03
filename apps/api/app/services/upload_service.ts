@@ -26,7 +26,8 @@ import Upload from '#models/upload'
 import type User from '#models/user'
 import type ObjectStorage from '#services/object_storage'
 import { fileKey, projectPrefix, uploadKey } from '#services/object_storage'
-import { assertStorageAvailable } from '#services/plan_enforcement'
+import { accountForNewProject } from '#services/entitlements'
+import { assertProjectStorageAvailable, assertStorageAvailable } from '#services/plan_enforcement'
 import { projectFor } from '#services/project_access'
 import {
   assertFolder,
@@ -36,7 +37,7 @@ import {
   recordInitialStates,
   touchProject,
 } from '#services/tree_service'
-import { workspaceFor, workspaceForNewProject } from '#services/workspace_service'
+import { checkNewProjectWorkspace, workspaceForNewProject } from '#services/workspace_service'
 
 export class UploadNotFoundException extends Exception {
   static override status = 404
@@ -123,7 +124,7 @@ export async function startFileUpload(
   const { project } = await projectFor(user, projectId, 'edit')
   // Vérifications anticipées (refaites à la complétion) : pas d'upload pour un nom déjà pris ni
   // au-delà du stockage du plan du propriétaire.
-  await assertStorageAvailable(project.ownerId, input.sizeBytes, { requester: user })
+  await assertProjectStorageAvailable(project, input.sizeBytes, { requester: user })
   await db.transaction(async (trx) => {
     await assertFolder(trx, project.id, input.folderId)
     await assertNameAvailable(trx, project.id, input.folderId, input.filename)
@@ -192,8 +193,8 @@ export async function completeFileUpload(
         { id: upload.id, userId: user.id, purpose: 'file', projectId: project.id },
         trx,
       )
-      await assertStorageAvailable(
-        lockedProject.ownerId,
+      await assertProjectStorageAvailable(
+        lockedProject,
         processed.kind === 'text'
           ? Buffer.byteLength(processed.content, 'utf8')
           : processed.sizeBytes,
@@ -235,13 +236,23 @@ export async function completeFileUpload(
   return completed
 }
 
+/**
+ * Début d'un import zip : `workspaceId` (facultatif) annonce le workspace du futur projet. Refus
+ * anticipés, avant l'upload : workspace (membre avec `createProject`, plan d'équipe actif) et
+ * taille du zip contre le stockage du compte qui recevra le projet (stockage mutualisé de
+ * l'équipe, sinon personnel). Le contenu extrait est compté de nouveau à la complétion.
+ */
 export async function startImport(
   storage: ObjectStorage,
   user: User,
-  input: { filename: string; sizeBytes: number },
+  input: { filename: string; sizeBytes: number; workspaceId?: string },
 ): Promise<StartedUpload> {
-  // Vérification anticipée sur la taille du zip ; le contenu extrait est compté à la complétion.
-  await assertStorageAvailable(user.id, input.sizeBytes, { requester: user })
+  await checkNewProjectWorkspace(user, input.workspaceId)
+  await assertStorageAvailable(
+    await accountForNewProject(user, input.workspaceId),
+    input.sizeBytes,
+    { requester: user },
+  )
   return startUpload(storage, {
     projectId: null,
     userId: user.id,
@@ -386,15 +397,20 @@ export async function createProjectFromZip(
     })
 
     return await db.transaction(async (trx) => {
-      // Le projet importé appartient à l'utilisateur : son stockage reçoit le contenu extrait.
+      // Le projet importé appartient à l'utilisateur : le stockage de son compte (ou de l'équipe du
+      // workspace choisi) reçoit le contenu extrait.
       const importedBytes =
         plan.binaries.reduce((sum, binary) => sum + binary.sizeBytes, 0) +
         plan.documents.reduce(
           (sum, document) => sum + Buffer.byteLength(document.content, 'utf8'),
           0,
         )
-      await assertStorageAvailable(user.id, importedBytes, { requester: user, trx })
       const workspace = await workspaceForNewProject(user, options.workspaceId, trx)
+      await assertStorageAvailable(
+        await accountForNewProject(user, workspace.id, trx),
+        importedBytes,
+        { requester: user, trx },
+      )
       const created = await Project.create(
         {
           id: projectId,
@@ -436,7 +452,7 @@ export async function completeImport(
 ): Promise<Project> {
   const upload = await pendingUpload({ id: uploadId, userId: user.id, purpose: 'import' })
   // Vérifié avant le travail (refait dans la transaction) : un refus laisse l'upload en attente.
-  if (workspaceId !== undefined) await workspaceFor(user, workspaceId)
+  await checkNewProjectWorkspace(user, workspaceId)
   const zipPath = join(tmpdir(), `kaxolax-import-${upload.id}.zip`)
   try {
     const size = await storage.size(upload.s3Key)

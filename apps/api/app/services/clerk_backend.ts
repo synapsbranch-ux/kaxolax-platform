@@ -30,6 +30,34 @@ export interface ClerkAccount {
   lastActiveAt: DateTime | null
 }
 
+/** Organisation lue par l'API Backend (commande `clerk:sync-organizations`). */
+export interface ClerkOrganizationSnapshot {
+  id: string
+  name: string
+  slug: string | null
+  createdBy: string | null
+}
+
+/** Adhésion lue par l'API Backend. */
+export interface ClerkMembershipSnapshot {
+  clerkUserId: string
+  /** Rôle Clerk (`org:admin`, `org:member`…). */
+  role: string
+}
+
+/** Élément d'abonnement d'organisation lu par l'API Backend, au format des webhooks Billing. */
+export interface ClerkSubscriptionItemSnapshot {
+  id: string
+  status: string
+  period_end: number | null
+  plan: { slug: string; name: string; is_default: boolean } | null
+}
+
+/** Taille des pages de l'API Backend (maximum accepté par Clerk). */
+const PAGE_SIZE = 100
+/** Garde-fou : au plus 100 000 éléments par liste. */
+const MAX_PAGES = 1000
+
 /** Pages de sessions révoquées au plus par appel (100 sessions par page). */
 const MAX_SESSION_PAGES = 10
 
@@ -41,7 +69,7 @@ function fromMillis(value: number | null): DateTime | null {
 
 /**
  * Appels à l'API Backend de Clerk (`CLERK_SECRET_KEY`) : état d'un compte, bannissement, sessions,
- * suppression. Résolue par le conteneur AdonisJS ; les tests la remplacent par un faux
+ * suppression, organisations et leurs adhésions et abonnements (rattrapage des équipes). Résolue par le conteneur AdonisJS ; les tests la remplacent par un faux
  * (`app.container.swap`), sans réseau.
  */
 export default class ClerkBackend {
@@ -55,10 +83,10 @@ export default class ClerkBackend {
     return sharedClient
   }
 
-  /** Erreur de Clerk traduite en 502, détail dans le journal. */
-  private failed(error: unknown, operation: string, clerkUserId: string): never {
+  /** Erreur de Clerk traduite en 502, détail dans le journal (`clerkId` : compte ou organisation). */
+  private failed(error: unknown, operation: string, clerkId: string): never {
     if (error instanceof ClerkUnavailableException) throw error
-    logger.error({ err: error, operation, clerkUserId }, 'clerk backend request failed')
+    logger.error({ err: error, operation, clerkId }, 'clerk backend request failed')
     throw new ClerkRequestFailedException()
   }
 
@@ -123,6 +151,94 @@ export default class ClerkBackend {
       return revoked
     } catch (error) {
       return this.failed(error, 'revokeSessions', clerkUserId)
+    }
+  }
+
+  /** Toutes les organisations de l'instance. */
+  async listOrganizations(): Promise<ClerkOrganizationSnapshot[]> {
+    try {
+      const organizations: ClerkOrganizationSnapshot[] = []
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const { data } = await this.client().organizations.getOrganizationList({
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+          orderBy: '+created_at',
+        })
+        for (const organization of data) {
+          organizations.push({
+            id: organization.id,
+            name: organization.name,
+            slug: organization.slug,
+            createdBy: organization.createdBy ?? null,
+          })
+        }
+        if (data.length < PAGE_SIZE) break
+      }
+      return organizations
+    } catch (error) {
+      return this.failed(error, 'getOrganizationList', '')
+    }
+  }
+
+  /** Une organisation ; null si elle n'existe pas (ou plus) chez Clerk. */
+  async getOrganization(organizationId: string): Promise<ClerkOrganizationSnapshot | null> {
+    try {
+      const organization = await this.client().organizations.getOrganization({ organizationId })
+      return {
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
+        createdBy: organization.createdBy ?? null,
+      }
+    } catch (error) {
+      if (isClerkAPIResponseError(error) && error.status === 404) return null
+      return this.failed(error, 'getOrganization', organizationId)
+    }
+  }
+
+  /** Adhésions d'une organisation. */
+  async listOrganizationMemberships(organizationId: string): Promise<ClerkMembershipSnapshot[]> {
+    try {
+      const memberships: ClerkMembershipSnapshot[] = []
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const { data } = await this.client().organizations.getOrganizationMembershipList({
+          organizationId,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+        })
+        for (const membership of data) {
+          const userId = membership.publicUserData?.userId
+          if (userId) memberships.push({ clerkUserId: userId, role: membership.role })
+        }
+        if (data.length < PAGE_SIZE) break
+      }
+      return memberships
+    } catch (error) {
+      return this.failed(error, 'getOrganizationMembershipList', organizationId)
+    }
+  }
+
+  /**
+   * Éléments de l'abonnement Billing d'une organisation ; null si elle n'en a pas (Billing
+   * désactivé, 404).
+   */
+  async organizationSubscriptionItems(
+    organizationId: string,
+  ): Promise<ClerkSubscriptionItemSnapshot[] | null> {
+    try {
+      const subscription =
+        await this.client().billing.getOrganizationBillingSubscription(organizationId)
+      return subscription.subscriptionItems.map((item) => ({
+        id: item.id,
+        status: item.status,
+        period_end: item.periodEnd,
+        plan: item.plan
+          ? { slug: item.plan.slug, name: item.plan.name, is_default: item.plan.isDefault }
+          : null,
+      }))
+    } catch (error) {
+      if (isClerkAPIResponseError(error) && error.status === 404) return null
+      return this.failed(error, 'getOrganizationBillingSubscription', organizationId)
     }
   }
 

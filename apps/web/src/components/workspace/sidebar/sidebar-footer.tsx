@@ -1,5 +1,6 @@
 'use client'
 
+import { useClerk } from '@clerk/nextjs'
 import { PERSONAL_WORKSPACE_NAME } from '@kaxolax/contracts'
 import {
   DropdownMenu,
@@ -15,17 +16,28 @@ import {
   Button,
   cn,
 } from '@kaxolax/ui'
-import { ChevronsUpDownIcon, SettingsIcon } from 'lucide-react'
+import { ChevronsUpDownIcon, PlusIcon, SettingsIcon, UsersIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { AccountMenu } from '@/components/billing/account-menu'
 import { useSettings } from '@/components/preferences/settings-provider'
 import { ThemeToggle } from '@/components/preferences/theme-toggle'
 import { api, type User, type Workspace } from '@/lib/api'
+import {
+  CREATE_TEAM_URL,
+  dashboardUrl,
+  isTeamWorkspace,
+  splitWorkspaces,
+  teamUrl,
+  workspaceLabel,
+} from '@/lib/teams'
 
 /**
  * Sélecteur de workspace (pied de sidebar, barre du tableau de bord sur écran étroit) : workspace
- * courant, liste des workspaces, et lien vers le tableau de bord filtré.
+ * personnel et équipes (`GET /workspaces`), tableau de bord filtré sur le workspace choisi, et
+ * organisation active de Clerk alignée (`setActive` : aucune pour le personnel), pour que le jeton
+ * de session porte le plan de l'équipe. Liens vers la création d'une équipe et la page de
+ * l'équipe courante.
  */
 export function WorkspaceSwitcher({
   workspaceId,
@@ -42,6 +54,7 @@ export function WorkspaceSwitcher({
   className?: string
 }) {
   const router = useRouter()
+  const { setActive } = useClerk()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
 
   useEffect(() => {
@@ -57,7 +70,26 @@ export function WorkspaceSwitcher({
     }
   }, [])
 
+  const { personal, teams } = splitWorkspaces(workspaces)
   const current = workspaces.find((workspace) => workspace.id === workspaceId)
+  const select = (id: string) => {
+    const target = workspaces.find((workspace) => workspace.id === id)
+    if (target === undefined) return
+    // Organisation active de la session : celle de l'équipe, aucune pour le personnel. Un échec
+    // (organisation quittée entre-temps) n'empêche pas d'afficher le tableau de bord.
+    void setActive({ organization: target.clerkOrganizationId }).catch(() => undefined)
+    router.push(dashboardUrl(target.id))
+  }
+  const item = (workspace: Workspace) => (
+    <DropdownMenuRadioItem
+      key={workspace.id}
+      value={workspace.id}
+      data-testid="workspace-option"
+      data-workspace-type={workspace.type}
+    >
+      <span className="truncate">{workspaceLabel(workspace)}</span>
+    </DropdownMenuRadioItem>
+  )
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -68,27 +100,52 @@ export function WorkspaceSwitcher({
         aria-label="Changer de workspace"
         data-testid="workspace-switcher"
       >
-        <span className="truncate">{current?.name ?? allLabel}</span>
+        {current !== undefined && isTeamWorkspace(current) ? (
+          <UsersIcon className="size-3 shrink-0" aria-hidden />
+        ) : null}
+        <span className="truncate">
+          {current === undefined ? allLabel : workspaceLabel(current)}
+        </span>
         <ChevronsUpDownIcon className="size-3 shrink-0" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side={side} className="w-56">
-        <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+      <DropdownMenuContent align="start" side={side} className="w-60">
         <DropdownMenuRadioGroup
           value={workspaceId ?? ''}
           onValueChange={(id) => {
-            router.push(`/dashboard?workspace=${encodeURIComponent(id)}`)
+            select(id)
           }}
         >
-          {workspaces.map((workspace) => (
-            <DropdownMenuRadioItem key={workspace.id} value={workspace.id}>
-              <span className="truncate">{workspace.name}</span>
-            </DropdownMenuRadioItem>
-          ))}
+          <DropdownMenuLabel>Workspace personnel</DropdownMenuLabel>
+          {personal ? item(personal) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Équipes</DropdownMenuLabel>
+          {teams.map(item)}
         </DropdownMenuRadioGroup>
+        {teams.length === 0 ? (
+          <p className="px-2 py-1 text-xs text-muted-foreground">Aucune équipe pour l’instant.</p>
+        ) : null}
+        <DropdownMenuItem
+          onSelect={() => {
+            router.push(CREATE_TEAM_URL)
+          }}
+          data-testid="create-team"
+        >
+          <PlusIcon /> Créer une équipe
+        </DropdownMenuItem>
+        {current?.clerkOrganizationId ? (
+          <DropdownMenuItem
+            onSelect={() => {
+              if (current.clerkOrganizationId) router.push(teamUrl(current.clerkOrganizationId))
+            }}
+            data-testid="open-team"
+          >
+            <SettingsIcon /> Gérer l’équipe
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => {
-            router.push('/dashboard')
+            router.push(dashboardUrl(null))
           }}
         >
           Tous les projets

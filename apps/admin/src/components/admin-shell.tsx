@@ -2,13 +2,14 @@
 
 import { UserButton } from '@clerk/nextjs'
 import { cn } from '@kaxolax/ui'
-import { BarChart3, FolderKanban, Megaphone, ScrollText, Users } from 'lucide-react'
+import { BarChart3, Building2, FolderKanban, Megaphone, ScrollText, Users } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 
 const NAV = [
   { href: '/users', label: 'Utilisateurs', icon: Users },
+  { href: '/organizations', label: 'Organisations', icon: Building2 },
   { href: '/projects', label: 'Projets', icon: FolderKanban },
   { href: '/banners', label: 'Bannière système', icon: Megaphone },
   { href: '/stats', label: 'Statistiques', icon: BarChart3 },

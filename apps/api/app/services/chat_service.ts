@@ -16,7 +16,7 @@ import { DateTime } from 'luxon'
 import ChatMessage from '#models/chat_message'
 import type Project from '#models/project'
 import type User from '#models/user'
-import { projectFor } from '#services/project_access'
+import { PROJECT_ACCESS_VIEW, projectFor } from '#services/project_access'
 
 /**
  * Chat du projet (contrats dans `packages/contracts/src/chat.ts`). Tout membre, lecteur compris,
@@ -98,7 +98,7 @@ export async function chatUnread(
   client: QueryClientContract = db.connection(),
 ): Promise<ChatUnread> {
   const row = (await client
-    .from('project_members as pm')
+    .from(`${PROJECT_ACCESS_VIEW} as pm`)
     .leftJoin('chat_reads as r', (join) => {
       join.on('r.project_id', 'pm.project_id').andOn('r.user_id', 'pm.user_id')
     })
@@ -109,7 +109,7 @@ export async function chatUnread(
       client.raw(
         `(SELECT count(*)::int FROM chat_messages m
            WHERE m.project_id = pm.project_id AND m.author_id <> pm.user_id
-             AND m.created_at > coalesce(r.last_read_at, pm.created_at)) AS unread`,
+             AND m.created_at > coalesce(r.last_read_at, pm.joined_at)) AS unread`,
       ),
     )
     .first()) as { last_read_at: Date | null; unread: number } | null
@@ -239,7 +239,7 @@ export async function postChatMessage(
       mentioned.length === 0
         ? []
         : ((await trx
-            .from('project_members as pm')
+            .from(`${PROJECT_ACCESS_VIEW} as pm`)
             .join('users as u', 'u.id', 'pm.user_id')
             .leftJoin('chat_reads as r', (join) => {
               join.on('r.project_id', 'pm.project_id').andOn('r.user_id', 'pm.user_id')
@@ -254,7 +254,7 @@ export async function postChatMessage(
                 `EXISTS (SELECT 1 FROM chat_messages m
                    WHERE m.project_id = pm.project_id AND m.id <> ?
                      AND m.author_id <> pm.user_id
-                     AND m.created_at > coalesce(r.last_read_at, pm.created_at)
+                     AND m.created_at > coalesce(r.last_read_at, pm.joined_at)
                      AND m.body ILIKE '%<@' || pm.user_id::text || '>%') AS already_mentioned`,
                 [message.id],
               ),

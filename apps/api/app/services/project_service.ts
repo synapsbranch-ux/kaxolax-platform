@@ -13,9 +13,11 @@ import {
   projectOutputsPrefix,
   projectPrefix,
 } from '#services/object_storage'
+import { accountForNewProject } from '#services/entitlements'
 import { assertStorageAvailable } from '#services/plan_enforcement'
 import type RealtimeClient from '#services/realtime_client'
 import { createDocument } from '#services/tree_service'
+import { PROJECT_ACCESS_VIEW } from '#services/project_access'
 import { workspaceFor, workspaceForNewProject } from '#services/workspace_service'
 
 export type ProjectView = 'active' | 'archived' | 'trashed'
@@ -34,6 +36,8 @@ export function serializeProject(project: Project, role: ProjectRole) {
     mainDocumentId: project.mainDocumentId,
     spellcheckLanguage: project.spellcheckLanguage,
     aiEnabled: project.aiEnabled,
+    /** Rôle des membres de l'équipe (projet d'un workspace d'équipe ; sans effet sinon). */
+    teamRole: project.teamRole,
     role,
     archivedAt: iso(project.archivedAt),
     trashedAt: iso(project.trashedAt),
@@ -55,12 +59,13 @@ export async function createProject(
 ): Promise<Project> {
   const starter = starterDocument(name, user.fullName)
   return db.transaction(async (trx) => {
-    // Stockage plein : pas de nouveau projet (403 `E_PLAN_LIMIT`).
-    await assertStorageAvailable(user.id, Buffer.byteLength(starter, 'utf8'), {
-      requester: user,
-      trx,
-    })
     const workspace = await workspaceForNewProject(user, workspaceId, trx)
+    // Stockage plein (le sien, ou celui de l'équipe) : pas de nouveau projet (403 `E_PLAN_LIMIT`).
+    await assertStorageAvailable(
+      await accountForNewProject(user, workspace.id, trx),
+      Buffer.byteLength(starter, 'utf8'),
+      { requester: user, trx },
+    )
     const project = await Project.create(
       {
         ownerId: user.id,
@@ -88,8 +93,9 @@ export async function createProject(
 }
 
 /**
- * Projets dont l'utilisateur est membre, filtrés par vue, par nom et éventuellement par workspace
- * (dont il doit être membre, sinon 404). Sans workspace : tous ses projets, partagés compris.
+ * Projets auxquels l'utilisateur a accès (membre, ou membre de leur équipe), filtrés par vue, par
+ * nom et éventuellement par workspace (dont il doit être membre, sinon 404). Sans workspace : tous
+ * ses projets, partagés et d'équipe compris.
  */
 export async function listProjects(
   user: User,
@@ -98,9 +104,9 @@ export async function listProjects(
   const { view, search, workspaceId } = filters
   if (workspaceId !== undefined) await workspaceFor(user, workspaceId)
   const query = Project.query()
-    .join('project_members', 'project_members.project_id', 'projects.id')
-    .where('project_members.user_id', user.id)
-    .select('projects.*', 'project_members.role as member_role')
+    .join(`${PROJECT_ACCESS_VIEW} as access`, 'access.project_id', 'projects.id')
+    .where('access.user_id', user.id)
+    .select('projects.*', 'access.role as member_role')
     .orderBy('projects.updated_at', 'desc')
   if (view === 'active')
     void query.whereNull('projects.archived_at').whereNull('projects.trashed_at')

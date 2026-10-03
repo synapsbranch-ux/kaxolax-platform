@@ -12,6 +12,13 @@ import WorkspaceMember from '#models/workspace_member'
 import ZoteroLink from '#models/zotero_link'
 import { type DeletedProject, deleteProjectRows } from '#services/project_service'
 import { acceptPendingInvitationsFor, type JoinedProject } from '#services/sharing_service'
+import {
+  attachPendingMemberships,
+  lockClerkUser,
+  NO_TEAM_EFFECTS,
+  releaseTeamMemberships,
+  type TeamSyncEffects,
+} from '#services/team_sync'
 import { ensurePersonalWorkspace } from '#services/workspace_service'
 
 /** Ce que Kaxolax garde d'un compte Clerk (miroir local, jamais de mot de passe ni de jeton). */
@@ -90,6 +97,8 @@ export function profileFromClaims(claims: Record<string, unknown>): ClerkProfile
 export interface ClerkUserUpsert {
   user: User
   joined: JoinedProject[]
+  /** Équipes rejointes à la création (adhésions Clerk arrivées avant le compte). */
+  team: TeamSyncEffects
 }
 
 /**
@@ -104,12 +113,15 @@ export async function upsertClerkUser(
   client?: TransactionClientContract,
 ): Promise<ClerkUserUpsert> {
   const run = async (trx: TransactionClientContract) => {
+    // Sérialisé avec les événements d'adhésion du même compte (`lockClerkUser`) : une adhésion
+    // écrite en même temps est vue ici, ou verra ce compte une fois validé.
+    await lockClerkUser(profile.clerkUserId, trx)
     const email = profile.email.trim().toLowerCase()
     let user = await User.query({ client: trx })
       .where('clerkUserId', profile.clerkUserId)
       .forUpdate()
       .first()
-    if (user?.deletedAt) return { user, joined: [] }
+    if (user?.deletedAt) return { user, joined: [], team: NO_TEAM_EFFECTS }
 
     const taken = await User.query({ client: trx })
       .where('email', email)
@@ -131,7 +143,9 @@ export async function upsertClerkUser(
     await ensurePersonalWorkspace(user, trx)
     // Inscription : les invitations en attente pour cet email (vérifié) sont acceptées.
     const joined = created ? await acceptPendingInvitationsFor(user, trx) : []
-    return { user, joined }
+    // Adhésions à des organisations reçues avant le compte : workspaces d'équipe rejoints.
+    const team = created ? await attachPendingMemberships(user, trx) : NO_TEAM_EFFECTS
+    return { user, joined, team }
   }
   return client ? run(client) : db.transaction(run)
 }
@@ -142,12 +156,15 @@ export interface DeletedClerkUser {
   userId: string | null
   deleted: DeletedProject[]
   leftProjectIds: string[]
+  /** Équipes quittées : projets d'équipe transférés au responsable, accès à revérifier. */
+  team: TeamSyncEffects
 }
 
 /**
  * Compte supprimé dans Clerk : la ligne est gardée et anonymisée (elle reste l'auteur des
- * compilations et des futurs messages), le compte quitte les projets et workspaces des autres et
- * ses propres projets sont supprimés. Ses données personnelles restées dans les projets des autres
+ * compilations et des futurs messages), le compte quitte les projets et workspaces des autres
+ * (ses projets d'équipe passent au responsable de l'équipe, `releaseTeamMemberships`) et ses
+ * propres projets personnels sont supprimés. Ses données personnelles restées dans les projets des autres
  * partent aussi (la ligne n'est jamais supprimée, donc aucun CASCADE ne les atteint) : ses
  * conversations avec l'IA (messages compris), ses liens Git et Zotero (avec leurs jetons chiffrés),
  * et ses jetons d'accès personnels sont révoqués. Renvoie les projets dont il faut ensuite libérer les
@@ -161,15 +178,36 @@ export async function deleteClerkUser(
     .where('clerkUserId', clerkUserId)
     .forUpdate()
     .first()
-  if (!user || user.deletedAt) return { userId: null, deleted: [], leftProjectIds: [] }
+  if (!user || user.deletedAt) {
+    return { userId: null, deleted: [], leftProjectIds: [], team: NO_TEAM_EFFECTS }
+  }
 
-  const owned = await Project.query({ client: trx }).where('ownerId', user.id).forUpdate()
+  // Équipes d'abord : ses projets d'équipe passent au responsable de chaque équipe au lieu
+  // d'être supprimés avec ses projets personnels.
+  const team = await releaseTeamMemberships(user, trx)
+  // Seuls ses projets hors équipe sont supprimés : un projet d'équipe sans responsable pour le
+  // recevoir (seul membre local, autres membres bannis) reste dans l'équipe à son nom, repris par
+  // le prochain responsable (`reconcileOrganization`), ou rendu avec l'équipe dissoute.
+  const owned = await Project.query({ client: trx })
+    .where('ownerId', user.id)
+    .whereRaw(
+      `NOT EXISTS (SELECT 1 FROM workspaces w
+                    WHERE w.id = projects.workspace_id AND w.type = 'team')`,
+    )
+    .forUpdate()
   const deleted: DeletedProject[] = []
   for (const project of owned) deleted.push(await deleteProjectRows(project, trx))
-  // Restent les projets des autres, dont il est retiré.
-  const left = await ProjectMember.query({ client: trx }).where('userId', user.id).forUpdate()
+  // Restent les projets des autres, dont il est retiré. Sa ligne `owner` d'un projet d'équipe
+  // gardé reste : le projet garde un propriétaire jusqu'à sa reprise.
+  const left = await ProjectMember.query({ client: trx })
+    .where('userId', user.id)
+    .whereNot('role', 'owner')
+    .forUpdate()
   const leftProjectIds = left.map((member) => member.projectId)
-  await ProjectMember.query({ client: trx }).where('userId', user.id).delete()
+  await ProjectMember.query({ client: trx })
+    .where('userId', user.id)
+    .whereNot('role', 'owner')
+    .delete()
   // Il quitte aussi les workspaces des autres ; son workspace personnel reste, vide.
   await WorkspaceMember.query({ client: trx })
     .where('userId', user.id)
@@ -194,7 +232,7 @@ export async function deleteClerkUser(
     deletedAt: DateTime.utc(),
   })
   await user.save()
-  return { userId: user.id, deleted, leftProjectIds }
+  return { userId: user.id, deleted, leftProjectIds, team }
 }
 
 /** État de bannissement d'un compte, daté par Clerk (`updated_at` du compte) si connu. */

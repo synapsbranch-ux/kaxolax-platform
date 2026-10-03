@@ -36,9 +36,46 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   personnel (« Personal workspace », un seul par propriétaire, index unique partiel), créé par
   `ensurePersonalWorkspace` (`app/services/workspace_service.ts`, idempotent) à chaque
   `upsertClerkUser` : webhook ou création à la volée. `GET /workspaces` : les workspaces de
-  l'utilisateur avec son rôle (`owner`, `admin`, `member` ; seul `owner` à l'étape 2) ; il crée
-  le workspace personnel d'un compte qui n'en a pas encore. Un workspace dont il n'est pas
-  membre répond 404.
+  l'utilisateur avec son rôle (`owner` pour le personnel, `admin` ou `member` pour une équipe),
+  l'organisation Clerk, son slug et le nombre de membres ; il crée le workspace personnel d'un
+  compte qui n'en a pas encore. Un workspace dont il n'est pas membre répond 404.
+- **Workspaces d'équipe (Organisations Clerk)** (contrats : `packages/contracts/src/workspaces.ts`).
+  - Un workspace `team` par organisation (`clerk_organization_id`), tenu par les webhooks
+    `organization.*` et `organizationMembership.*` (`app/services/team_sync.ts`) : miroir
+    `clerk_organizations` / `clerk_organization_memberships` (le plus récent gagne, pierres
+    tombales), puis réconciliation idempotente du workspace et de `workspace_members` (`admin`
+    pour `org:admin`, `member` sinon). Adhésion reçue avant le compte : rattachée à son
+    `user.created`. `organizationInvitation.*` : rien à refléter (Clerk gère les invitations).
+  - Départ d'un membre, compte supprimé : ses projets de l'équipe passent au responsable du
+    workspace (`owner_id` : administrateur actif, le créateur d'abord, sinon plus ancien membre
+    actif ; un compte banni à défaut seulement) ; sans responsable, ils restent dans l'équipe à
+    son nom et passent au suivant. Organisation supprimée : chaque projet rejoint le workspace
+    personnel de son propriétaire, puis le workspace est supprimé ; seul un projet resté au nom
+    d'un compte supprimé (faute de responsable) est supprimé, jamais rendu à ce compte.
+    Création du compte et adhésion simultanées : verrou consultatif par compte Clerk, toujours
+    avant ceux des organisations (`team:<org>`, pris dans l'ordre des `clerk_organization_id`).
+  - Accès : vue `project_access_roles` (rôle effectif = le plus élevé entre la ligne de
+    `project_members` et le rôle dérivé de l'équipe : administrateur → `owner`, membre →
+    `projects.team_role`, `editor` par défaut). `PUT /projects/:id/team-access` (`manageMembers`)
+    règle `team_role` ; `GET /projects/:id/members` renvoie aussi `team`. Retrait ou changement
+    de rôle : rôles relus par le service temps réel (`membersChanged`) après validation.
+  - `GET /workspaces/:id/members` (tout membre ; emails pour les administrateurs seulement),
+    `GET /workspaces/:id/plan` (plan de l'organisation, sièges, stockage et crédits mutualisés),
+    création d'un projet avec `workspaceId` d'équipe (permission `createProject`),
+    `POST /projects/:id/move` (propriétaire, projet personnel vers une équipe dont il est membre,
+    limites du plan de l'équipe vérifiées : 403 `E_PLAN_LIMIT` sinon). Une équipe sans plan actif
+    (`active` de `GET /workspaces/:id/plan`) ne reçoit aucun projet (création, import, template,
+    déplacement : 403 `E_TEAM_PLAN_REQUIRED`) et n'a pas de réserve de crédits. Un projet d'équipe ne se
+    transfère qu'à un membre de l'équipe (422 `E_NEW_OWNER_NOT_IN_TEAM`).
+  - Rattrapage : `node ace clerk:sync-organizations [--dry-run] [--prune]` lit organisations,
+    adhésions et abonnements d'organisation dans l'API Backend (`--prune` : supprime les
+    organisations absentes de Clerk, sauf celles créées ou modifiées pendant la lecture). À la demande : `POST /workspaces/sync` rattrape
+    l'organisation active de la session (claim `o.id`, posé par Clerk pour un membre seulement ;
+    422 `E_NO_ACTIVE_ORGANIZATION` sans elle) et renvoie le workspace de l'appelant (null s'il
+    n'en est pas membre d'après Clerk) ; au plus une lecture de Clerk par organisation toutes les
+    10 s et par processus, et au plus 10 par compte et 120 en tout par minute et par processus
+    (429 `E_WORKSPACE_SYNC_RATE_LIMITED`). Sert à la page de l'équipe quand le webhook tarde ou
+    n'arrive pas.
 - **Projets** : liste (`view` = active, archived, trashed ; `q` ; `workspaceId`, sinon tous les
   projets dont l'utilisateur est membre, partagés compris), création avec un `main.tex` minimal
   qui compile (dans le workspace `workspaceId` ou, par défaut, le workspace personnel),
@@ -193,9 +230,10 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     `reopened`, `deleted`). Limite : 30 messages par membre et par projet sur 60 s (429
     `E_COMMENT_RATE_LIMITED`, `retryAfterSeconds`).
   - Mentions `<@uuid>` (format du chat) : email français (`CommentMentionMail`, citation,
-    extrait, lien `/project/<id>?comment=<threadId>`) aux membres actifs mentionnés, sauf
+    extrait, lien `/project/<id>?comment=<threadId>`) aux personnes actives mentionnées qui ont
+    accès au projet (invitation ou workspace d'équipe, vue `project_access_roles`), sauf
     l'auteur ; au plus un email par personne et par projet toutes les 10 minutes (date du dernier
-    email dans `project_members.comment_mention_emailed_at`, migration `…0029`). Une mention ajoutée en modifiant un message ne notifie
+    email dans `comment_mention_emails`, migration `…0195`). Une mention ajoutée en modifiant un message ne notifie
     pas. Envoi au mieux, après la validation.
 
 - **Historique du projet** (contrats zod : `packages/contracts/src/history.ts` ;
@@ -282,8 +320,9 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   puis `POST /projects/:id/uploads/:uploadId/complete` vérifie l'objet et crée un document texte
   ou un fichier binaire (`@kaxolax/upload-processor`). `GET /projects/:id/files/:fileId/url`
   donne une URL de lecture de 5 minutes (`?download=true` pour télécharger).
-- **Import zip** : `POST /imports`, puis `POST /imports/:uploadId/complete` crée le projet
-  (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
+- **Import zip** : `POST /imports` (`workspaceId` facultatif : workspace et stockage du compte
+  qui recevra le projet vérifiés avant l'upload), puis `POST /imports/:uploadId/complete` crée le
+  projet (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
   personnel.
 - **Configuration du navigateur** : `GET /client-config` (public, `Cache-Control: no-store`,
   `clientConfigSchema`) rend `realtimeUrl` (`REALTIME_PUBLIC_URL`), `storageUrl` (origine des URL
@@ -399,12 +438,16 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     `free`. Valeurs chiffrées : `plan_limits` par
     slug (cache de 60 s ; plan inconnu = limites de Free). Une feature absente ramène sa limite
     à la valeur de Free ; sans claims, les features se déduisent des valeurs du plan.
-  - Les limites d'une action sur un projet sont celles de son propriétaire : claims du jeton
-    s'il agit lui-même, sinon relevé de ses claims ou miroir, le plus récent
+  - Les limites d'une action sur un projet sont celles de son compte (`accountOfProject`) : le
+    propriétaire pour un projet personnel (claims du jeton s'il agit lui-même, sinon relevé de
+    ses claims ou miroir, le plus récent), l'organisation pour un projet d'équipe (claims `o:`
+    du jeton si son organisation active `o.id` est celle-ci, sinon miroir des abonnements
+    d'organisation, sinon `free` ; plan `team` : crédits par siège)
     (`app/services/plan_enforcement.ts`). L'invitation (claims du propriétaire) et son
     acceptation (par l'invité) lisent donc le même plan, même si un webhook manque.
   - Limites appliquées : durée de compilation (`timeoutMs` de chaque demande), collaborateurs,
-    stockage (fichiers + états Yjs des projets possédés ; création de document, de projet,
+    stockage (fichiers + états Yjs des projets personnels possédés, ou de tous les projets d'une
+    équipe ; création de document, de projet,
     début et fin d'upload, début et fin d'import zip ; verrou
     consultatif par compte ; éditions temps réel : lecture seule tant que le stockage du
     propriétaire est plein, appliquée par `apps/realtime/src/storage.ts`, dépassement borné à
@@ -422,7 +465,7 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
     (plan, statut, `period_end`), `updated_at` = horodatage Clerk de l'événement (enveloppe
     `timestamp`) : un événement plus ancien n'écrase pas un état plus récent. Payeur pas encore
     connu : 409 `E_BILLING_PAYER_UNKNOWN` (rien d'enregistré, Clerk réessaie) ; payeur
-    organisation ignoré. Emails (`app/mails/billing_mails.ts`, français) après validation, un
+    organisation reflété avec `clerk_organization_id` (plan d'équipe, sans email). Emails (`app/mails/billing_mails.ts`, français) après validation, un
     par transition : bienvenue quand un plan payant devient `active` (pas après un retard de
     paiement ni une résiliation annulée), paiement en retard à l'entrée en `past_due`.
 - **IA (Claude)** (contrats : `packages/contracts/src/ai.ts` ; service : `app/services/claude/*`).
@@ -473,8 +516,12 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
   5 images, Pro 2000 crédits IA et 100 images par mois. Sans la feature `ai` dans les claims, un
   plan est ramené aux crédits de Free (comme les autres limites).
   - Imputation : au compte de l'utilisateur qui lance l'action, sur son propre plan (un
-    collaborateur Free sur le projet d'un compte Pro consomme ses crédits Free).
-  - Mois civil UTC : `ai_credit_periods` (agrégat par compte et par mois) repart de zéro le 1er.
+    collaborateur Free sur le projet d'un compte Pro consomme ses crédits Free) ; dans un projet
+    d'équipe, pour un membre de l'équipe, à la réserve mutualisée du workspace d'équipe (plan de
+    l'organisation ; plan `team` : 2000 crédits IA et 100 images par siège, valeurs à confirmer),
+    si l'organisation a un plan actif ; un invité extérieur consomme ses crédits personnels.
+  - Mois civil UTC : `ai_credit_periods` (agrégat par compte, ou par workspace d'équipe, et par
+    mois) repart de zéro le 1er.
   - Avant l'appel, le coût maximal est réservé (`ai_credit_reservations` : entrée estimée à un
     token pour 3 caractères et `max_tokens` entier, aux prix les plus élevés de la table, repli
     serveur compris). Si le solde ne couvre pas ce pire cas mais couvre celui de la sortie
@@ -528,7 +575,15 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
     `E_INVALID_NEW_OWNER` : l'ancien propriétaire devient éditeur, le projet rejoint le workspace
     personnel du nouveau ; 403 `E_PLAN_LIMIT` si le projet dépasse le stockage ou la limite de
     collaborateurs du plan du nouveau propriétaire), `…/archive`, `…/unarchive`, `…/trash`, `…/restore`,
-    `DELETE /admin/projects/:id` (depuis la corbeille).
+    `DELETE /admin/projects/:id` (depuis la corbeille). Un projet d'équipe reste dans son
+    workspace : le nouveau propriétaire doit être membre de l'équipe (422
+    `E_NEW_OWNER_NOT_IN_TEAM`).
+  - Organisations : `GET /admin/organizations?q=&page=&perPage=` (nom, slug ou id Clerk exact) :
+    organisations reflétées, supprimées comprises, avec workspace, plan d'organisation en cours
+    (miroir des abonnements), membres et administrateurs, projets, stockage, responsable ;
+    `GET /admin/organizations/:id` (id Clerk) : même résumé, membres (administrateurs d'abord)
+    et projets du workspace (les 100 plus récents, métadonnées seulement ; 404
+    `E_ORGANIZATION_NOT_FOUND`).
   - Bannières : `GET/POST /admin/banners`, `PATCH/DELETE /admin/banners/:id` (message, `level`
     info|warning|maintenance, `startsAt` par défaut maintenant, `endsAt` facultative et après
     le début ; dates ISO avec fuseau), `POST /admin/banners/:id/end` (fin à l'heure du serveur ;
@@ -633,6 +688,16 @@ compté par modèle, refus et `max_tokens`, 429 et 529 retentés puis signalés,
 de flux (plancher facturé, sortie visible comptée), écriture de `ai_usage` en échec, pire cas
 réservé et `max_tokens` réduit au solde, appels simultanés qui épuisent leur `max_tokens`,
 interruption, IA non configurée ou désactivée, crédits épuisés, limite de débit, santé.
+Équipes (`tests/functional/teams.spec.ts`, charges utiles Clerk réalistes, faux Clerk) : un
+workspace par organisation, rôles, rejeux, désordre (adhésion avant l'organisation ou le compte,
+retrait avant l'arrivée, rôle plus ancien), retrait d'un membre (projets transférés, accès et temps
+réel), organisation supprimée (projets rendus à leurs propriétaires, événements en retard),
+compte supprimé (seul membre compris), responsable banni ou rétrogradé, adhésion écrite pendant
+la création du compte (sans transaction globale), rôles dérivés et réglage par projet, invitations individuelles, listes et
+membres, déplacement vers une équipe et ses limites, transfert dans l'équipe, plan Team (miroir,
+claims `o:`, sièges), équipe sans plan actif, import vers une équipe, réserve de crédits
+d'équipe (membres seulement, agrégat gardé), admin, commande de rattrapage (`--prune` pendant une
+création).
 Crédits (`tests/functional/ai_credits.spec.ts`) : réservation, règlement, refus, plan de
 l'utilisateur qui agit, remise à zéro mensuelle, expiration et prolongation, réservation
 ramenée au solde, `GET /me/plan`, réservations

@@ -1,4 +1,9 @@
-import { type Compiler, type SpellcheckLanguage } from '@kaxolax/contracts'
+import {
+  type Compiler,
+  DEFAULT_TEAM_MEMBER_ROLE,
+  type SpellcheckLanguage,
+  type TeamMemberRole,
+} from '@kaxolax/contracts'
 import { beforeCreate, column } from '@adonisjs/lucid/orm'
 import { type DateTime } from 'luxon'
 import UuidModel from '#models/uuid_model'
@@ -28,6 +33,13 @@ export default class Project extends UuidModel {
   @column()
   declare aiEnabled: boolean
 
+  /**
+   * Rôle des membres `member` de l'équipe sur ce projet, s'il est dans un workspace d'équipe
+   * (`editor` par défaut ; les administrateurs sont propriétaires effectifs).
+   */
+  @column()
+  declare teamRole: TeamMemberRole
+
   @column.dateTime()
   declare archivedAt: DateTime | null
 
@@ -47,5 +59,6 @@ export default class Project extends UuidModel {
   @beforeCreate()
   static enableAiByDefault(model: Project) {
     if (model.$attributes.aiEnabled === undefined) model.aiEnabled = true
+    if (model.$attributes.teamRole === undefined) model.teamRole = DEFAULT_TEAM_MEMBER_ROLE
   }
 }

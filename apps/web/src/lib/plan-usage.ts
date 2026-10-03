@@ -29,7 +29,8 @@ export interface PlanUsageView {
 
 const dateFormat = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeZone: 'UTC' })
 
-function subscriptionLabel(subscription: MePlanResponse['subscription']): string | null {
+/** État d'un abonnement (personnel ou d'équipe) pour l'affichage, null sans abonnement. */
+export function subscriptionLabel(subscription: MePlanResponse['subscription']): string | null {
   if (subscription === null) return null
   const end =
     subscription.periodEnd === null ? null : dateFormat.format(new Date(subscription.periodEnd))
@@ -48,7 +49,7 @@ function subscriptionLabel(subscription: MePlanResponse['subscription']): string
 const creditFormat = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 })
 
 /** Crédits du mois : consommés sur le total et date de remise à zéro, avec une jauge. */
-function creditRow(
+export function creditRow(
   label: string,
   balance: MePlanResponse['credits']['ai'],
   resetsAt: string,
@@ -112,9 +113,20 @@ export const PLAN_FEATURE_LABELS: Record<PlanFeature, string> = {
 }
 
 /**
- * Plan de la session d'après Clerk (`has({ plan: 'pro' })`, claims du jeton) : badge et menu du
- * compte, avant même la réponse de l'API. Affichage seulement.
+ * Plan de la session d'après Clerk (`has({ plan: USER_PRO_PLAN })`, claims du jeton) : badge et
+ * menu du compte, avant même la réponse de l'API. Affichage seulement.
  */
 export function sessionPlan(isPro: boolean): string {
   return isPro ? PRO_PLAN : FREE_PLAN
+}
+
+/**
+ * Plan Pro de portée utilisateur pour `has()` de Clerk : sans préfixe, `has` accepte aussi les
+ * plans de l'organisation active (`o:`), qui ne sont pas ceux du compte.
+ */
+export const USER_PRO_PLAN = `u:${PRO_PLAN}`
+
+/** Feature de portée utilisateur pour `has()` de Clerk (voir `USER_PRO_PLAN`). */
+export function userFeature(feature: PlanFeature): `u:${PlanFeature}` {
+  return `u:${feature}`
 }

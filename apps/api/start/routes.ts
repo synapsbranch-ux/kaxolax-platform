@@ -12,6 +12,7 @@ const PlanController = () => import('#controllers/plan_controller')
 const PreferencesController = () => import('#controllers/preferences_controller')
 const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
 const WorkspacesController = () => import('#controllers/workspaces_controller')
+const TeamProjectsController = () => import('#controllers/team_projects_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
 const TreeController = () => import('#controllers/tree_controller')
 const RealtimeController = () => import('#controllers/realtime_controller')
@@ -74,6 +75,12 @@ router
         router.post('me/realtime-token', [RealtimeController, 'userToken'])
 
         router.get('workspaces', [WorkspacesController, 'index'])
+        // Workspaces d'équipe (Organisations Clerk, packages/contracts/src/workspaces.ts).
+        router.post('workspaces/sync', [WorkspacesController, 'sync'])
+        router.get('workspaces/:id/members', [WorkspacesController, 'members'])
+        router.get('workspaces/:id/plan', [WorkspacesController, 'plan'])
+        router.post('projects/:id/move', [TeamProjectsController, 'move'])
+        router.put('projects/:id/team-access', [TeamProjectsController, 'updateTeamAccess'])
         // Activation de l'IA (packages/contracts/src/ai.ts) : lecture par tout membre,
         // modification par le propriétaire (permission `manageAi`).
         router.get('workspaces/:id/ai', [AiSettingsController, 'showWorkspace'])

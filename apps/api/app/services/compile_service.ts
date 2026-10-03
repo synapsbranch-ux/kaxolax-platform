@@ -136,7 +136,7 @@ export async function compileProject(
   options: CompileOptions = {},
 ): Promise<CompileResult> {
   // Durée maximale du plan du propriétaire (claims du jeton s'il compile lui-même).
-  const timeoutMs = await compileTimeoutMs(project.ownerId, user)
+  const timeoutMs = await compileTimeoutMs(project, user)
   const request = await buildCompileRequest(
     deps.realtime,
     project,

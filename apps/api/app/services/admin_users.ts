@@ -16,6 +16,7 @@ import { forgetAdminStatus } from '#services/admin_access'
 import { type AdminAction, auditFailures, recordAdminAction } from '#services/admin_audit'
 import type ClerkBackend from '#services/clerk_backend'
 import { applyBanState, deleteClerkUser } from '#services/clerk_users'
+import { applyTeamEffects } from '#services/team_sync'
 import { isoString, isoStringOrNull } from '#services/dates'
 import type ObjectStorage from '#services/object_storage'
 import type { CompileOutputStorage } from '#services/object_storage'
@@ -85,7 +86,8 @@ async function currentSubscriptions(
     .whereIn('status', CURRENT_SUBSCRIPTION_STATUSES)
     .orderByRaw('(plan_slug = ?) ASC, updated_at DESC', [FREE_PLAN_SLUG])
   for (const subscription of subscriptions) {
-    if (!current.has(subscription.userId)) current.set(subscription.userId, subscription)
+    const userId = subscription.userId
+    if (userId !== null && !current.has(userId)) current.set(userId, subscription)
   }
   return current
 }
@@ -364,10 +366,14 @@ export async function deleteUser(
 ): Promise<{ user: User; realtimeDisconnected: boolean }> {
   assertActionable(admin, target)
   const action = userAction(admin, 'user.delete', target)
-  const { user, deleted, leftProjectIds } = await auditFailures(action, async () => {
+  const { user, deleted, leftProjectIds, team } = await auditFailures(action, async () => {
     const existed = await deps.clerk.deleteUser(target.clerkUserId)
     return db.transaction(async (trx) => {
-      const { deleted: projects, leftProjectIds } = await deleteClerkUser(target.clerkUserId, trx)
+      const {
+        deleted: projects,
+        leftProjectIds,
+        team,
+      } = await deleteClerkUser(target.clerkUserId, trx)
       await recordAdminAction(
         {
           ...action,
@@ -379,12 +385,14 @@ export async function deleteUser(
         },
         trx,
       )
-      return { user: await lockUser(target.id, trx), deleted: projects, leftProjectIds }
+      return { user: await lockUser(target.id, trx), deleted: projects, leftProjectIds, team }
     })
   })
   forgetAdminStatus(target.clerkUserId)
   for (const project of deleted) await releaseDeletedProject(project, deps)
   const realtimeDisconnected = await disconnectRealtime(admin, target, 'user.delete', deps.realtime)
   await announceDepartures(deps.realtime, target.id, leftProjectIds, admin.id)
+  // Projets d'équipe transférés au responsable : rôles des membres concernés relus.
+  await applyTeamEffects(deps, team)
   return { user, realtimeDisconnected }
 }

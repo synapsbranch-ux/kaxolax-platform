@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createStateAnchor } from '@kaxolax/collab'
 import {
   COMMENT_MENTION_EMAIL_INTERVAL_MINUTES,
@@ -23,6 +24,8 @@ import CommentThread from '#models/comment_thread'
 import Document from '#models/document'
 import ProjectMember from '#models/project_member'
 import type User from '#models/user'
+import Workspace from '#models/workspace'
+import WorkspaceMember from '#models/workspace_member'
 import RealtimeClient from '#services/realtime_client'
 import { createUser } from '#tests/helpers'
 
@@ -445,10 +448,10 @@ test.group('comments: mentions', (group) => {
     // L'intervalle court depuis le dernier email, pas depuis la dernière mention : la mention
     // suivante notifie de nouveau, même si une mention sans email vient d'avoir lieu.
     await db
-      .from('project_members')
+      .from('comment_mention_emails')
       .where({ project_id: target.projectId, user_id: viewer.id })
       .update({
-        comment_mention_emailed_at: DateTime.now()
+        emailed_at: DateTime.now()
           .minus({ minutes: COMMENT_MENTION_EMAIL_INTERVAL_MINUTES + 1 })
           .toJSDate(),
       })
@@ -459,5 +462,46 @@ test.group('comments: mentions', (group) => {
         .loginAs(owner)
     ).assertStatus(201)
     assert.lengthOf(mentionMails(), 2)
+  })
+
+  test('emails team members who reach the project through their team workspace', async ({
+    client,
+    assert,
+  }) => {
+    // Membre d'équipe sans invitation individuelle (aucune ligne `project_members`) : prévenu
+    // comme pour une mention du chat (vue `project_access_roles`), une fois par intervalle.
+    const owner = await createUser()
+    const target = await newProject(client, owner)
+    const teammate = await createUser()
+    const team = await Workspace.create({
+      name: 'Lab',
+      type: 'team',
+      ownerId: owner.id,
+      clerkOrganizationId: `org_${randomUUID().replaceAll('-', '').slice(0, 24)}`,
+    })
+    await WorkspaceMember.createMany([
+      { workspaceId: team.id, userId: owner.id, role: 'admin' },
+      { workspaceId: team.id, userId: teammate.id, role: 'member' },
+    ])
+    await db.from('projects').where('id', target.projectId).update({ workspace_id: team.id })
+    assert.isNull(
+      await ProjectMember.query()
+        .where({ projectId: target.projectId, userId: teammate.id })
+        .first(),
+    )
+
+    const thread = threadFrom(
+      await openThread(client, owner, target, `Relis ${mentionToken(teammate.id)}`),
+    )
+    const sent = mentionMails()
+    assert.lengthOf(sent, 1)
+    assert.deepEqual(sent[0]?.message.toJSON().message.to, [teammate.email])
+    ;(
+      await client
+        .post(`/api/v1/projects/${target.projectId}/comment-threads/${thread.id}/comments`)
+        .json({ body: `encore ${mentionToken(teammate.id)}` })
+        .loginAs(owner)
+    ).assertStatus(201)
+    assert.lengthOf(mentionMails(), 1)
   })
 })

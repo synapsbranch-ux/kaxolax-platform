@@ -26,6 +26,11 @@ import {
   texlivePackageDetailSchema,
   texlivePackageListSchema,
   wordCountResponseSchema,
+  teamAccessSchema,
+  workspaceMembersResponseSchema,
+  workspacePlanResponseSchema,
+  workspacesResponseSchema,
+  workspaceSyncResponseSchema,
 } from '@kaxolax/contracts'
 import type {
   ActiveBanner,
@@ -49,13 +54,13 @@ import type {
   RestoreVersionInput,
   ShareLinkKind,
   SpellcheckLanguage,
+  TeamMemberRole,
   TemplateListQuery,
   TemplateListResponse,
   TemplateSummary,
   TexlivePackagesQuery,
   UserPreferences,
   UserRealtimeTokenResponse,
-  Workspace,
   WorkspaceAiSettings,
 } from '@kaxolax/contracts'
 
@@ -102,6 +107,8 @@ export interface Project {
   spellcheckLanguage: SpellcheckLanguage
   /** IA autorisée pour ce projet (réglage du propriétaire). */
   aiEnabled: boolean
+  /** Rôle des membres de l'équipe sur ce projet (projet d'un workspace d'équipe). */
+  teamRole: TeamMemberRole
   role: ProjectRole
   archivedAt: string | null
   trashedAt: string | null
@@ -248,7 +255,34 @@ export const api = {
   /** Obtient un jeton de session et le garde pour un envoi pendant la fermeture de la page. */
   warmToken: () => freshToken().then(() => undefined),
 
-  workspaces: () => request<{ workspaces: Workspace[] }>('GET', '/workspaces'),
+  workspaces: () =>
+    request<unknown>('GET', '/workspaces').then((data) => workspacesResponseSchema.parse(data)),
+  /** Membres d'un workspace (tout membre ; emails réservés aux administrateurs). */
+  workspaceMembers: (id: string) =>
+    request<unknown>('GET', `/workspaces/${id}/members`).then((data) =>
+      workspaceMembersResponseSchema.parse(data),
+    ),
+  /** Plan, limites mutualisées et usage d'un workspace d'équipe (tout membre). */
+  workspacePlan: (id: string) =>
+    request<unknown>('GET', `/workspaces/${id}/plan`).then((data) =>
+      workspacePlanResponseSchema.parse(data),
+    ),
+  /**
+   * Rattrapage de l'organisation active de la session (webhook Clerk en retard) : renvoie le
+   * workspace d'équipe de l'utilisateur, ou null.
+   */
+  syncWorkspace: () =>
+    request<unknown>('POST', '/workspaces/sync').then((data) =>
+      workspaceSyncResponseSchema.parse(data),
+    ),
+  /** Déplace un projet personnel vers une équipe (propriétaire du projet, membre de l'équipe). */
+  moveProject: (id: string, workspaceId: string) =>
+    request<{ project: Project }>('POST', `/projects/${id}/move`, { workspaceId }),
+  /** Rôle des membres de l'équipe sur un projet d'équipe (propriétaire, administrateur). */
+  setTeamAccess: (id: string, role: TeamMemberRole) =>
+    request<{ access: unknown }>('PUT', `/projects/${id}/team-access`, { role }).then((data) =>
+      teamAccessSchema.parse(data.access),
+    ),
 
   /** Sans `workspaceId` : tous les projets dont l'utilisateur est membre, partagés compris. */
   projects: (view: ProjectView, q: string, workspaceId: string | null = null) =>
@@ -319,7 +353,8 @@ export const api = {
   ) => request<StartedUpload>('POST', `/projects/${id}/uploads`, input),
   completeUpload: (id: string, uploadId: string) =>
     request<unknown>('POST', `/projects/${id}/uploads/${uploadId}/complete`),
-  startImport: (input: { filename: string; sizeBytes: number }) =>
+  /** `workspaceId` : workspace du futur projet, vérifié avant l'upload (absent : personnel). */
+  startImport: (input: { filename: string; sizeBytes: number; workspaceId?: string }) =>
     request<StartedUpload>('POST', '/imports', input),
   completeImport: (uploadId: string, workspaceId: string | null = null) =>
     request<{ project: Project }>(
@@ -603,7 +638,11 @@ export async function uploadToProject(
 
 /** Importe un zip comme nouveau projet (workspace donné, sinon workspace personnel). */
 export async function importZip(file: File, workspaceId: string | null = null): Promise<Project> {
-  const started = await api.startImport({ filename: file.name, sizeBytes: file.size })
+  const started = await api.startImport({
+    filename: file.name,
+    sizeBytes: file.size,
+    ...(workspaceId === null ? {} : { workspaceId }),
+  })
   const put = await fetch(started.url, { method: 'PUT', body: file })
   if (!put.ok) throw new ApiError(put.status, 'E_UPLOAD_FAILED', `Upload of ${file.name} failed`)
   return (await api.completeImport(started.uploadId, workspaceId)).project
