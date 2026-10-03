@@ -1,19 +1,13 @@
 import { clerk } from '@clerk/testing/playwright'
 import { expect, test } from '@playwright/test'
-import { Secret, TOTP } from 'otpauth'
-import { signIn, signOut, signUp, testEmail } from './clerk'
+import { deleteTestUserByEmail, signIn, signOut, signUp, testEmail, TotpDevice } from './clerk'
 
-/** Code TOTP d'une période qui n'a pas encore servi (Clerk refuse un code déjà utilisé). */
-async function freshCode(totp: TOTP, used: Set<string>): Promise<string> {
-  for (;;) {
-    const code = totp.generate()
-    if (!used.has(code)) {
-      used.add(code)
-      return code
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-  }
-}
+const email = testEmail('mfa')
+
+// Compte créé par l'inscription : supprimé chez Clerk à la fin du parcours.
+test.afterEach(async () => {
+  await deleteTestUserByEmail(email)
+})
 
 test('a protected page sends an anonymous visitor to sign in, then back', async ({ page }) => {
   await page.goto('/dashboard')
@@ -22,7 +16,6 @@ test('a protected page sends an anonymous visitor to sign in, then back', async 
 })
 
 test('once MFA is enabled, signing in requires the TOTP code', async ({ page }) => {
-  const email = testEmail('mfa')
   await signUp(page, { email, firstName: 'Grace', lastName: 'Hopper' })
 
   // Activation de la MFA (application d'authentification), comme le fait l'écran Sécurité de
@@ -33,9 +26,8 @@ test('once MFA is enabled, signing in requires the TOTP code', async ({ page }) 
     return totp?.secret ?? null
   })
   expect(secret).not.toBeNull()
-  const totp = new TOTP({ secret: Secret.fromBase32(String(secret)) })
-  const used = new Set<string>()
-  const firstCode = await freshCode(totp, used)
+  const totp = new TotpDevice(String(secret))
+  const firstCode = await totp.next()
   await page.evaluate(async (code) => {
     await window.Clerk.user?.verifyTOTP({ code })
   }, firstCode)
@@ -43,6 +35,6 @@ test('once MFA is enabled, signing in requires the TOTP code', async ({ page }) 
   await expect(page.locator('.cl-userProfile-root')).toBeVisible()
 
   await signOut(page)
-  await signIn(page, email, { secondFactor: () => freshCode(totp, used) })
+  await signIn(page, email, { secondFactor: () => totp.next() })
   await expect(page.getByRole('button', { name: 'Nouveau projet', exact: true })).toBeVisible()
 })

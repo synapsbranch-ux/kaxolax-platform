@@ -246,17 +246,121 @@ pnpm --filter @kaxolax/web dev        # http://localhost:3000 (l'API doit tourne
 pnpm --filter @kaxolax/web test       # Vitest (utilitaires)
 ```
 
-## Parcours de la « Définition de terminé » (Playwright)
+## Parcours e2e et captures d'écran (Playwright)
 
-Il suppose toute la pile lancée : `docker compose up -d`, l'image TeX Live, puis `pnpm dev` à la
-racine (API, temps réel, gateway, agent, web).
+Ils supposent toute la pile lancée : `docker compose up -d` (PostgreSQL, Redis, S3, Mailpit),
+l'image TeX Live, puis `pnpm dev` à la racine (API, temps réel, gateway, agent, web sur :3000,
+admin sur :3001) ; ils ne lancent rien eux-mêmes. `e2e` se limite à la « Définition de terminé »
+et à la MFA (`dod.spec.ts`, `auth.spec.ts`, quelques minutes) : c'est ce que lance le job
+`integration` de la CI, déjà chargé (agent de compilation sous runc puis gVisor, délai de
+45 min, admin non démarré). `e2e:all` lance tous les parcours (une à deux heures, admin et
+Mailpit compris) : à lancer à la main sur la pile locale ou staging.
 
 ```bash
 pnpm --filter @kaxolax/web exec playwright install chromium   # une fois
-pnpm --filter @kaxolax/web e2e
+pnpm --filter @kaxolax/web e2e                                # DoD et MFA (comme la CI)
+pnpm --filter @kaxolax/web e2e:all                            # tous les parcours (projet chromium)
+pnpm --filter @kaxolax/web screenshots                        # captures (projet screenshots)
+pnpm --filter @kaxolax/web exec playwright test --list        # liste, sans rien lancer
+pnpm --filter @kaxolax/web exec playwright test e2e/chat.spec.ts   # un seul domaine
 ```
 
-Les parcours (`e2e/dod.spec.ts`, `e2e/auth.spec.ts`) créent leurs comptes par les composants Clerk
-avec des adresses `+clerk_test` (code `424242`) : `CLERK_PUBLISHABLE_KEY` et `CLERK_SECRET_KEY`
-de l'instance de développement sont exigées (jeton de test Clerk, `e2e/global-setup.ts`). Sur un
-environnement déployé : `E2E_BASE_URL=https://… pnpm --filter @kaxolax/web e2e`.
+Variables (environnement du shell, pas de `.env` lu) :
+
+| Variable                                    | Rôle                                                                  |
+| ------------------------------------------- | --------------------------------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | instance Clerk **de développement** (obligatoires, `global-setup.ts`) |
+| `E2E_BASE_URL`                              | application (défaut `http://localhost:3000`)                          |
+| `E2E_ADMIN_URL`                             | admin (défaut `http://localhost:3001`)                                |
+| `E2E_MAILPIT_URL`                           | API de Mailpit (défaut `http://localhost:8025`)                       |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE`            | Chromium déjà installé, à la place de celui de Playwright             |
+
+Parcours (un fichier par domaine, `e2e/*.spec.ts`), chacun indépendant : il crée ses comptes et
+ses projets, et les supprime à la fin (projets possédés par l'API, comptes par l'API Backend de
+Clerk) :
+
+- `dod.spec.ts` (étape 1, compte créé par l'inscription Clerk) et `auth.spec.ts` (MFA) ;
+- `sharing.spec.ts` : invitation par email avec rôle et acceptation, invitée sans compte qui
+  s'inscrit et rejoint le projet automatiquement, relance et annulation d'une invitation, liens
+  lecture et édition, régénération, changement de rôle en direct, retrait (déconnexion en moins
+  de 2 s), départ d'un membre, transfert ;
+- `presence.spec.ts` : curseur et nom, pastille de l'arborescence, pile d'avatars, suivi ;
+- `chat.spec.ts` : message reçu en moins d'une seconde, non-lus après rechargement, mention,
+  lien `main.tex:42`, historique paginé (« Messages précédents ») ;
+- `comments.spec.ts` : commentaire d'une sélection, ancrage après des modifications autour,
+  réponse, résolution, relecteur qui commente, lecteur qui ne peut pas ; modifier et supprimer
+  son message, rouvrir un fil, commentaire précédent et suivant, texte ancré supprimé (citation
+  barrée) ; email d'une @mention en commentaire (lien qui ouvre le fil) et dans le chat ;
+- `history.spec.ts` : version d'une compilation, diff par auteur, label, restauration exacte du
+  texte et d'une image, restauration d'un seul fichier, zip d'une version ;
+- `writing-tools.spec.ts` : formules (MathLive) insérées, remplacées et compilées, symboles,
+  package et symboles récents, tableaux (aller-retour : rouvert, modifié, réinséré ; collage
+  depuis un tableur, fichier CSV, `\multicolumn` et `\multirow`), gestionnaire de packages, nom
+  de package corrigé depuis les logs, compteur de mots (total, titres, légendes, détail par
+  section), paramètres (thème clair, coloration, police, taille, hauteur de ligne, raccourcis Vim
+  et Emacs, retour à la ligne, correcteur désactivé) appliqués à chaud, gardés après rechargement
+  et sur un autre appareil, autocomplétion (`\cite{` mesurée, `\ref`, `\eqref`, commandes des
+  packages chargés, chemins de `\input` et `\includegraphics`) ;
+- `spellcheck.spec.ts` : correcteur (langue du projet changée depuis la barre d'état, commandes
+  LaTeX et maths ignorées, correction proposée au clic droit, dictionnaire personnel gardé après
+  rechargement) ;
+- `interface.spec.ts` : menu de la pastille (auto-compilation, compilateur, brouillon, arrêt à la
+  première erreur, vider le cache, voir les logs), états du PDF (jamais compilé, échec sans PDF
+  et lien vers les logs), arborescence (dossier et fichier créés, fichier renommé, déplacé et
+  supprimé) diffusée en direct à un autre membre connecté, plan du document (section courante, saut), recherche dans le projet,
+  colonnes, sidebar et barre Tools mémorisées par utilisateur (autre appareil, autre membre),
+  onglets Éditeur et PDF sous 1024 px, onglets ouverts propres à chaque utilisateur, sélecteur de
+  projet, zoom, téléchargements et fichiers de sortie du PDF, barre flottante (pages, « Aller au
+  PDF », annuler et rétablir), filtre par workspace ;
+- `templates.spec.ts` : galerie publique, recherche, filtre par catégorie, fiche, « Utiliser ce
+  template » depuis la fiche et depuis le tableau de bord (« Depuis un template ») ;
+- `plan-limits.spec.ts` : limites du plan Free appliquées par l'API (`E_PLAN_LIMIT`) avec le lien
+  vers `/pricing` : collaborateurs (modale de partage), durée de compilation (PDF), stockage
+  (upload refusé) ; onglet Billing de `/account` ;
+- `admin.spec.ts` : accès refusé sans rôle ou sans MFA, ouvert avec les deux, recherche d'un
+  utilisateur, bannière reçue en direct par l'application, journal ; bannir (déconnexion
+  immédiate, temps réel compris, reconnexion refusée), débannir, révoquer les sessions,
+  supprimer un compte ; projets (recherche par nom, propriétaire ou id, sans accès au contenu,
+  transfert, archivage, corbeille, restauration, suppression définitive) ; statistiques.
+
+Outils communs : `accounts.ts` (fixture `accounts` : comptes créés par l'API Backend de Clerk,
+chacun dans son propre contexte de navigateur, connectés par un jeton de connexion de
+`@clerk/testing`, ou par mot de passe et TOTP pour un compte avec MFA), `project.ts` (import d'un
+projet en zip depuis le tableau de bord, éditeur, compilation, outils, partage, chat,
+commentaires), `api.ts` (appels de l'API avec le jeton de la page, pour préparer et nettoyer),
+`clerk.ts`, `admin.ts`, `mailpit.ts`, `demo.ts` (projet de démonstration), `files.ts` (zip et PNG
+sans dépendance, testés par Vitest). `compile()` suit les deux modes de l'API : réponse
+synchrone (`gateway`), ou 202 `{ buildId, status }` suivi par la pastille de compilation jusqu'à
+un état final, puis résultat relu par `GET /projects/:id/builds/:buildId` (`cloudflare`).
+
+**Compte admin** : `admin.spec.ts` et les captures créent un compte avec un secret TOTP
+(`createUser({ totpSecret })`) et le rôle `publicMetadata.role = "admin"` par l'API Backend ; la
+connexion à l'admin saisit le mot de passe puis un code TOTP. Rien à préparer à la main, mais
+l'instance doit avoir la MFA par application d'authentification activée et le jeton de session
+personnalisé du README racine (claims `name`, `email`, `metadata`).
+
+**Ce qui ne marche que contre l'instance Clerk de développement** : adresses `+clerk_test`
+(code `424242`), jeton de test (`clerkSetup`) et jetons de connexion : tous les parcours. Une
+instance de production refuse ces raccourcis. Contre un environnement déployé
+(`E2E_BASE_URL=https://… E2E_ADMIN_URL=https://…`), il faut donc des clés de développement sur
+cet environnement (staging). Sans Mailpit (SES sur staging), l'invitation par email est sautée
+avec la raison ; avec le catalogue de démonstration local (sans fichiers), la création depuis un
+template l'est aussi (définir `TEMPLATES_CATALOG_URL` côté API) ; les emails de mention
+aussi ; chaque limite du plan est sautée si le plan du compte de test ne l'a pas (ou l'a trop
+haute pour un parcours), et l'onglet Billing si Clerk Billing n'est pas activé. Les miroirs locaux des comptes supprimés restent
+dans la base de développement quand le webhook Clerk n'atteint pas l'API (pas de tunnel).
+
+**Captures d'écran** (`e2e/screenshots.spec.ts`, projet `screenshots`) : un projet de
+démonstration est semé (fichiers, image, bibliographie, deux collaboratrices, commentaires,
+messages, versions, lien de partage, invitation, correcteur en français), puis chaque écran
+(`SCREENS` de `e2e/screens.ts` : connexion et inscription, pages, nouveau projet depuis un
+template, bannière système active (créée puis supprimée par l'admin), menus de la pastille et
+du PDF, limite de collaborateurs atteinte, correcteur, pages pour rejoindre un projet, historique, compte et facturation, fiches de l'admin…) est capturé en
+pleine page, en thème sombre et clair, en 1440×900 et 390×844 (l'admin n'a que le thème
+sombre) : `e2e/screenshots/<écran>--<thème>--<taille>.png`, noms stables, dossier ignoré par
+git, vidé au début de chaque passage (aucune image périmée), et `e2e/screenshots/index.md`
+régénéré à la fin. Toutes les variantes sont les étapes d'un seul test (projet semé une fois) :
+un écran ou une variante qui échoue n'empêche pas les suivants ; le parcours échoue ensuite en
+listant les écrans manquants. Un écran sans objet (Billing désactivé, pas de Mailpit, plan sans
+limite de collaborateurs) est sauté,
+avec la raison dans les annotations du rapport.
