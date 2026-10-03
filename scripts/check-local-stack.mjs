@@ -33,7 +33,9 @@ const checks = [
         '-Atc',
         "select string_agg(datname, ',' order by datname) from pg_database where datname like 'kaxolax%'",
       ])
-      if (databases !== 'kaxolax,kaxolax_test')
+      // Les tests du temps réel créent leur propre base : on vérifie la présence, pas l'égalité.
+      const present = new Set(databases.split(','))
+      if (!present.has('kaxolax') || !present.has('kaxolax_test'))
         throw new Error(`unexpected databases: ${databases}`)
       return 'kaxolax and kaxolax_test are reachable'
     },

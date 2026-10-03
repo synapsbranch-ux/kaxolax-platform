@@ -119,7 +119,7 @@ test('stage 1 definition of done', async ({ page }, testInfo) => {
 
   let projectUrl = ''
   await test.step('2. create a blank project, upload an image and a .bib file', async () => {
-    await page.getByRole('button', { name: 'Nouveau projet' }).click()
+    await page.getByRole('button', { name: 'Nouveau projet', exact: true }).click()
     await page.fill('#name-dialog-input', 'Definition of done')
     await page.getByRole('button', { name: 'Créer' }).click()
     await expect(page).toHaveURL(/\/project\/[0-9a-f-]{36}$/)

@@ -44,5 +44,5 @@ test('once MFA is enabled, signing in requires the TOTP code', async ({ page }) 
 
   await signOut(page)
   await signIn(page, email, { secondFactor: () => freshCode(totp, used) })
-  await expect(page.getByRole('button', { name: 'Nouveau projet' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Nouveau projet', exact: true })).toBeVisible()
 })
