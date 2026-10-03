@@ -33,14 +33,15 @@ export default class CompilesController {
   }
 
   /**
-   * Tout membre du projet peut compiler : la compilation ne modifie pas le contenu. Corps
+   * Permission `compile` de la matrice (tous les rôles aujourd'hui : la compilation ne modifie pas
+   * le contenu). Corps
    * facultatif : `{ options: { draft?, haltOnFirstError? } }`. En mode `cloudflare`, réponse 202
    * `{ buildId, status }` (`queued`, ou `preparing` pendant le réveil du conteneur) ; le résultat
    * arrive par le service temps réel (ou `GET …/builds/:buildId`).
    */
   async compile({ params, auth, request, response }: HttpContext) {
     const user = auth.getUserOrFail()
-    const { project, role } = await projectFor(user, String(params.id), 'viewer')
+    const { project, role } = await projectFor(user, String(params.id), 'compile')
     const body = validateWithZod(compileProjectBodySchema, request.body())
     // Compilation manuelle (pas l'auto-compilation) d'un rédacteur : une version de l'historique,
     // au mieux, une fois la compilation acceptée (un refus ou un lecteur n'en crée pas).
@@ -69,7 +70,7 @@ export default class CompilesController {
   }
 
   async stop({ params, auth }: HttpContext) {
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'compile')
     if (this.async) {
       return {
         stopped: await cancelActiveBuild(
@@ -81,21 +82,21 @@ export default class CompilesController {
     return { stopped: await this.gateway.stop(project.id) }
   }
 
-  /** Dernière compilation (PDF affiché dès l'ouverture du projet), ou null. */
+  /** Dernière compilation (PDF affiché dès l'ouverture du projet), ou null : lecture du projet. */
   async last({ params, auth }: HttpContext) {
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'read')
     return { compile: await lastCompile(this.outputs, project.id) }
   }
 
   async clearCache({ params, auth }: HttpContext) {
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'compile')
     if (this.async) return { cleared: await this.worker.clearCache(project.id) }
     return { cleared: await this.gateway.clearCache(project.id) }
   }
 
   async synctexCode({ params, request, auth }: HttpContext) {
     const query = await request.validateUsing(synctexCodeValidator, { data: request.qs() })
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'compile')
     const position = { ...query, column: query.column ?? 0 }
     if (this.async) {
       const buildId = await lastBuildWithOutputs(project.id)
@@ -110,7 +111,7 @@ export default class CompilesController {
    */
   async synctexPdf({ params, request, auth }: HttpContext) {
     const query = await request.validateUsing(synctexPdfValidator, { data: request.qs() })
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'compile')
     const { code } = this.async
       ? await this.worker.synctexFromPdf(project.id, {
           ...query,

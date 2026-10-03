@@ -3,8 +3,10 @@
 import { type ActiveBanner, BANNER_POLL_INTERVAL_MS, type BannerLevel } from '@kaxolax/contracts'
 import { cn } from '@kaxolax/ui'
 import { Info, TriangleAlert, Wrench, X } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useUserChannel } from '@/components/use-user-channel'
 import { api } from '@/lib/api'
+import { createLatestState } from '@/lib/latest-state'
 import { bannerFeed } from '@/lib/project-events'
 
 /** Bannières fermées pendant cette session du navigateur (sessionStorage). */
@@ -42,9 +44,12 @@ const LEVELS: Record<BannerLevel, { className: string; icon: typeof Info; label:
 }
 
 /**
- * Bannières système (publiées depuis l'admin). Reçues en direct sur la page projet (événement
- * `banner.changed` du document meta, relayé par `bannerFeed`) ; relues aussi toutes les 60 s et
- * au retour sur l'onglet, en filet (tableau de bord, connexion temps réel coupée).
+ * Bannières système (publiées depuis l'admin). Reçues en direct sur toutes les pages connectées
+ * par le canal temps réel du compte (`useUserChannel`, événement `banner.changed`), et sur la page
+ * projet aussi par le document meta (`bannerFeed`) ; relues à chaque (re)connexion du canal,
+ * toutes les 60 s et au retour sur l'onglet, en filet (connexion temps réel coupée).
+ * Une lecture partie avant un événement en direct (ou avant une lecture plus récente) est ignorée
+ * à sa réponse : elle n'écrase jamais un état plus récent.
  * Chaque bannière se ferme pour la session du navigateur, jusqu'à sa prochaine modification.
  * Affichées en haut de l'application, en bandeau fixe pleine largeur : elles n'ajoutent aucune
  * hauteur aux pages en plein écran (éditeur en `h-screen`) et se ferment d'un clic. La nouvelle
@@ -58,19 +63,35 @@ export function SystemBanner() {
     typeof window === 'undefined' ? [] : readDismissed(),
   )
 
+  const order = useRef(createLatestState())
+
+  /** Bannières reçues en direct (canal du compte, document meta du projet). */
+  const applyLive = useCallback((next: ActiveBanner[]) => {
+    order.current.live()
+    setBanners(next)
+  }, [])
+
   const refresh = useCallback(() => {
+    const current = order.current.begin()
     api.activeBanners().then(
       (response) => {
-        setBanners(response.banners)
+        if (current()) setBanners(response.banners)
       },
       // Erreur passagère ou session fermée : on garde l'affichage actuel.
       () => undefined,
     )
   }, [])
 
+  useUserChannel({
+    onEvent: (event) => {
+      applyLive(event.banners)
+    },
+    onSynced: refresh,
+  })
+
   useEffect(() => {
     refresh()
-    const unsubscribe = bannerFeed.subscribe(setBanners)
+    const unsubscribe = bannerFeed.subscribe(applyLive)
     const interval = setInterval(refresh, BANNER_POLL_INTERVAL_MS)
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh()
@@ -83,7 +104,7 @@ export function SystemBanner() {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', refresh)
     }
-  }, [refresh])
+  }, [refresh, applyLive])
 
   const visible = banners.filter((banner) => !dismissed.includes(dismissalKey(banner)))
   if (visible.length === 0) return null

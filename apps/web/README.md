@@ -14,7 +14,14 @@ l'API).
   sur `/sign-in?redirect_url=…`. Les clés Clerk sont lues à l'exécution (voir le README racine).
 - **Abonnements (Clerk Billing)** : `/pricing` (publique) avec `<PricingTable />`, liée depuis le
   menu du compte (`components/billing/account-menu.tsx`) ; abonnement, factures et moyens de
-  paiement dans l'onglet Billing de `/account`. `has({ plan })` ne sert qu'à l'affichage. Les
+  paiement dans l'onglet Billing de `/account` (`/account/billing`). Menu du compte : « Plan … et
+  usage » (`/account/plan`), « Facturation » (`/account/billing`) et « Tarifs » (`/pricing`).
+  **Plan et usage** (`components/billing/plan-usage.tsx`, `lib/plan-usage.ts`) : plan, stockage
+  utilisé (jauge), durée de compilation, collaborateurs, historique, features et état de
+  l'abonnement, lus dans `GET /api/v1/me/plan`, sur la page « Plan et usage » ajoutée à
+  `<UserProfile />` (`components/billing/account-profile.tsx`) et dans l'onglet Plan des
+  paramètres. `has({ plan })` et `has({ feature })` de Clerk ne servent qu'à l'affichage (libellé
+  du menu, badge et features avant la réponse de l'API) : chaque limite est appliquée par l'API. Les
   refus 403 `E_PLAN_LIMIT` de l'API s'expliquent dans `PlanLimitNotice`
   (`components/billing/plan-limit-notice.tsx`, message, limite, bouton vers les tarifs) : en
   ligne dans le résultat d'une compilation en délai dépassé, sinon dans une boîte de dialogue
@@ -42,9 +49,13 @@ l'API).
   toutes les pages connectées, en bandeau fixe en haut de l'écran (aucune hauteur ajoutée à
   l'éditeur plein écran ; la nouvelle interface de la tâche 3 pourra leur réserver une place),
   couleur selon le niveau, fermables pour la session jusqu'à leur prochaine modification ;
-  reçues en direct sur la page projet (événement `banner.changed` du document meta, relayé par
-  `bannerFeed` de `lib/project-events.ts`), et `GET /api/v1/banners/active` relu toutes les 60 s
-  et au retour sur l'onglet en filet (tableau de bord, connexion temps réel coupée).
+  reçues en direct sur toutes les pages connectées par le canal temps réel du compte
+  (`components/use-user-channel.ts` : document `user:{id}` sur un WebSocket dédié, jeton de
+  `POST /api/v1/me/realtime-token`, événement `banner.changed` lu par `parseBroadcastMessage`),
+  et aussi sur la page projet par le document meta (`bannerFeed` de `lib/project-events.ts`).
+  `GET /api/v1/banners/active` est relu à chaque (re)connexion du canal, toutes les 60 s et au
+  retour sur l'onglet, en filet (connexion temps réel coupée). Canal refusé ou fermé par le
+  serveur : réouvert après 5 s, délai doublé à chaque échec (1 min au plus, `lib/user-channel.ts`).
 - **Invitation et lien de partage** (pages publiques `/invitations/[token]` et `/share/[token]`,
   `components/sharing/join-page.tsx`) : aperçu sans compte (projet, rôle, invitant, échéance),
   puis « Accepter » ou « Rejoindre » une fois connecté et redirection vers le projet. Sans
@@ -138,10 +149,11 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
     est mise en attente jusqu'à la fin de la compilation suivie, de même après un 409
     `E_COMPILE_IN_PROGRESS`. Arrêter annule cette relance et termine l'état local dès que l'API
     confirme. Une compilation déjà en cours à l'ouverture (autre onglet, autre membre,
-    auto-compilation) est suivie dès son premier événement. Pour qui peut modifier le projet,
+    auto-compilation) est suivie dès son premier événement. Pour tout rôle qui peut compiler
+    (permission `compile` de la matrice, lecteur et relecteur compris : `warmsCompiler`),
     l'éditeur appelle `compiler/warm` sans attendre sa réponse, à l'ouverture seulement, au plus
     une fois par projet toutes les 10 min (`WarmSchedule`), et plus du tout si l'API répond
-    `unsupported`.
+    `unsupported` (l'API plafonne les réveils par utilisateur sans jamais refuser).
   - Temps réel du projet (`workspace/use-project-meta.ts`) : à l'ouverture, connexion au
     document meta `project:{id}:meta` sur le WebSocket partagé. La page y publie sa présence
     (identité, fichier de l'onglet actif) et reçoit les événements sans état :
@@ -232,12 +244,48 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
   depuis le pied de sidebar (roue dentée), le menu du compte (`UserButton`), la barre d'état ou
   Fichier → Paramètres de l'éditeur. Onglets Éditeur (thème clair/sombre, coloration, police
   prédéfinie ou saisie, taille, hauteur de ligne, raccourcis par défaut/Vim/Emacs, retour à la
-  ligne, aperçu), Correcteur (activation, dictionnaire personnel : ajout, retrait) et Projet
-  (langue du correcteur, page projet). Enregistrés dans les préférences (tous les appareils) et
+  ligne, aperçu), Correcteur (activation, dictionnaire personnel : ajout, retrait), Projet
+  (langue du correcteur, page projet) et Plan (plan et usage, en lecture). Enregistrés dans les préférences (tous les appareils) et
   appliqués à chaud par `reconfigureEditor` : seuls les réglages modifiés sont reconfigurés
   (`settingsChange`), le document, l'historique et l'état Vim sont gardés. Le thème
   est recopié dans le cookie `kaxolax-theme` (rendu serveur de `data-theme`, sans flash) et dans
   localStorage (`ThemeScript`).
+
+## En-têtes de sécurité et CSP
+
+`src/lib/security-headers.ts` (testé dans `security-headers.test.ts`) :
+
+- **CSP stricte sur chaque page**, posée par le proxy (`src/proxy.ts`) avec l'option
+  `contentSecurityPolicy` de `clerkMiddleware` : nonce par requête (en-têtes `x-nonce` et
+  `Content-Security-Policy` de la requête : Next.js l'applique à ses scripts, le layout racine le
+  passe à `ClerkProvider` et à `ThemeScript`) et `'strict-dynamic'` (scripts chargés par ceux-ci :
+  Clerk UI, Turnstile, Stripe). Clerk ajoute ses origines (Frontend API de l'instance tirée de
+  `CLERK_PUBLISHABLE_KEY`, `img.clerk.com`, `challenges.cloudflare.com`, Stripe pour Billing,
+  télémétrie, workers `blob:`), et `'unsafe-eval'` en développement seulement (rechargement à
+  chaud). L'application ajoute : `connect-src` temps réel, stockage et templates ; `img-src`
+  `data:`, `blob:`, stockage et templates ; `font-src 'self' data:` (polices locales, MathLive,
+  pdf.js) ; `worker-src 'self' blob:` (correcteur, pdf.js) ; `frame-src blob:` (impression du
+  PDF) ; `'wasm-unsafe-eval'` (WebAssembly seulement : Hunspell et décodeurs pdf.js, dans des
+  workers que certains navigateurs soumettent à la politique de la page) ; `object-src 'none'`,
+  `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`. Styles : `'unsafe-inline'`
+  (Clerk, CodeMirror, MathLive et les attributs `style` de React l'exigent ; un nonce de style
+  bloquerait les attributs). Jamais d'`'unsafe-eval'` en production : zod est réglé sans
+  compilation de ses validateurs dans le navigateur (`src/instrumentation-client.ts`).
+- **Origines de la CSP** (lues à l'exécution, mêmes valeurs que dans apps/api) :
+  `REALTIME_PUBLIC_URL` (`wss://…`), `S3_PUBLIC_ENDPOINT` (origine des URL présignées de l'API ;
+  à défaut `S3_ENDPOINT`, comme l'API ; en https, ses sous-domaines aussi), `TEMPLATES_PUBLIC_URL`
+  et `TEMPLATES_CATALOG_URL` (fichiers publics des templates). Hors production, défauts de la
+  pile locale (`ws://localhost:1234`, `http://localhost:8333`). En production, aucun défaut
+  local : celles qui manquent sur le service web sont lues sur l'API (`GET /api/v1/client-config`
+  par `API_INTERNAL_URL`, `src/lib/csp-sources.ts`), gardées 5 min puis relues en arrière-plan ;
+  API injoignable : la page est servie avec la dernière réponse (ou les seules variables) et un
+  nouvel essai a lieu 30 s plus tard. Le démarrage le signale par un avertissement
+  (`src/instrumentation.ts`, `missingCspOrigins` de `src/env.ts`) et ne s'arrête que sur une
+  valeur invalide. Les donner aussi au service web évite cette lecture.
+- **En-têtes fixes de toutes les réponses** (`next.config.ts`) : `X-Content-Type-Options:
+nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`,
+  `Permissions-Policy` (caméra, micro, géolocalisation, USB, série, HID refusés ; paiement
+  réservé à Stripe). HSTS est posé par Cloudflare.
 
 ## Développement
 

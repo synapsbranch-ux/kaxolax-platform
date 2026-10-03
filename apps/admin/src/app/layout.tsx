@@ -1,6 +1,7 @@
 import { frFR } from '@clerk/localizations'
 import { ClerkProvider } from '@clerk/nextjs'
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import type { ReactNode } from 'react'
 import { ClerkApiBridge } from '@/components/clerk-api-bridge'
 import { serverEnv } from '@/env'
@@ -14,9 +15,13 @@ export const metadata: Metadata = {
 // Clé Clerk lue à chaque requête (même image pour tous les environnements) : rien n'est pré-rendu.
 export const dynamic = 'force-dynamic'
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // Nonce de la CSP de la requête (posée par le proxy) pour les scripts de Clerk ; Next.js
+  // l'applique lui-même à ses propres scripts.
+  const nonce = (await headers()).get('x-nonce') ?? undefined
   return (
     <ClerkProvider
+      nonce={nonce}
       publishableKey={serverEnv.CLERK_PUBLISHABLE_KEY}
       localization={frFR}
       signInUrl="/sign-in"

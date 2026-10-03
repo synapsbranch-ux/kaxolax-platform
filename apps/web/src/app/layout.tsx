@@ -2,7 +2,7 @@ import { frFR } from '@clerk/localizations'
 import { ClerkProvider } from '@clerk/nextjs'
 import { ThemeScript, TooltipProvider } from '@kaxolax/ui'
 import type { Metadata } from 'next'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import type { ReactNode } from 'react'
 import { ClerkApiBridge } from '@/components/auth/clerk-api-bridge'
 import { clerkAppearance } from '@/components/auth/clerk-appearance'
@@ -29,8 +29,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // Thème mémorisé par le cookie (copie de la préférence) : rendu dès le HTML, sans flash. Sans
   // cookie, ThemeScript lit localStorage, sinon prend le sombre.
   const theme = parseThemeCookie((await cookies()).get(THEME_COOKIE)?.value)
+  // Nonce de la CSP de la requête (posée par le proxy) : scripts de Clerk et du thème. Next.js
+  // l'applique lui-même à ses propres scripts.
+  const nonce = (await headers()).get('x-nonce') ?? undefined
   return (
     <ClerkProvider
+      nonce={nonce}
       publishableKey={serverEnv.CLERK_PUBLISHABLE_KEY}
       localization={frFR}
       signInUrl="/sign-in"
@@ -47,7 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         style={theme === null ? undefined : { colorScheme: theme }}
       >
         <head>
-          <ThemeScript />
+          <ThemeScript nonce={nonce} />
         </head>
         <body className="min-h-screen">
           <ClerkApiBridge />

@@ -36,16 +36,36 @@ export function parseMetaDocumentName(name: string): { projectId: string } | nul
   return { projectId: match[1] }
 }
 
-/** Document temps réel : document texte d'un projet, ou document meta du projet. */
-export type RealtimeDocumentTarget =
-  { kind: 'text'; projectId: string; documentId: string } | { kind: 'meta'; projectId: string }
+const USER_CHANNEL_NAME = /^user:([0-9a-f-]{36})$/
 
-/** Analyse un nom de document Hocuspocus, texte ou meta ; null pour tout autre nom. */
+/**
+ * Canal temps réel d'un utilisateur (identifiant local), ouvert sur toutes les pages connectées :
+ * sans contenu ni présence, il ne transporte que des messages sans état (bannière système).
+ */
+export function userChannelName(userId: string): string {
+  return `user:${userId}`
+}
+
+export function parseUserChannelName(name: string): { userId: string } | null {
+  const match = USER_CHANNEL_NAME.exec(name)
+  if (!match?.[1]) return null
+  return { userId: match[1] }
+}
+
+/** Document temps réel : document texte ou meta d'un projet, ou canal d'un utilisateur. */
+export type RealtimeDocumentTarget =
+  | { kind: 'text'; projectId: string; documentId: string }
+  | { kind: 'meta'; projectId: string }
+  | { kind: 'user'; userId: string }
+
+/** Analyse un nom de document Hocuspocus, texte, meta ou canal ; null pour tout autre nom. */
 export function parseRealtimeDocumentName(name: string): RealtimeDocumentTarget | null {
   const text = parseDocumentName(name)
   if (text) return { kind: 'text', ...text }
   const meta = parseMetaDocumentName(name)
-  return meta ? { kind: 'meta', ...meta } : null
+  if (meta) return { kind: 'meta', ...meta }
+  const user = parseUserChannelName(name)
+  return user ? { kind: 'user', ...user } : null
 }
 
 export function textOf(doc: Y.Doc): string {

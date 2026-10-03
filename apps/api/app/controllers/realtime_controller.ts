@@ -13,4 +13,9 @@ export default class RealtimeController {
     const { project, role } = await projectFor(user, String(params.id), 'read')
     return this.realtime.issueToken(user.id, project.id, role)
   }
+
+  /** Jeton du canal temps réel du compte connecté (`POST /me/realtime-token`). */
+  userToken({ auth }: HttpContext) {
+    return this.realtime.issueUserToken(auth.getUserOrFail().id)
+  }
 }

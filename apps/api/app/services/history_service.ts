@@ -208,6 +208,11 @@ export interface CreateVersionOptions {
   /** Compte qui déclenche la version (compilation, restauration) : annoncé dans l'événement. */
   actorId?: string | null
   /**
+   * Auteurs ajoutés à ceux du journal des mises à jour (version de l'état restauré : la personne
+   * qui restaure, même quand seuls des fichiers ou l'arborescence ont changé).
+   */
+  authorIds?: readonly string[]
+  /**
    * Version automatique : créée seulement si le projet a changé depuis la dernière version et
    * n'a plus été modifié depuis `idleSeconds` à `now` (revérifié sous le verrou : deux instances
    * qui balaient en même temps ne créent qu'une version).
@@ -410,7 +415,10 @@ export async function createVersion(
         projectId,
         kind: options.kind,
         authorIds: [
-          ...new Set(pending.flatMap((row) => (row.user_id === null ? [] : [row.user_id]))),
+          ...new Set([
+            ...(options.authorIds ?? []),
+            ...pending.flatMap((row) => (row.user_id === null ? [] : [row.user_id])),
+          ]),
         ],
         changedDocumentIds: entries
           .filter((entry) => entry.type === 'document' && entry.status !== 'unchanged')

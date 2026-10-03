@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import { type AddressInfo } from 'node:net'
 import {
   buildStateSchema,
+  canCompile,
   type CompileUpdatedEvent,
   compileRequestSchema,
   type ProjectEvent,
@@ -520,6 +521,26 @@ test.group('compile (cloudflare, asynchronous)', (group) => {
       [user.id],
     )
     ;(await warm(extra)).assertStatus(202)
+  })
+
+  test('lets every role the permission matrix allows to compile wake the compiler and compile', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await createUser()
+    for (const role of ['viewer', 'reviewer', 'editor'] as const) {
+      const member = await createUser()
+      const projectId = await newProject(client, owner)
+      await ProjectMember.create({ projectId, userId: member.id, role })
+      const base = `/api/v1/projects/${projectId}`
+      const expected = canCompile(role) ? 202 : 403
+      ;(await client.post(`${base}/compiler/warm`).loginAs(member)).assertStatus(expected)
+      ;(await client.post(`${base}/compile`).loginAs(member)).assertStatus(expected)
+      ;(await client.post(`${base}/compile/stop`).loginAs(member)).assertStatus(
+        canCompile(role) ? 200 : 403,
+      )
+    }
+    assert.lengthOf(worker.calledOn('/warm'), 3)
   })
 
   test('checks membership on every route', async ({ client }) => {

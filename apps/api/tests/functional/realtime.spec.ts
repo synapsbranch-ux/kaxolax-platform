@@ -1,7 +1,8 @@
 import { createServer, type IncomingHttpHeaders } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { verifyRealtimeToken } from '@kaxolax/collab/token'
-import { realtimeTokenResponseSchema } from '@kaxolax/contracts'
+import { userChannelName } from '@kaxolax/collab'
+import { verifyRealtimeToken, verifyUserRealtimeToken } from '@kaxolax/collab/token'
+import { realtimeTokenResponseSchema, userRealtimeTokenResponseSchema } from '@kaxolax/contracts'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
@@ -57,6 +58,26 @@ test.group('realtime: connection tokens', (group) => {
     response.assertStatus(200)
     const { token } = realtimeTokenResponseSchema.parse(response.body())
     assert.equal(verifyRealtimeToken(token, realtimeConfig.tokenSecret.release())?.role, 'viewer')
+  })
+
+  test('issues a token for the user channel only, to any signed-in user', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUser()
+    const response = await client.post('/api/v1/me/realtime-token').loginAs(user)
+    response.assertStatus(200)
+    const body = userRealtimeTokenResponseSchema.parse(response.body())
+    assert.equal(body.url, realtimeConfig.publicUrl)
+    assert.equal(body.name, userChannelName(user.id))
+    const secret = realtimeConfig.tokenSecret.release()
+    assert.deepInclude(verifyUserRealtimeToken(body.token, secret), { scope: 'user', sub: user.id })
+    // Il n'ouvre aucun document de projet.
+    assert.isNull(verifyRealtimeToken(body.token, secret))
+    const lifetime = new Date(body.expiresAt).getTime() - Date.now()
+    assert.isAbove(lifetime, 290_000)
+    assert.isAtMost(lifetime, 300_000)
+    ;(await client.post('/api/v1/me/realtime-token')).assertStatus(401)
   })
 
   test('refuses anonymous users and non-members', async ({ client }) => {

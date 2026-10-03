@@ -17,6 +17,7 @@ export const VERSION_KIND_LABELS: Record<VersionKind, string> = {
   auto: 'Enregistrement automatique',
   compile: 'Compilation',
   restore: 'Avant restauration',
+  restored: 'Après restauration',
 }
 
 export const ENTRY_STATUS_LABELS: Record<VersionEntry['status'], string> = {

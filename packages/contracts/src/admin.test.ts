@@ -65,6 +65,7 @@ describe('admin contracts', () => {
       compiles: {
         total: 0,
         byStatus: { success: 0, failure: 0, timeout: 0, error: 0 },
+        cancelled: 0,
         averageDurationMs: null,
         failureRate: null,
         byAgent: [],
@@ -73,5 +74,13 @@ describe('admin contracts', () => {
     expect(adminStatsSchema.parse(stats)).toEqual(stats)
     const missing = { ...stats, compiles: { ...stats.compiles, byStatus: { success: 0 } } }
     expect(adminStatsSchema.safeParse(missing).success).toBe(false)
+    // Statuts non terminés ou annulés : jamais dans `byStatus` (`cancelled` est à part).
+    const running = {
+      ...stats,
+      compiles: { ...stats.compiles, byStatus: { ...stats.compiles.byStatus, running: 1 } },
+    }
+    expect(adminStatsSchema.safeParse(running).success).toBe(false)
+    const { cancelled: _cancelled, ...withoutCancelled } = stats.compiles
+    expect(adminStatsSchema.safeParse({ ...stats, compiles: withoutCancelled }).success).toBe(false)
   })
 })

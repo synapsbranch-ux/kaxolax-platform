@@ -1,6 +1,14 @@
 import type { CompileResult } from '@kaxolax/contracts'
 import { describe, expect, it } from 'vitest'
-import { BuildUpdates, buildOutcome, laterStatus, phaseLabel, phaseOf, pollDelayMs } from './builds'
+import {
+  BuildUpdates,
+  buildOutcome,
+  laterStatus,
+  phaseLabel,
+  phaseOf,
+  pollDelayMs,
+  warmsCompiler,
+} from './builds'
 
 const BUILD = '00000000-0000-4000-8000-0000000000b1'
 const OTHER = '00000000-0000-4000-8000-0000000000b2'
@@ -75,5 +83,15 @@ describe('asynchronous builds', () => {
     expect(pollDelayMs(0)).toBe(3_000)
     expect(pollDelayMs(60_000)).toBe(5_000)
     expect(pollDelayMs(300_000)).toBe(10_000)
+  })
+})
+
+describe('compiler warm-up', () => {
+  it('wakes the compiler for every role that can compile, not before the role is known', () => {
+    for (const role of ['owner', 'editor', 'reviewer', 'viewer'] as const) {
+      expect(warmsCompiler(role)).toBe(true)
+    }
+    expect(warmsCompiler(null)).toBe(false)
+    expect(warmsCompiler(undefined)).toBe(false)
   })
 })

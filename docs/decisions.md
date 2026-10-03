@@ -707,3 +707,54 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Import zip et projet depuis un template passent tous deux par `createProjectFromZip` : contenu attribué à la personne qui crée le projet dans le journal de l'historique (`recordInitialStates`) et compté dans son stockage (`assertStorageAvailable`).
 - Restauration d'une version : stockage du propriétaire vérifié pour ce qu'elle ajoute (textes plus longs avant tout remplacement ; documents et binaires recréés mesurés dans la transaction, option `applied` de `assertStorageAvailable`) ; une restauration qui libère de la place passe toujours. `tree.changed` publié après la validation.
 - Temps réel : journal des mises à jour par auteur et garde du stockage côte à côte ; une connexion en lecture seule (stockage plein) ne produit aucune mise à jour à journaliser, le document meta reste en lecture seule.
+
+## 2026-10-03 · Statistiques de l'admin : compilations terminées seulement
+
+- `compileStats` ne compte que les statuts finaux du compilateur (`success`, `failure`, `timeout`, `error`, comme `lastCompile`) : les compilations asynchrones en cours (`queued`, `preparing`, `running`) n'ont ni résultat ni durée et faisaient planter la page (`NaN` refusé par `adminStatsSchema`).
+- Les annulations (`cancelled`) ne sont ni une réussite ni un échec du compilateur : compteur à part `compiles.cancelled` dans le contrat, hors total, durée moyenne et taux d'échec ; l'admin l'affiche sous la répartition par résultat.
+
+## 2026-10-03 · Bannière en direct sur toutes les pages : canal temps réel par utilisateur
+
+- Document Hocuspocus `user:{userId}` plutôt qu'une route WebSocket dédiée : même service, mêmes reconnexions et même relais multi-instance (événements diffusés à tous livrés aux canaux par `deliverEvent`, relayés par le bus Redis existant) ; sans contenu, sans présence, rien d'enregistré.
+- Jeton distinct (`POST /me/realtime-token`, `scope: 'user'`) dont la charge utile ne valide pas le schéma d'un jeton de projet, et inversement : un jeton ne sert jamais à l'autre usage. Compte revérifié comme pour les projets (authentification, attache, balayage, `…/users/:id/disconnect`).
+- Côté web, WebSocket dédié ouvert par `SystemBanner` (layout `(app)`) : une connexion de plus par onglet, la page projet garde la sienne. Sondage de 60 s gardé en filet, et relecture à chaque (re)connexion du canal.
+
+## 2026-10-03 · Plan et usage visibles
+
+- `GET /me/plan` affiché sur une page « Plan et usage » ajoutée à `<UserProfile />` (`/account/plan`) et dans l'onglet Plan des paramètres ; menu du compte : « Plan … et usage », « Facturation » (`/account/billing`, onglet Billing de Clerk) et « Tarifs ».
+- `has({ plan })` / `has({ feature })` de Clerk ne servent qu'à l'affichage immédiat (libellé du menu, badge et features avant la réponse de l'API) ; les chiffres viennent de l'API, qui applique les limites.
+
+## 2026-10-03 · Compilation : matrice des permissions et pré-réveil pour tous
+
+- Les routes de compilation demandent la permission `compile` (lancer, arrêter, vider le cache, SyncTeX, réveil) ou `read` (dernière compilation, état d'une compilation, recherche) ; la forme « rôle minimal » de `projectFor` est supprimée.
+- Le web réveille le compilateur pour tout rôle qui peut compiler (`warmsCompiler`, lecteur et relecteur compris) : l'API plafonne déjà les réveils par utilisateur sans jamais refuser et garde un emplacement pour une vraie compilation.
+
+## 2026-10-03 · Version de l'état restauré
+
+- Nouveau type de version `restored` (migration `…0150`, contrainte élargie sans toucher aux lignes existantes ; retour arrière : `restored` redevient `auto`), créée juste après une restauration réussie ; `restore` reste la sauvegarde d'avant.
+- Auteurs : la personne qui restaure, toujours (option `authorIds` de `createVersion`), plus les éventuels auteurs du journal ; création au mieux (`restoredVersionId` null en cas d'échec ou si rien n'a changé), le balayage des versions automatiques rattrape.
+
+## 2026-10-03 · Instantané cohérent avec plusieurs instances temps réel
+
+- Condition exacte plutôt qu'un délai : l'instance appelée demande aux autres l'état Yjs (vecteur d'état et suppressions, `Y.encodeSnapshot`) de leurs documents du projet, puis attend que sa copie les contienne (une suppression seule n'avance pas le vecteur d'état). Attente bornée (1 s de réponses, 3 s pour l'instantané), puis texte connu, journalisé.
+- Un document chargé pour l'instantané est déchargé après l'enregistrement différé habituel, sans l'attendre : avec l'extension Redis, `disconnect()` immédiat coûtait environ 2 s par document (verrou et délais de l'extension), assez pour dépasser le délai de 15 s de l'API sur quelques fichiers fermés.
+- Demandes aux autres instances factorisées (`askPeers`), écriture du journal de l'historique comprise.
+- Délai de `askPeers` appliqué à l'envoi aussi : Redis indisponible (commande en file d'attente hors ligne, puis rejetée), l'instantané et l'écriture du journal continuent avec ce qui est connu ici, journalisé, au lieu d'attendre puis d'échouer.
+
+## 2026-10-03 · Temps réel : Redis obligatoire en production
+
+- `NODE_ENV=production` sans `REDIS_URL` : refus de démarrer avec un message clair ; deux instances sans Redis garderaient des copies divergentes des documents. Développement et tests : instance seule sans Redis toujours possible.
+
+## 2026-10-03 · CSP et en-têtes de sécurité (web et admin)
+
+- CSP posée par l'option `contentSecurityPolicy` de `clerkMiddleware` (mode `strict` : nonce par requête et `'strict-dynamic'`), qui tient à jour les origines de Clerk (Frontend API de l'instance, `img.clerk.com`, Turnstile, Stripe pour Billing) ; nos directives s'y ajoutent (`src/lib/security-headers.ts`, testées en appelant le proxy). Nonce transmis à `ClerkProvider` et au script du thème ; Next.js l'applique à ses scripts.
+- Pas d'`'unsafe-eval'` en production (Clerk ne l'ajoute qu'en développement, pour le rechargement à chaud). `'wasm-unsafe-eval'` sur le web seulement (WebAssembly, jamais d'eval JavaScript) : Hunspell et décodeurs pdf.js tournent dans des workers que certains navigateurs soumettent à la politique de la page. zod réglé sans compilation (`jitless`) dans le navigateur (`instrumentation-client.ts`), sinon sa détection de `Function` déclenche une violation à chaque page.
+- `style-src 'unsafe-inline'` : Clerk, CodeMirror, MathLive et les attributs `style` de React l'exigent (un nonce de style bloquerait les attributs). `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'` ; en-têtes fixes `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy` (paiement réservé à Stripe sur le web). HSTS laissé à Cloudflare.
+- Origines du web lues à l'exécution, mêmes noms que l'API : `REALTIME_PUBLIC_URL`, `S3_PUBLIC_ENDPOINT` (et ses sous-domaines en https), `TEMPLATES_PUBLIC_URL`, `TEMPLATES_CATALOG_URL` ; défauts de la pile locale hors production seulement. En production, celles qui manquent sur le service web sont lues sur l'API (voir l'entrée suivante).
+
+## 2026-10-03 · Origines de la CSP du web lues sur l'API
+
+- Le service web ne s'arrête plus faute de `REALTIME_PUBLIC_URL` ou d'origine de stockage : la configuration de déploiement (Railway, `.env.example`, test de fumée des images) ne les lui donnait pas, et le premier déploiement aurait tourné en boucle de redémarrages.
+- Nouvelle route publique `GET /api/v1/client-config` (`clientConfigSchema`, packages/contracts) : temps réel, origine des URL présignées (public, sinon serveur, sinon point d'accès régional AWS), fichiers des templates. Rien de secret : le navigateur reçoit déjà ces URL.
+- Le proxy du web complète ses variables avec cette réponse (`src/lib/csp-sources.ts`) : variables d'abord, réponse gardée 5 min puis relue en arrière-plan, API injoignable → dernière réponse ou variables seules, nouvel essai après 30 s ; la page n'attend jamais plus de 2 s. Une seule source de vérité (l'API), les variables du web restent possibles.
+- Démarrage : avertissement si des origines manquent, arrêt seulement sur une valeur invalide.

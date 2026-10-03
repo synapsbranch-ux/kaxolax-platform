@@ -5,6 +5,7 @@ import {
   chatFeed,
   eventEffect,
   historyFeed,
+  parseBroadcastMessage,
   parseRealtimeMessage,
 } from './project-events'
 
@@ -32,6 +33,26 @@ describe('realtime messages', () => {
     expect(
       parseRealtimeMessage(JSON.stringify({ type: 'member.role-changed', role: 'god' })),
     ).toBeNull()
+  })
+
+  it('reads only events broadcast to everyone on the user channel', () => {
+    const banner = {
+      type: 'banner.changed' as const,
+      banners: [
+        {
+          id: DOC,
+          message: 'Maintenance à 22 h',
+          level: 'maintenance' as const,
+          startsAt: '2026-10-02T20:00:00.000Z',
+          endsAt: null,
+        },
+      ],
+    }
+    expect(parseBroadcastMessage(JSON.stringify(projectEventMessage(banner)))).toEqual(banner)
+    const projectEvent = { type: 'member.removed' as const, userId: OTHER, actorId: SELF }
+    expect(parseBroadcastMessage(JSON.stringify(projectEventMessage(projectEvent)))).toBeNull()
+    expect(parseBroadcastMessage('not json')).toBeNull()
+    expect(parseBroadcastMessage(JSON.stringify({ type: 'plan.storage', full: true }))).toBeNull()
   })
 
   it('maps events to what the project page does', () => {
