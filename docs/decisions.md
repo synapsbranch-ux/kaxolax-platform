@@ -1036,3 +1036,8 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Droits par `projectFor` (vue `project_access_roles`) : un membre d'équipe éditeur d'un projet de l'équipe convertit sans ligne `project_members` ; un relecteur (même en mode Suggérer, où l'éditeur reste modifiable) ne voit pas « Importer du Markdown » (`canEditProject` de l'`ActionHost`) et reçoit 403 de l'API.
 - Stockage des fichiers et images créés : `assertProjectStorageAvailable`, donc stockage mutualisé de l'équipe pour un projet d'équipe, celui du propriétaire sinon.
 - Nettoyage par l'IA : le flux reste celui de la tâche 5, sans suggestion `ai`. Une suggestion s'ancre par des positions relatives Yjs que seul le client calcule, après l'insertion ; l'API ne peut ni les produire (fragment pas encore inséré, nouveau fichier pas encore chargé par le temps réel) ni prouver qu'un texte envoyé par le client vient de l'IA. Le texte proposé d'une suggestion est aussi limité à 20 000 caractères, moins qu'une sortie nettoyée (100 ko de Markdown). Le texte de l'IA n'est donc jamais écrit sans choix explicite dans l'aperçu ; en mode Suggérer, l'insertion dans le document courant devient une suggestion de l'utilisateur (filtre `suggestionTracking`). À reprendre si une suggestion `ai` créée par le client avec un jeton signé par l'API est retenue.
+
+## 2026-10-03 · Image TeX Live avec pandoc épinglée
+
+- L'image `2026-medium-5c5e7cf` (pandoc 3.12) est épinglée dans la CI et le conteneur de compilation Cloudflare (`sha256:4663…3e15`), et dans `scripts/build.sh` de kaxolax-templates.
+- `KAXOLAX_REQUIRE_PANDOC=1` dans le job d'intégration et le job du conteneur : un test de conversion ne peut plus être ignoré en CI.

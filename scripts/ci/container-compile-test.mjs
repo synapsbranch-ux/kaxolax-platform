@@ -922,6 +922,18 @@ async function checkMaliciousCase(directory, scratch) {
 /** Répertoire des conversions de l'agent (`CONVERT_DIR`), vidé après chacune. */
 const CONVERT_DIR = `${COMPILES_DIR}/.convert`
 
+/**
+ * Conversion impossible faute de pandoc : cas ignoré, ou échec avec `KAXOLAX_REQUIRE_PANDOC=1`
+ * (CI : l'image épinglée a pandoc).
+ * @returns {{ skip: string } | null}
+ */
+function pandocMissing() {
+  if (hasPandoc()) return null
+  if (process.env.KAXOLAX_REQUIRE_PANDOC === '1')
+    throw new Error('the TeX Live image has no pandoc')
+  return { skip: 'the TeX Live image has no pandoc' }
+}
+
 /** L'image TeX Live a-t-elle pandoc ? (images publiées avant son ajout : non) */
 function hasPandoc() {
   const result = spawnSync('docker', ['exec', names.agent, 'pandoc', '--version'], {
@@ -989,7 +1001,8 @@ print("Bonjour")
 `
 
 async function checkConvert() {
-  if (!hasPandoc()) return { skip: 'the TeX Live image has no pandoc' }
+  const missing = pandocMissing()
+  if (missing) return missing
   const projectId = randomUUID()
   /** @type {string | null} */
   let buildId = null
@@ -1040,7 +1053,8 @@ async function checkConvert() {
  * @returns {Promise<void | { skip: string }>}
  */
 async function checkConvertCase(directory, spec, scratch) {
-  if (!hasPandoc()) return { skip: 'the TeX Live image has no pandoc' }
+  const missing = pandocMissing()
+  if (missing) return missing
   const options = spec.convert ?? {}
   const canary = createCanary('host-canary.txt')
   const projectId = randomUUID()
