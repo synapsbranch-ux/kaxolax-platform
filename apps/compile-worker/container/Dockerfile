@@ -13,7 +13,7 @@ ARG NODE_IMAGE=node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355
 # `docker buildx imagetools inspect ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium` (la même
 # que texlive_digest de scripts/build.sh dans kaxolax-templates). Un `--build-arg TEXLIVE_IMAGE=…`
 # remplace toute la référence : changer de variante ne garde jamais une empreinte périmée.
-ARG TEXLIVE_IMAGE=ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium
+ARG TEXLIVE_IMAGE=ghcr.io/synapsbranch-ux/kaxolax-texlive:2026-medium@sha256:3278908c78f2e32877916ab2ca716791d43839537ddb9a2ff76a3bbf0d315a0c
 # Image de production sans empreinte : build refusé, car une étiquette peut désigner une autre
 # image sans aucun commit. `wrangler deploy` passe TEXLIVE_REQUIRE_PINNED=1 (image_vars de
 # wrangler.jsonc, à ne jamais retirer) ; la CI et le poste local ne le passent pas, et construisent
