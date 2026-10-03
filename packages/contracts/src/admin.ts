@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { buildStatusSchema } from './builds.js'
 import { compileStatusSchema, compilerSchema } from './common.js'
 import { projectRoleSchema } from './realtime.js'
-import { workspaceTypeSchema } from './workspaces.js'
+import { workspaceRoleSchema, workspaceTypeSchema } from './workspaces.js'
 
 /**
  * Admin (apps/admin) : contrats des routes `/api/v1/admin/*` et de `GET /api/v1/banners/active`.
@@ -191,10 +191,77 @@ export const adminProjectResponseSchema = z.object({ project: adminProjectDetail
 
 /**
  * `POST /admin/projects/:id/transfer` : le nouveau propriétaire (compte existant, ni supprimé ni banni)
- * reçoit le projet dans son workspace personnel ; l'ancien devient éditeur.
+ * reçoit le projet dans son workspace personnel ; l'ancien devient éditeur. Un projet d'équipe
+ * reste dans son workspace : le nouveau propriétaire doit être membre de l'équipe.
  */
 export const transferProjectInputSchema = z.object({ newOwnerId: z.uuid() })
 export type TransferProjectInput = z.infer<typeof transferProjectInputSchema>
+
+// --- Organisations (workspaces d'équipe) ----------------------------------------------------
+
+/** Ligne de la liste des organisations (`GET /admin/organizations?q=`). */
+export const adminOrganizationSummarySchema = z.object({
+  /** Workspace d'équipe local ; null si l'organisation n'a pas encore de membre connu localement. */
+  workspaceId: z.uuid().nullable(),
+  clerkOrganizationId: z.string(),
+  name: z.string(),
+  slug: z.string().nullable(),
+  /** Slug du plan d'organisation en cours (miroir des abonnements), `free` sans abonnement. */
+  planSlug: z.string(),
+  /** Statut Clerk de l'abonnement en cours, null sans abonnement. */
+  subscriptionStatus: z.string().nullable(),
+  periodEnd: isoDate.nullable(),
+  /** Membres connus localement (sièges). */
+  memberCount: count,
+  adminCount: count,
+  projectCount: count,
+  /** Fichiers binaires + états des documents de ses projets, en octets. */
+  storageBytes: count,
+  /** Responsable du workspace (un administrateur de l'équipe). */
+  owner: adminUserRefSchema.nullable(),
+  createdAt: isoDate,
+  /** Organisation supprimée dans Clerk (ses projets ont rejoint le workspace de leur propriétaire). */
+  deletedAt: isoDate.nullable(),
+})
+export type AdminOrganizationSummary = z.infer<typeof adminOrganizationSummarySchema>
+
+export const adminOrganizationsResponseSchema = z.object({
+  organizations: z.array(adminOrganizationSummarySchema),
+  pagination: adminPaginationSchema,
+})
+export type AdminOrganizationsResponse = z.infer<typeof adminOrganizationsResponseSchema>
+
+/** Membre d'une organisation dans sa fiche admin (miroir local des adhésions). */
+export const adminOrganizationMemberSchema = z.object({
+  user: adminUserRefSchema,
+  role: workspaceRoleSchema,
+  joinedAt: isoDate,
+})
+export type AdminOrganizationMember = z.infer<typeof adminOrganizationMemberSchema>
+
+/** Projet d'une organisation dans sa fiche admin (métadonnées seulement, aucun contenu). */
+export const adminOrganizationProjectSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  owner: adminUserRefSchema,
+  archivedAt: isoDate.nullable(),
+  trashedAt: isoDate.nullable(),
+  updatedAt: isoDate,
+})
+export type AdminOrganizationProject = z.infer<typeof adminOrganizationProjectSchema>
+
+/**
+ * `GET /admin/organizations/:clerkOrganizationId` : résumé, membres (administrateurs d'abord) et
+ * projets du workspace d'équipe (les plus récents d'abord, au plus `ADMIN_MAX_PAGE_SIZE`).
+ */
+export const adminOrganizationResponseSchema = z.object({
+  organization: adminOrganizationSummarySchema,
+  members: z.array(adminOrganizationMemberSchema),
+  projects: z.array(adminOrganizationProjectSchema),
+  /** Nombre total de projets (la liste peut être tronquée). */
+  projectTotal: count,
+})
+export type AdminOrganizationResponse = z.infer<typeof adminOrganizationResponseSchema>
 
 // --- Bannière système -----------------------------------------------------------------------
 

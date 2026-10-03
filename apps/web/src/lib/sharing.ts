@@ -30,8 +30,8 @@ export const ROLE_LABELS: Record<ProjectRole, string> = {
 
 export const ROLE_DESCRIPTIONS: Record<ProjectRole, string> = {
   owner: 'gère tout',
-  editor: 'édite et compile',
-  reviewer: 'lit, compile et commente',
+  editor: 'édite, compile et décide des suggestions',
+  reviewer: 'commente et suggère des modifications',
   viewer: 'lit et compile',
 }
 

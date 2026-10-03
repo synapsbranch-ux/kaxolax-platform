@@ -32,6 +32,10 @@ export default class PlanLimit extends BaseModel {
   @column()
   declare imageMonthlyCredits: number
 
+  /** Crédits IA et images multipliés par les sièges de l'équipe (plan d'organisation). */
+  @column()
+  declare creditsPerSeat: boolean
+
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }

@@ -4,6 +4,9 @@ import { Database } from '@hocuspocus/extension-database'
 import { Redis as RedisExtension } from '@hocuspocus/extension-redis'
 import { type Extension, type Hocuspocus, isTransactionOrigin, Server } from '@hocuspocus/server'
 import {
+  APPLIED_SUGGESTIONS_FIELD,
+  applySuggestion,
+  appendTextBlock,
   documentName,
   parseDocumentName,
   parseMetaDocumentName,
@@ -14,6 +17,13 @@ import {
 } from '@kaxolax/collab'
 import { verifyRealtimeToken, verifyUserRealtimeToken } from '@kaxolax/collab/token'
 import {
+  type AppliedSuggestionsRequest,
+  appliedSuggestionsRequestSchema,
+  type AppliedSuggestionsResponse,
+  type ApplySuggestionsRequest,
+  applySuggestionsRequestSchema,
+  type ApplySuggestionsResponse,
+  canDecideSuggestion,
   canEdit,
   type CloseDocumentResponse,
   type DisconnectUserResponse,
@@ -33,6 +43,7 @@ import {
 import type { Logger } from 'pino'
 import type * as Y from 'yjs'
 import { type ConnectionContext, createAccessControl, FORBIDDEN } from './access.js'
+import { guardAppliedSuggestions } from './applied-guard.js'
 import { decodeDocumentState, encodeDocumentState, waitForStates } from './catch-up.js'
 import {
   type ClusterBus,
@@ -88,6 +99,12 @@ const MEMBER_CHANGED_ROUTE = new RegExp(`^/internal/projects/(${UUID})/members/(
 const PROJECT_EVENTS_ROUTE = new RegExp(`^/internal/projects/(${UUID})/events$`)
 const FLUSH_UPDATES_ROUTE = new RegExp(`^/internal/projects/(${UUID})/updates/flush$`)
 const REPLACE_ROUTE = new RegExp(`^/internal/projects/(${UUID})/documents/(${UUID})/replace$`)
+const APPLY_SUGGESTIONS_ROUTE = new RegExp(
+  `^/internal/projects/(${UUID})/documents/(${UUID})/suggestions/apply$`,
+)
+const APPLIED_SUGGESTIONS_ROUTE = new RegExp(
+  `^/internal/projects/(${UUID})/documents/(${UUID})/suggestions/applied$`,
+)
 
 /**
  * Restauration avec plusieurs instances : le document chargé ici peut ne pas encore avoir reçu
@@ -107,7 +124,10 @@ const FLUSH_ACK_TIMEOUT_MS = 2_000
 const SNAPSHOT_PEERS_TIMEOUT_MS = 1_000
 const SNAPSHOT_SYNC_TIMEOUT_MS = 3_000
 
-/** Taille maximale du corps d'une restauration de texte (document de 2 Mio, échappé en JSON). */
+/**
+ * Taille maximale du corps d'une restauration de texte (document de 2 Mio, échappé en JSON) ou
+ * d'un lot de suggestions acceptées (50 au plus, deux textes de 20 000 caractères chacune).
+ */
 const MAX_REPLACE_BYTES = 8 * 1024 * 1024
 const BROADCAST_EVENTS_ROUTE = '/internal/events'
 
@@ -315,35 +335,71 @@ export function createRealtimeServer(
 
   /**
    * États des documents du projet ouverts sur les autres instances (vide sans Redis), par
-   * document : ce que l'instantané doit contenir.
+   * document : ce que l'instantané doit contenir. `complete` : chaque autre instance a répondu
+   * dans le délai, avec des états lisibles (toujours vrai sans Redis).
    */
-  const peerStates = async (projectId: string): Promise<Map<string, Y.Snapshot[]>> => {
+  const peerStates = async (
+    projectId: string,
+  ): Promise<{ states: Map<string, Y.Snapshot[]>; complete: boolean }> => {
     const states = new Map<string, Y.Snapshot[]>()
-    if (bus === singleInstanceBus) return states
+    if (bus === singleInstanceBus) return { states, complete: true }
     // Attente bornée, envoi compris (`askPeers`) : sans bus, le texte connu ici fait foi.
     const { replies, peers } = await askPeers(
       (requestId) => ({ kind: 'document-states-request', projectId, requestId }),
       SNAPSHOT_PEERS_TIMEOUT_MS,
     )
-    if (peers === null || replies.length < peers) {
-      logger.warn({ projectId, peers }, 'snapshot: some instances did not describe their documents')
+    let complete = peers !== null && replies.length >= peers
+    if (!complete) {
+      logger.warn({ projectId, peers }, 'some instances did not describe their documents')
     }
     for (const reply of replies) {
       if (reply.kind !== 'document-states') continue
       for (const { documentId, snapshot } of reply.documents) {
         const state = decodeDocumentState(snapshot)
-        if (!state) continue
+        if (!state) {
+          complete = false
+          continue
+        }
         states.set(documentId, [...(states.get(documentId) ?? []), state])
       }
     }
-    return states
+    return { states, complete }
+  }
+
+  /**
+   * Document ouvert ici par une connexion directe, qui a rattrapé les copies des autres instances
+   * (`peerStates`) : pour appliquer des suggestions ou lire celles déjà appliquées. Contrairement à
+   * l'instantané, un rattrapage incomplet (instance muette, délai dépassé) est un échec
+   * (`unavailable`, rien n'est fait) : une ancre posée sur un texte pas encore reçu ici serait
+   * déclarée obsolète à tort, une suggestion appliquée ailleurs le serait une seconde fois.
+   */
+  const caughtUpDocument = async (
+    connection: Awaited<ReturnType<Hocuspocus['openDirectConnection']>>,
+    projectId: string,
+    documentId: string,
+    remote: { states: Map<string, Y.Snapshot[]>; complete: boolean },
+  ): Promise<Y.Doc | 'unavailable'> => {
+    const document = connection.document
+    if (!remote.complete || !document) return 'unavailable'
+    const states = remote.states.get(documentId) ?? []
+    if (
+      states.length > 0 &&
+      !(await waitForStates(document, states, Date.now() + SNAPSHOT_SYNC_TIMEOUT_MS))
+    ) {
+      logger.warn(
+        { documentName: documentName(projectId, documentId) },
+        'suggestions: document not caught up with other instances',
+      )
+      return 'unavailable'
+    }
+    return document
   }
 
   /**
    * Remplace le texte d'un document (restauration d'une version) par une modification minimale,
    * faite par une connexion directe au nom du compte qui restaure : les clients connectés la
-   * reçoivent, elle est journalisée avec cet auteur et enregistrée en base. Null : document
-   * inconnu.
+   * reçoivent, elle est journalisée avec cet auteur et enregistrée en base. `append` : bloc ajouté
+   * à la fin du texte courant s'il n'y est pas (insertion seule). Null : document inconnu.
    */
   const replaceDocument = async (
     instance: Hocuspocus,
@@ -370,7 +426,19 @@ export function createRealtimeServer(
     )
     let changed = false
     try {
-      for (let attempt = 0; attempt < REPLACE_ATTEMPTS; attempt++) {
+      if (request.append === true) {
+        // Ajout en fin de texte : insertion seule, une fois. Avec plusieurs instances, le texte
+        // d'ici rattrape d'abord celui des autres (le bloc y est peut-être déjà).
+        const document = connection.document
+        const states = (await peerStates(projectId)).states.get(documentId) ?? []
+        if (document && states.length > 0) {
+          await waitForStates(document, states, Date.now() + SNAPSHOT_SYNC_TIMEOUT_MS)
+        }
+        await connection.transact((current) => {
+          changed = appendTextBlock(current.getText(TEXT_FIELD), request.content)
+        })
+      }
+      for (let attempt = 0; request.append !== true && attempt < REPLACE_ATTEMPTS; attempt++) {
         await connection.transact((document) => {
           if (replaceTextMinimally(document.getText(TEXT_FIELD), request.content)) changed = true
         })
@@ -387,6 +455,116 @@ export function createRealtimeServer(
   }
 
   /**
+   * Suggestions acceptées (suivi des modifications) : appliquées au document Yjs en cours
+   * d'édition, chacune par une connexion directe au nom de son auteur (le journal de l'historique
+   * lui attribue la modification), avec une origine dédiée (`suggestion` : identifiant et
+   * décideur, journalisés). Avec plusieurs instances, la copie d'ici rattrape d'abord celles des
+   * autres (comme l'instantané) : une ancre posée sur un texte tapé ailleurs se résout ; si ce
+   * rattrapage est incomplet, rien n'est appliqué (`unavailable`, 503 : l'API ne marque rien). Le
+   * décideur doit encore pouvoir décider (rôle relu en base) ; sinon `forbidden`. Null : document
+   * inconnu.
+   */
+  const applySuggestions = async (
+    instance: Hocuspocus,
+    projectId: string,
+    documentId: string,
+    request: ApplySuggestionsRequest,
+  ): Promise<ApplySuggestionsResponse | 'forbidden' | 'unavailable' | null> => {
+    if (!(await store.documentExists(projectId, documentId))) return null
+    const role = await store.memberRole(projectId, request.decidedBy, Math.floor(Date.now() / 1000))
+    if (!role || !canDecideSuggestion(role)) return 'forbidden'
+    const name = documentName(projectId, documentId)
+    const remote = await peerStates(projectId)
+    const connections = new Map<string, Awaited<ReturnType<Hocuspocus['openDirectConnection']>>>()
+    const connectionFor = async (authorId: string, suggestionId: string) => {
+      let connection = connections.get(authorId)
+      if (!connection) {
+        const context: ConnectionContext = {
+          userId: authorId,
+          userName: null,
+          avatarUrl: null,
+          projectId,
+          documentId,
+          meta: false,
+          role: 'editor',
+          issuedAt: Math.floor(Date.now() / 1000),
+          roleCheckedAt: Date.now(),
+          rejectedUpdates: 0,
+          suggestion: { id: suggestionId, decidedBy: request.decidedBy },
+        }
+        connection = await instance.openDirectConnection(name, context)
+        connections.set(authorId, connection)
+      }
+      return connection
+    }
+    const results: ApplySuggestionsResponse['results'] = []
+    try {
+      const first = request.suggestions[0]
+      if (!first) return { results }
+      const opened = await connectionFor(first.authorId, first.id)
+      if ((await caughtUpDocument(opened, projectId, documentId, remote)) === 'unavailable') {
+        return 'unavailable'
+      }
+      for (const suggestion of request.suggestions) {
+        const connection = await connectionFor(suggestion.authorId, suggestion.id)
+        const origin = connection.context as ConnectionContext
+        origin.suggestion = { id: suggestion.id, decidedBy: request.decidedBy }
+        let outcome: ApplySuggestionsResponse['results'][number]['outcome'] = 'stale'
+        await connection.transact((document) => {
+          outcome = applySuggestion(document.getText(TEXT_FIELD), suggestion, {
+            decidedBy: request.decidedBy,
+          })
+        })
+        results.push({ id: suggestion.id, outcome })
+        logger.info(
+          {
+            projectId,
+            documentId,
+            suggestionId: suggestion.id,
+            authorId: suggestion.authorId,
+            decidedBy: request.decidedBy,
+            outcome,
+          },
+          'suggestion applied',
+        )
+      }
+    } finally {
+      for (const connection of connections.values()) await connection.disconnect()
+    }
+    await recorder.flush(projectId)
+    return { results }
+  }
+
+  /**
+   * Suggestions déjà appliquées au document parmi `request.ids` (map `APPLIED_SUGGESTIONS_FIELD`),
+   * après rattrapage des autres instances : `unavailable` s'il est incomplet. Null : document
+   * inconnu. Lecture seule ; le document reste chargé le temps habituel.
+   */
+  const appliedSuggestions = async (
+    instance: Hocuspocus,
+    projectId: string,
+    documentId: string,
+    request: AppliedSuggestionsRequest,
+  ): Promise<AppliedSuggestionsResponse | 'unavailable' | null> => {
+    if (!(await store.documentExists(projectId, documentId))) return null
+    const remote = await peerStates(projectId)
+    const connection = await instance.openDirectConnection(documentName(projectId, documentId))
+    try {
+      const document = await caughtUpDocument(connection, projectId, documentId, remote)
+      if (document === 'unavailable') return 'unavailable'
+      const map = document.getMap<string>(APPLIED_SUGGESTIONS_FIELD)
+      return {
+        applied: [...new Set(request.ids)].flatMap((id) => {
+          const decidedBy = map.get(id)
+          return typeof decidedBy === 'string' ? [{ id, decidedBy }] : []
+        }),
+      }
+    } finally {
+      await connection.disconnect({ unloadImmediately: false })
+    }
+  }
+
+  /**
    * Texte courant de chaque document du projet. Un document ouvert fait foi : il contient les
    * modifications pas encore enregistrées. Avec plusieurs instances, un document ouvert sur une
    * autre instance peut avoir des modifications que la copie d'ici n'a pas encore reçues (ou, s'il
@@ -398,7 +576,7 @@ export function createRealtimeServer(
     // Le journal de l'historique est à jour pour ce projet avant toute version (compilation).
     await recorder.flush(projectId)
     const ids = await store.documentIds(projectId)
-    const remote = await peerStates(projectId)
+    const { states: remote } = await peerStates(projectId)
     const deadline = Date.now() + SNAPSHOT_SYNC_TIMEOUT_MS
     const caughtUp = async (name: string, document: Y.Doc, id: string) => {
       const states = remote.get(id) ?? []
@@ -554,6 +732,40 @@ export function createRealtimeServer(
       else sendJson(response, 404, { code: 'E_NOT_FOUND' })
       return
     }
+    const applyMatch = request.method === 'POST' ? APPLY_SUGGESTIONS_ROUTE.exec(path) : null
+    if (applyMatch?.[1] && applyMatch[2]) {
+      const parsed = applySuggestionsRequestSchema.safeParse(
+        await readJson(request, MAX_REPLACE_BYTES),
+      )
+      if (!parsed.success) {
+        sendJson(response, 400, { code: 'E_INVALID_REQUEST' })
+        return
+      }
+      const result = await applySuggestions(instance, applyMatch[1], applyMatch[2], parsed.data)
+      if (result === null) sendJson(response, 404, { code: 'E_NOT_FOUND' })
+      else if (result === 'forbidden') sendJson(response, 403, { code: 'E_FORBIDDEN' })
+      else if (result === 'unavailable') sendJson(response, 503, { code: 'E_NOT_CAUGHT_UP' })
+      else sendJson(response, 200, result)
+      return
+    }
+    const appliedMatch = request.method === 'POST' ? APPLIED_SUGGESTIONS_ROUTE.exec(path) : null
+    if (appliedMatch?.[1] && appliedMatch[2]) {
+      const parsed = appliedSuggestionsRequestSchema.safeParse(await readJson(request))
+      if (!parsed.success) {
+        sendJson(response, 400, { code: 'E_INVALID_REQUEST' })
+        return
+      }
+      const result = await appliedSuggestions(
+        instance,
+        appliedMatch[1],
+        appliedMatch[2],
+        parsed.data,
+      )
+      if (result === null) sendJson(response, 404, { code: 'E_NOT_FOUND' })
+      else if (result === 'unavailable') sendJson(response, 503, { code: 'E_NOT_CAUGHT_UP' })
+      else sendJson(response, 200, result)
+      return
+    }
     const userMatch = request.method === 'POST' ? DISCONNECT_USER_ROUTE.exec(path) : null
     if (userMatch?.[1]) {
       const result = disconnectUser(instance, userMatch[1])
@@ -684,6 +896,15 @@ export function createRealtimeServer(
     async connected({ connection }) {
       await access.recheck(connection)
       await userChannels.recheck(connection)
+    },
+
+    /**
+     * Map des suggestions appliquées protégée des clients (voir `guardAppliedSuggestions`) ; rien
+     * sur le document meta ni sur le canal d'un utilisateur.
+     */
+    afterLoadDocument({ documentName: name, document }) {
+      if (parseDocumentName(name)) guardAppliedSuggestions(document, logger)
+      return Promise.resolve()
     },
 
     /**

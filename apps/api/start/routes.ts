@@ -12,6 +12,7 @@ const PlanController = () => import('#controllers/plan_controller')
 const PreferencesController = () => import('#controllers/preferences_controller')
 const ClerkWebhooksController = () => import('#controllers/clerk_webhooks_controller')
 const WorkspacesController = () => import('#controllers/workspaces_controller')
+const TeamProjectsController = () => import('#controllers/team_projects_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
 const TreeController = () => import('#controllers/tree_controller')
 const RealtimeController = () => import('#controllers/realtime_controller')
@@ -29,6 +30,7 @@ const JoinController = () => import('#controllers/join_controller')
 const ChatController = () => import('#controllers/chat_controller')
 const CommentsController = () => import('#controllers/comments_controller')
 const HistoryController = () => import('#controllers/history_controller')
+const SuggestionsController = () => import('#controllers/suggestions_controller')
 const TexliveController = () => import('#controllers/texlive_controller')
 const WordCountsController = () => import('#controllers/word_counts_controller')
 const MarkdownImportsController = () => import('#controllers/markdown_imports_controller')
@@ -37,6 +39,8 @@ const AiSettingsController = () => import('#controllers/ai_settings_controller')
 const PersonalAccessTokensController = () =>
   import('#controllers/personal_access_tokens_controller')
 const ClientConfigController = () => import('#controllers/client_config_controller')
+const ZoteroController = () => import('#controllers/zotero_controller')
+const ProjectZoteroController = () => import('#controllers/project_zotero_controller')
 
 router
   .group(() => {
@@ -69,12 +73,29 @@ router
         router.get('me/tokens', [PersonalAccessTokensController, 'index'])
         router.post('me/tokens', [PersonalAccessTokensController, 'store'])
         router.delete('me/tokens/:id', [PersonalAccessTokensController, 'destroy'])
+        // Zotero (packages/contracts/src/zotero.ts) : connexion OAuth 1.0a du compte. Le rappel
+        // est relayé par la page web de rappel, avec la session Clerk qui a lancé la connexion.
+        router.get('me/integrations/zotero', [ZoteroController, 'show'])
+        router.post('me/integrations/zotero/connect', [ZoteroController, 'connect'])
+        router.delete('me/integrations/zotero', [ZoteroController, 'destroy'])
+        router.get('me/integrations/zotero/libraries', [ZoteroController, 'libraries'])
+        router.get('me/integrations/zotero/libraries/:type/:libraryId/collections', [
+          ZoteroController,
+          'collections',
+        ])
+        router.get('integrations/zotero/callback', [ZoteroController, 'callback'])
         // Bannières système actives (affichées en haut de l'application).
         router.get('banners/active', [BannersController, 'active'])
         // Canal temps réel du compte (bannière système en direct sur toutes les pages).
         router.post('me/realtime-token', [RealtimeController, 'userToken'])
 
         router.get('workspaces', [WorkspacesController, 'index'])
+        // Workspaces d'équipe (Organisations Clerk, packages/contracts/src/workspaces.ts).
+        router.post('workspaces/sync', [WorkspacesController, 'sync'])
+        router.get('workspaces/:id/members', [WorkspacesController, 'members'])
+        router.get('workspaces/:id/plan', [WorkspacesController, 'plan'])
+        router.post('projects/:id/move', [TeamProjectsController, 'move'])
+        router.put('projects/:id/team-access', [TeamProjectsController, 'updateTeamAccess'])
         // Activation de l'IA (packages/contracts/src/ai.ts) : lecture par tout membre,
         // modification par le propriétaire (permission `manageAi`).
         router.get('workspaces/:id/ai', [AiSettingsController, 'showWorkspace'])
@@ -159,6 +180,16 @@ router
         ])
         router.post('projects/:id/comment-threads/:threadId/reopen', [CommentsController, 'reopen'])
 
+        // Suivi des modifications (packages/contracts/src/suggestions.ts) : lecture par tout
+        // membre, suggestion avec la permission `suggest` (modification et retrait par l'auteur
+        // tant qu'ouverte), décision avec `decideSuggestion`.
+        router.get('projects/:id/suggestions', [SuggestionsController, 'index'])
+        router.post('projects/:id/suggestions', [SuggestionsController, 'store'])
+        router.post('projects/:id/suggestions/decide', [SuggestionsController, 'decide'])
+        router.get('projects/:id/suggestions/:suggestionId', [SuggestionsController, 'show'])
+        router.patch('projects/:id/suggestions/:suggestionId', [SuggestionsController, 'update'])
+        router.delete('projects/:id/suggestions/:suggestionId', [SuggestionsController, 'destroy'])
+
         // Historique (packages/contracts/src/history.ts) : lecture par tout membre, label et
         // restauration avec la permission `edit`.
         router.get('projects/:id/versions', [HistoryController, 'index'])
@@ -190,6 +221,14 @@ router
         router.post('projects/:id/word-count', [WordCountsController, 'count'])
         // Markdown → LaTeX par pandoc dans le sandbox (packages/contracts/src/markdown-import.ts).
         router.post('projects/:id/convert/markdown', [MarkdownImportsController, 'store'])
+        // Lien Zotero du projet : lecture par tout membre, le reste avec la permission `edit`
+        // (clé du membre qui a lié).
+        router.get('projects/:id/zotero', [ProjectZoteroController, 'show'])
+        router.put('projects/:id/zotero', [ProjectZoteroController, 'update'])
+        router.delete('projects/:id/zotero', [ProjectZoteroController, 'destroy'])
+        router.post('projects/:id/zotero/sync', [ProjectZoteroController, 'sync'])
+        router.get('projects/:id/zotero/search', [ProjectZoteroController, 'search'])
+        router.post('projects/:id/zotero/citations', [ProjectZoteroController, 'addCitation'])
         router.get('projects/:id/download.zip', [ExportsController, 'download'])
         router.post('projects/:id/download-url', [ExportsController, 'downloadUrl'])
       })

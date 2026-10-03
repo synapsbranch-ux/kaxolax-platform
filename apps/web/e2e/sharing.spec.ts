@@ -51,8 +51,9 @@ test('the owner invites by email with a role and the invitee accepts', async ({ 
   await card.getByTestId('join-submit').click()
   await expect(guest.page).toHaveURL(new RegExp(`/project/${projectId}$`))
   await waitForEditor(guest.page)
-  // Relecteur : éditeur en lecture seule, mais il commente.
-  await expect(guest.page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false')
+  // Relecteur : mode Suggérer imposé (le texte ne change qu'à l'acceptation), et il commente.
+  await expect(guest.page.getByTestId('edit-mode-suggest-only')).toBeVisible()
+  await expect(guest.page.getByTestId('edit-mode-toggle')).toHaveCount(0)
   await guest.page.getByTestId('review-toggle').click()
   await expect(guest.page.getByTestId('comment-selection')).toBeVisible()
 

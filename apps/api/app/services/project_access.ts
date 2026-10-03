@@ -33,8 +33,16 @@ export interface ProjectAccess {
 export type ProjectRequirement = ProjectPermission
 
 /**
- * Charge un projet dont l'utilisateur est membre, si son rôle accorde la permission demandée
- * (403 sinon). Un projet dont il n'est pas membre répond 404, pour ne pas révéler son existence.
+ * Vue SQL du rôle effectif (migration 0194) : ligne de project_members, ou rôle dérivé de
+ * l'appartenance au workspace d'équipe du projet (administrateur : propriétaire effectif ;
+ * membre : `projects.team_role`), le plus élevé des deux. Seule lecture des droits d'un projet.
+ */
+export const PROJECT_ACCESS_VIEW = 'project_access_roles'
+
+/**
+ * Charge un projet auquel l'utilisateur a accès (membre, ou membre de son équipe), si son rôle
+ * effectif accorde la permission demandée (403 sinon). Un projet sans accès répond 404, pour ne
+ * pas révéler son existence.
  */
 export async function projectFor(
   user: User,
@@ -44,7 +52,7 @@ export async function projectFor(
 ): Promise<ProjectAccess> {
   if (!UUID.test(projectId)) throw new ProjectNotFoundException()
   const query = (options.trx ?? db)
-    .from('project_members')
+    .from(PROJECT_ACCESS_VIEW)
     .where({ project_id: projectId, user_id: user.id })
     .select('role')
     .first()

@@ -36,9 +36,46 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   personnel (« Personal workspace », un seul par propriétaire, index unique partiel), créé par
   `ensurePersonalWorkspace` (`app/services/workspace_service.ts`, idempotent) à chaque
   `upsertClerkUser` : webhook ou création à la volée. `GET /workspaces` : les workspaces de
-  l'utilisateur avec son rôle (`owner`, `admin`, `member` ; seul `owner` à l'étape 2) ; il crée
-  le workspace personnel d'un compte qui n'en a pas encore. Un workspace dont il n'est pas
-  membre répond 404.
+  l'utilisateur avec son rôle (`owner` pour le personnel, `admin` ou `member` pour une équipe),
+  l'organisation Clerk, son slug et le nombre de membres ; il crée le workspace personnel d'un
+  compte qui n'en a pas encore. Un workspace dont il n'est pas membre répond 404.
+- **Workspaces d'équipe (Organisations Clerk)** (contrats : `packages/contracts/src/workspaces.ts`).
+  - Un workspace `team` par organisation (`clerk_organization_id`), tenu par les webhooks
+    `organization.*` et `organizationMembership.*` (`app/services/team_sync.ts`) : miroir
+    `clerk_organizations` / `clerk_organization_memberships` (le plus récent gagne, pierres
+    tombales), puis réconciliation idempotente du workspace et de `workspace_members` (`admin`
+    pour `org:admin`, `member` sinon). Adhésion reçue avant le compte : rattachée à son
+    `user.created`. `organizationInvitation.*` : rien à refléter (Clerk gère les invitations).
+  - Départ d'un membre, compte supprimé : ses projets de l'équipe passent au responsable du
+    workspace (`owner_id` : administrateur actif, le créateur d'abord, sinon plus ancien membre
+    actif ; un compte banni à défaut seulement) ; sans responsable, ils restent dans l'équipe à
+    son nom et passent au suivant. Organisation supprimée : chaque projet rejoint le workspace
+    personnel de son propriétaire, puis le workspace est supprimé ; seul un projet resté au nom
+    d'un compte supprimé (faute de responsable) est supprimé, jamais rendu à ce compte.
+    Création du compte et adhésion simultanées : verrou consultatif par compte Clerk, toujours
+    avant ceux des organisations (`team:<org>`, pris dans l'ordre des `clerk_organization_id`).
+  - Accès : vue `project_access_roles` (rôle effectif = le plus élevé entre la ligne de
+    `project_members` et le rôle dérivé de l'équipe : administrateur → `owner`, membre →
+    `projects.team_role`, `editor` par défaut). `PUT /projects/:id/team-access` (`manageMembers`)
+    règle `team_role` ; `GET /projects/:id/members` renvoie aussi `team`. Retrait ou changement
+    de rôle : rôles relus par le service temps réel (`membersChanged`) après validation.
+  - `GET /workspaces/:id/members` (tout membre ; emails pour les administrateurs seulement),
+    `GET /workspaces/:id/plan` (plan de l'organisation, sièges, stockage et crédits mutualisés),
+    création d'un projet avec `workspaceId` d'équipe (permission `createProject`),
+    `POST /projects/:id/move` (propriétaire, projet personnel vers une équipe dont il est membre,
+    limites du plan de l'équipe vérifiées : 403 `E_PLAN_LIMIT` sinon). Une équipe sans plan actif
+    (`active` de `GET /workspaces/:id/plan`) ne reçoit aucun projet (création, import, template,
+    déplacement : 403 `E_TEAM_PLAN_REQUIRED`) et n'a pas de réserve de crédits. Un projet d'équipe ne se
+    transfère qu'à un membre de l'équipe (422 `E_NEW_OWNER_NOT_IN_TEAM`).
+  - Rattrapage : `node ace clerk:sync-organizations [--dry-run] [--prune]` lit organisations,
+    adhésions et abonnements d'organisation dans l'API Backend (`--prune` : supprime les
+    organisations absentes de Clerk, sauf celles créées ou modifiées pendant la lecture). À la demande : `POST /workspaces/sync` rattrape
+    l'organisation active de la session (claim `o.id`, posé par Clerk pour un membre seulement ;
+    422 `E_NO_ACTIVE_ORGANIZATION` sans elle) et renvoie le workspace de l'appelant (null s'il
+    n'en est pas membre d'après Clerk) ; au plus une lecture de Clerk par organisation toutes les
+    10 s et par processus, et au plus 10 par compte et 120 en tout par minute et par processus
+    (429 `E_WORKSPACE_SYNC_RATE_LIMITED`). Sert à la page de l'équipe quand le webhook tarde ou
+    n'arrive pas.
 - **Projets** : liste (`view` = active, archived, trashed ; `q` ; `workspaceId`, sinon tous les
   projets dont l'utilisateur est membre, partagés compris), création avec un `main.tex` minimal
   qui compile (dans le workspace `workspaceId` ou, par défaut, le workspace personnel),
@@ -72,6 +109,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   | `compile`           |   ✓   |   ✓    |    ✓     |   ✓    |
   | `comment`           |   ✓   |   ✓    |    ✓     |        |
   | `edit`              |   ✓   |   ✓    |          |        |
+  | `suggest`           |   ✓   |   ✓    |    ✓     |        |
+  | `decideSuggestion`  |   ✓   |   ✓    |          |        |
   | `manageMembers`     |   ✓   |        |          |        |
   | `manageShareLinks`  |   ✓   |        |          |        |
   | `transferOwnership` |   ✓   |        |          |        |
@@ -170,6 +209,51 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     première mention non lue depuis leur dernière lecture (au plus un email par visite manquée).
     Envoi après la validation, au mieux : un échec est journalisé, le message reste envoyé.
 
+- **Suivi des modifications** (contrats zod : `packages/contracts/src/suggestions.ts` ;
+  `app/services/suggestion_service.ts`) : lecture par tout membre (`read`) ; suggérer, modifier
+  sa suggestion ouverte, retirer sa suggestion ouverte ou obsolète avec `suggest` (owner, editor,
+  reviewer) ; accepter, refuser ou écarter (obsolète) avec `decideSuggestion` (owner, editor). Le
+  texte du document ne change qu'à l'acceptation.
+  - `GET /projects/:id/suggestions` (`documentId?`, `authorId?`, `status` `open` (défaut) |
+    `accepted` | `rejected` | `stale` | `decided` | `all`, `limit` ≤ 1000, `after` = `nextCursor`, curseur
+    `<date de création en µs>_<id>` qui ne dépend pas de l'existence de la suggestion)
+    et `GET …/:suggestionId`.
+  - `POST /projects/:id/suggestions` (`{ documentId, kind, anchor, originalText, proposedText }`) : 201. Ancre au format des commentaires : un point pour une insertion (`createPointAnchor`), la
+    plage du texte d'origine sinon (422 `E_SUGGESTION_INVALID_ANCHOR`) ; textes ≤ 20 000
+    caractères, cohérents avec le type ; document du projet (404 `E_DOCUMENT_NOT_FOUND`) ; 120
+    créations par membre et par projet sur 60 s (429 `E_SUGGESTION_RATE_LIMITED`) ; au plus
+    1 000 suggestions en attente (ouvertes ou obsolètes) par auteur et 5 000 par projet (409
+    `E_SUGGESTION_OPEN_LIMIT`) ; texte proposé soumis au stockage du plan du propriétaire (403
+    `E_PLAN_LIMIT`).
+  - `PATCH` et `DELETE …/:suggestionId` : l'auteur seul (403 `E_SUGGESTION_NOT_AUTHOR`) ; `PATCH`
+    tant qu'elle est ouverte, `DELETE` aussi obsolète (409 `E_SUGGESTION_ALREADY_DECIDED`) ; le
+    `PATCH` reçoit les frappes fusionnées par l'éditeur. 240 modifications et retraits par membre
+    et par projet par fenêtre de 60 s (table `suggestion_edit_rates`, 429
+    `E_SUGGESTION_RATE_LIMITED`). Modification ou retrait d'une suggestion ouverte : l'API demande
+    d'abord au service temps réel si elle est déjà dans le document (route
+    `…/suggestions/applied`) ; si oui, elle est enregistrée acceptée telle qu'appliquée et
+    annoncée, réponse 409 ; service injoignable : 503. Le décideur lu dans le document n'est
+    gardé que s'il est encore membre avec `decideSuggestion` (sinon : le membre qui refuse, ou
+    l'auteur s'il peut décider, ou le propriétaire).
+  - `POST /projects/:id/suggestions/decide` (`{ decision: accept | reject, ids | all: true |
+authorId, documentId? }`) : au plus 500 par requête (`remaining`), résultat par suggestion
+    (`accepted`, `rejected`, `stale`, `unchanged`, `missing`). Un refus vise aussi les
+    suggestions obsolètes (« Écarter » : `rejected`, décideur noté). Les suggestions visées sont
+    verrouillées (`FOR UPDATE`, ordre de création) pendant toute la décision : un double clic ou
+    deux décideurs simultanés n'appliquent le texte qu'une fois. L'acceptation passe par la route
+    interne `…/suggestions/apply` du service temps réel (`RealtimeClient.applySuggestions`),
+    qui applique le texte au document en cours d'édition au nom de l'auteur (historique) ou
+    répond `stale` (texte d'origine changé : statut `stale`, sans décideur), par lots de 50 :
+    les lots confirmés sont enregistrés et annoncés même si un lot suivant échoue ; les autres
+    restent ouverts, réponse 503 `E_SUGGESTION_REALTIME_UNAVAILABLE` (un nouvel essai n'applique
+    pas deux fois). Un lot appliqué sans réponse (délai dépassé) reste ouvert en base : un refus
+    demande donc d'abord au service lesquelles sont déjà dans le document et les enregistre
+    acceptées (au nom de celui qui les avait acceptées) ; service injoignable : 503, rien ne
+    change. Croissance du texte soumise au stockage du plan du propriétaire.
+  - Événements après la validation : `suggestion.created`, `suggestion.updated` (`edited`,
+    `deleted`), `suggestion.decided` (lot de décisions) ; décision journalisée
+    (`suggestions decided`).
+
 - **Commentaires ancrés** (contrats zod : `packages/contracts/src/comments.ts` ;
   `app/services/comment_service.ts`) : lecture par tout membre (`read`) ; nouveau fil, réponse,
   résolution et réouverture avec la permission `comment` (owner, editor, reviewer ; 403
@@ -193,9 +277,10 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     `reopened`, `deleted`). Limite : 30 messages par membre et par projet sur 60 s (429
     `E_COMMENT_RATE_LIMITED`, `retryAfterSeconds`).
   - Mentions `<@uuid>` (format du chat) : email français (`CommentMentionMail`, citation,
-    extrait, lien `/project/<id>?comment=<threadId>`) aux membres actifs mentionnés, sauf
+    extrait, lien `/project/<id>?comment=<threadId>`) aux personnes actives mentionnées qui ont
+    accès au projet (invitation ou workspace d'équipe, vue `project_access_roles`), sauf
     l'auteur ; au plus un email par personne et par projet toutes les 10 minutes (date du dernier
-    email dans `project_members.comment_mention_emailed_at`, migration `…0029`). Une mention ajoutée en modifiant un message ne notifie
+    email dans `comment_mention_emails`, migration `…0195`). Une mention ajoutée en modifiant un message ne notifie
     pas. Envoi au mieux, après la validation.
 
 - **Historique du projet** (contrats zod : `packages/contracts/src/history.ts` ;
@@ -282,8 +367,9 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   puis `POST /projects/:id/uploads/:uploadId/complete` vérifie l'objet et crée un document texte
   ou un fichier binaire (`@kaxolax/upload-processor`). `GET /projects/:id/files/:fileId/url`
   donne une URL de lecture de 5 minutes (`?download=true` pour télécharger).
-- **Import zip** : `POST /imports`, puis `POST /imports/:uploadId/complete` crée le projet
-  (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
+- **Import zip** : `POST /imports` (`workspaceId` facultatif : workspace et stockage du compte
+  qui recevra le projet vérifiés avant l'upload), puis `POST /imports/:uploadId/complete` crée le
+  projet (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
   personnel.
 - **Configuration du navigateur** : `GET /client-config` (public, `Cache-Control: no-store`,
   `clientConfigSchema`) rend `realtimeUrl` (`REALTIME_PUBLIC_URL`), `storageUrl` (origine des URL
@@ -434,12 +520,16 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     `free`. Valeurs chiffrées : `plan_limits` par
     slug (cache de 60 s ; plan inconnu = limites de Free). Une feature absente ramène sa limite
     à la valeur de Free ; sans claims, les features se déduisent des valeurs du plan.
-  - Les limites d'une action sur un projet sont celles de son propriétaire : claims du jeton
-    s'il agit lui-même, sinon relevé de ses claims ou miroir, le plus récent
+  - Les limites d'une action sur un projet sont celles de son compte (`accountOfProject`) : le
+    propriétaire pour un projet personnel (claims du jeton s'il agit lui-même, sinon relevé de
+    ses claims ou miroir, le plus récent), l'organisation pour un projet d'équipe (claims `o:`
+    du jeton si son organisation active `o.id` est celle-ci, sinon miroir des abonnements
+    d'organisation, sinon `free` ; plan `team` : crédits par siège)
     (`app/services/plan_enforcement.ts`). L'invitation (claims du propriétaire) et son
     acceptation (par l'invité) lisent donc le même plan, même si un webhook manque.
   - Limites appliquées : durée de compilation (`timeoutMs` de chaque demande), collaborateurs,
-    stockage (fichiers + états Yjs des projets possédés ; création de document, de projet,
+    stockage (fichiers + états Yjs des projets personnels possédés, ou de tous les projets d'une
+    équipe ; création de document, de projet,
     début et fin d'upload, début et fin d'import zip ; verrou
     consultatif par compte ; éditions temps réel : lecture seule tant que le stockage du
     propriétaire est plein, appliquée par `apps/realtime/src/storage.ts`, dépassement borné à
@@ -457,7 +547,7 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
     (plan, statut, `period_end`), `updated_at` = horodatage Clerk de l'événement (enveloppe
     `timestamp`) : un événement plus ancien n'écrase pas un état plus récent. Payeur pas encore
     connu : 409 `E_BILLING_PAYER_UNKNOWN` (rien d'enregistré, Clerk réessaie) ; payeur
-    organisation ignoré. Emails (`app/mails/billing_mails.ts`, français) après validation, un
+    organisation reflété avec `clerk_organization_id` (plan d'équipe, sans email). Emails (`app/mails/billing_mails.ts`, français) après validation, un
     par transition : bienvenue quand un plan payant devient `active` (pas après un retard de
     paiement ni une résiliation annulée), paiement en retard à l'entrée en `past_due`.
 - **IA (Claude)** (contrats : `packages/contracts/src/ai.ts` ; service : `app/services/claude/*`).
@@ -508,8 +598,12 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
   5 images, Pro 2000 crédits IA et 100 images par mois. Sans la feature `ai` dans les claims, un
   plan est ramené aux crédits de Free (comme les autres limites).
   - Imputation : au compte de l'utilisateur qui lance l'action, sur son propre plan (un
-    collaborateur Free sur le projet d'un compte Pro consomme ses crédits Free).
-  - Mois civil UTC : `ai_credit_periods` (agrégat par compte et par mois) repart de zéro le 1er.
+    collaborateur Free sur le projet d'un compte Pro consomme ses crédits Free) ; dans un projet
+    d'équipe, pour un membre de l'équipe, à la réserve mutualisée du workspace d'équipe (plan de
+    l'organisation ; plan `team` : 2000 crédits IA et 100 images par siège, valeurs à confirmer),
+    si l'organisation a un plan actif ; un invité extérieur consomme ses crédits personnels.
+  - Mois civil UTC : `ai_credit_periods` (agrégat par compte, ou par workspace d'équipe, et par
+    mois) repart de zéro le 1er.
   - Avant l'appel, le coût maximal est réservé (`ai_credit_reservations` : entrée estimée à un
     token pour 3 caractères et `max_tokens` entier, aux prix les plus élevés de la table, repli
     serveur compris). Si le solde ne couvre pas ce pire cas mais couvre celui de la sortie
@@ -540,6 +634,68 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
   (AES-256-GCM avec `APP_KEY`, `app/services/encrypted_column.ts`) : colonnes `*_encrypted`,
   chiffrement lié à sa colonne, jamais sérialisés. Changer `APP_KEY` sans garder l'ancienne clé
   dans `config/encryption.ts` rend les jetons illisibles (lus `null` : à redemander).
+- **Zotero** (tâche 9 ; contrats : `packages/contracts/src/zotero.ts` ; code :
+  `app/services/zotero/*`, `app/controllers/zotero_controller.ts`,
+  `app/controllers/project_zotero_controller.ts`). Variables `ZOTERO_CLIENT_KEY` et
+  `ZOTERO_CLIENT_SECRET` facultatives (application OAuth, `docs/deploy.md` §2.1) : sans elles,
+  503 `E_ZOTERO_UNAVAILABLE`.
+  - Connexion OAuth 1.0a (signature HMAC-SHA1 maison, `oauth1.ts`, testée sur les vecteurs de la
+    RFC 5849) : `POST /me/integrations/zotero/connect` obtient un jeton de requête (rappel
+    `APP_URL/integrations/zotero/callback?state=…`), l'enregistre (`zotero_oauth_requests`,
+    secret chiffré, 15 min) avec le compte, la session Clerk (`sid`) et le hachage du `state`.
+    La page web de rappel appelle `GET /integrations/zotero/callback` avec la même session :
+    même compte, même session, même `state`, demande non expirée et consommée (anti-CSRF et
+    anti-rejeu). La clé obtenue est vérifiée (`GET /keys/current`) puis chiffrée
+    (`zotero_accounts`). Permissions demandées : lecture de la bibliothèque sans les notes,
+    groupes en lecture, aucune écriture ; les bibliothèques proposées et liables sont celles
+    que la clé peut réellement lire (objet `access` de `/keys/current`, droits réductibles sur
+    zotero.org ; sinon 403 `E_ZOTERO_LIBRARY_FORBIDDEN`). Au plus 5 demandes OAuth en cours par
+    compte, une par session, espacées de 10 s (429 `E_ZOTERO_OAUTH_TOO_MANY`) ; connexion et
+    déconnexion verrouillent la ligne `users` du compte. `DELETE /me/integrations/zotero` révoque la clé chez
+    Zotero (`DELETE /keys/current`, au mieux) et l'efface, aussi sur les liens du compte. Une
+    reconnexion révoque de même l'ancienne clé (plus aucun lien ne l'utilise : les liens du même
+    compte Zotero prennent la nouvelle, ceux d'un autre la perdent), la suppression du compte
+    Kaxolax aussi (après validation, `revokeZoteroKeys`).
+  - Lien du projet (`GET|PUT|DELETE /projects/:id/zotero`) : bibliothèque personnelle ou de
+    groupe, collection ou toute la bibliothèque, `.bib` existant ou nouveau, `biblatex` ou
+    `bibtex`. Lecture par tout membre ; lier, délier, synchroniser, chercher et insérer
+    demandent `edit`. La clé copiée sur le lien est celle du membre qui a lié : **tout éditeur
+    peut rafraîchir avec elle** (sans la voir), tant que ce membre garde `edit` sur le projet.
+    S'il se déconnecte, quitte le projet, en est retiré ou passe relecteur ou lecteur
+    (`sharing_service`, et revérifié à chaque usage), sa clé quitte le lien
+    (`E_ZOTERO_KEY_INVALID`) : le lien attend qu'un éditeur le refasse avec sa propre clé.
+    « Nouveau fichier » dont le nom est déjà pris : 409 `E_ZOTERO_TARGET_EXISTS` (le choisir
+    comme fichier existant, dont le contenu sera remplacé). Lien à une collection : les autres
+    éditeurs ne cherchent et n'ajoutent que dans la collection et ses sous-collections
+    (`zotero_links.collection_scope`), plus les éléments déjà ajoutés ; seul le membre qui a lié
+    peut ajouter ailleurs dans sa bibliothèque (le formulaire de lien le dit).
+  - Synchronisation (`POST /projects/:id/zotero/sync`, `trigger` `manual` ou `open`) : export
+    élément par élément (`include=biblatex|bibtex`) des éléments de premier niveau de la
+    collection et de ses sous-collections, ou de toute la bibliothèque (pages de 100, versions
+    cohérentes), plus les éléments ajoutés hors collection par le sélecteur, écrit en
+    entier dans le `.bib` par le service temps réel (modification minimale attribuée au membre :
+    historique, clients connectés), stockage du plan vérifié. Clés de citation suivies par
+    élément Zotero (`zotero_links.citation_keys`) : deux éléments distincts ne partagent jamais
+    une clé (suffixe a, b…), un élément garde la sienne d'une synchro à l'autre, et une clé
+    nouvellement attribuée évite celles des autres `.bib` du projet. `open` : au plus une tentative par 15 minutes, `If-Modified-Since-Version` (304 :
+    rien n'est écrit). `manual` : export complet, même texte non réécrit. `Backoff` et
+    `Retry-After` (429, 503) enregistrés sur le lien et sur le compte Zotero (`backoff_until`)
+    et respectés (429 `E_ZOTERO_BACKOFF`), aussi pour les bibliothèques, les collections et la
+    création du lien (la première synchro attend la fin de la pause). Une synchro à la fois
+    (réservation en base, reprise après 5 min) ; aucun appel à Zotero sous verrou : la fin de
+    synchro écrit le `.bib` sous le verrou de la ligne du lien une fois exportés les éléments
+    choisis entre-temps, et une synchro dont le lien a été refait ou supprimé pendant ses
+    appels n'écrit ni n'annonce rien.
+  - Citations : `GET /projects/:id/zotero/search?q=` (titre, auteurs, année ; 25 résultats ;
+    clé du `.bib`, ou celle qu'un ajout donnerait) et `POST /projects/:id/zotero/citations`
+    (clé et élément retenus sous le verrou du lien, puis entrée ajoutée à la fin du `.bib` par le
+    service temps réel, `append` : insertion seule et idempotente, aucune frappe concurrente
+    écrasée ; 503 `E_ZOTERO_REALTIME_UNAVAILABLE` si l'écriture n'est pas confirmée, à refaire ;
+    au plus 500 éléments hors collection, 422 `E_ZOTERO_PICKED_LIMIT` ; renvoie la clé retenue,
+    que l'éditeur corrige, ou retire si l'ajout échoue).
+  - Journal : connexion, déconnexion, lien, synchro, citation ajoutée (identifiants, jamais de
+    clé ni de jeton). Tests : `tests/functional/zotero.spec.ts` avec un faux Zotero
+    (`tests/zotero.ts`, signatures vérifiées) branché sur le vrai client par son `fetch`.
 - **Admin** (`/admin/*`, pour `apps/admin`) : middleware `auth` puis `admin`
   (`app/middleware/admin_middleware.ts`) : claim `metadata.role` = `admin` (sinon 403
   `E_ADMIN_REQUIRED`), second facteur vérifié dans la session (claim `fva[1] !== -1`) et MFA
@@ -563,7 +719,15 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
     `E_INVALID_NEW_OWNER` : l'ancien propriétaire devient éditeur, le projet rejoint le workspace
     personnel du nouveau ; 403 `E_PLAN_LIMIT` si le projet dépasse le stockage ou la limite de
     collaborateurs du plan du nouveau propriétaire), `…/archive`, `…/unarchive`, `…/trash`, `…/restore`,
-    `DELETE /admin/projects/:id` (depuis la corbeille).
+    `DELETE /admin/projects/:id` (depuis la corbeille). Un projet d'équipe reste dans son
+    workspace : le nouveau propriétaire doit être membre de l'équipe (422
+    `E_NEW_OWNER_NOT_IN_TEAM`).
+  - Organisations : `GET /admin/organizations?q=&page=&perPage=` (nom, slug ou id Clerk exact) :
+    organisations reflétées, supprimées comprises, avec workspace, plan d'organisation en cours
+    (miroir des abonnements), membres et administrateurs, projets, stockage, responsable ;
+    `GET /admin/organizations/:id` (id Clerk) : même résumé, membres (administrateurs d'abord)
+    et projets du workspace (les 100 plus récents, métadonnées seulement ; 404
+    `E_ORGANIZATION_NOT_FOUND`).
   - Bannières : `GET/POST /admin/banners`, `PATCH/DELETE /admin/banners/:id` (message, `level`
     info|warning|maintenance, `startsAt` par défaut maintenant, `endsAt` facultative et après
     le début ; dates ISO avec fuseau), `POST /admin/banners/:id/end` (fin à l'heure du serveur ;
@@ -607,7 +771,14 @@ nouvelles tables seulement) : `projects.ai_enabled`, `workspaces.ai_enabled` (d�
 `plan_limits.ai_monthly_credits` et `image_monthly_credits` ; `ai_conversations`, `ai_messages`
 (contenu jsonb des blocs de l'API, gardé tel quel) ; `ai_usage`, `ai_credit_periods`,
 `ai_credit_reservations` ; `suggestions` (ancre au format des commentaires, contraintes sur le
-type, les textes et la décision) ; `personal_access_tokens` ; `git_links`, `zotero_links`.
+type, les textes et la décision) ; `personal_access_tokens` ; `git_links`, `zotero_links` ; Zotero (tâche 9, `…0180` et
+`…0181`, `…0182`, `…0183`) : `zotero_accounts`, `zotero_oauth_requests`, colonnes de synchronisation de `zotero_links`,
+clés de citation attribuées (`zotero_links.citation_keys`), pause de Zotero par compte (`zotero_accounts.backoff_until`)
+et collections couvertes par un lien (`zotero_links.collection_scope`).
+Suivi des modifications (migration `…0160`) : index `suggestions (project_id, author_id,
+created_at)` (décision par auteur, limite de débit). Migration `…0161` : table
+`suggestion_edit_rates` (fenêtre fixe des modifications et retraits par membre et projet) et index
+partiel des suggestions en attente par auteur (plafond).
 
 Déploiement de l'étape 2 : les migrations peuvent passer pendant que l'API de l'étape 1 sert
 encore. Ses créations de projet (sans `workspace_id`) sont rattachées au workspace personnel du
@@ -668,6 +839,16 @@ compté par modèle, refus et `max_tokens`, 429 et 529 retentés puis signalés,
 de flux (plancher facturé, sortie visible comptée), écriture de `ai_usage` en échec, pire cas
 réservé et `max_tokens` réduit au solde, appels simultanés qui épuisent leur `max_tokens`,
 interruption, IA non configurée ou désactivée, crédits épuisés, limite de débit, santé.
+Équipes (`tests/functional/teams.spec.ts`, charges utiles Clerk réalistes, faux Clerk) : un
+workspace par organisation, rôles, rejeux, désordre (adhésion avant l'organisation ou le compte,
+retrait avant l'arrivée, rôle plus ancien), retrait d'un membre (projets transférés, accès et temps
+réel), organisation supprimée (projets rendus à leurs propriétaires, événements en retard),
+compte supprimé (seul membre compris), responsable banni ou rétrogradé, adhésion écrite pendant
+la création du compte (sans transaction globale), rôles dérivés et réglage par projet, invitations individuelles, listes et
+membres, déplacement vers une équipe et ses limites, transfert dans l'équipe, plan Team (miroir,
+claims `o:`, sièges), équipe sans plan actif, import vers une équipe, réserve de crédits
+d'équipe (membres seulement, agrégat gardé), admin, commande de rattrapage (`--prune` pendant une
+création).
 Crédits (`tests/functional/ai_credits.spec.ts`) : réservation, règlement, refus, plan de
 l'utilisateur qui agit, remise à zéro mensuelle, expiration et prolongation, réservation
 ramenée au solde, `GET /me/plan`, réservations

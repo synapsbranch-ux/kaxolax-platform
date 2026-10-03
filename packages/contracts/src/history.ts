@@ -204,16 +204,19 @@ export type VersionManifest = z.infer<typeof versionManifestSchema>
 /**
  * `POST /internal/projects/:projectId/documents/:documentId/replace` : remplace le texte d'un
  * document (restauration) par une modification Yjs minimale, reçue par les clients connectés et
- * attribuée à `userId` dans le journal des mises à jour.
+ * attribuée à `userId` dans le journal des mises à jour. Avec `append`, `content` est un bloc
+ * ajouté à la fin du texte courant (après une ligne vide), sauf s'il y est déjà : insertion seule,
+ * qui ne touche pas aux modifications concurrentes (entrée ajoutée à un `.bib` par Zotero).
  */
 export const replaceDocumentRequestSchema = z.object({
   content: z.string(),
   userId: z.uuid(),
+  append: z.boolean().optional(),
 })
 export type ReplaceDocumentRequest = z.infer<typeof replaceDocumentRequestSchema>
 
 export const replaceDocumentResponseSchema = z.object({
-  /** Faux si le document avait déjà ce texte. */
+  /** Faux si le document avait déjà ce texte (ou, avec `append`, contenait déjà ce bloc). */
   changed: z.boolean(),
 })
 export type ReplaceDocumentResponse = z.infer<typeof replaceDocumentResponseSchema>

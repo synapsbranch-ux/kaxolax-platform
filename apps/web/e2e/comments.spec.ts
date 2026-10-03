@@ -82,7 +82,7 @@ test('anchored comments through the Review panel', async ({ accounts }) => {
     await expect(ownerThread.getByTestId('comment')).toHaveCount(2)
     await expect(ownerThread).toContainText('Ajouté dans la section Résultats.')
 
-    // Éditeur en lecture seule : la sélection reste possible.
+    // Relecteur (mode Suggérer) : la sélection se commente comme ailleurs.
     await selectText(reviewer.page, 'Conclusion')
     const own = await commentSelection(reviewer.page, 'Titre trop court.')
     await expect(own).toContainText('Conclusion')

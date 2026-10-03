@@ -90,7 +90,10 @@ export const markdownImportAction: EditorAction = {
   menu: 'file',
   group: 'create',
   icon: 'file-down',
-  when: (context) => context.host.openDialog !== undefined && context.host.readOnly !== true,
+  when: (context) =>
+    context.host.openDialog !== undefined &&
+    context.host.readOnly !== true &&
+    context.host.canEditProject !== false,
   run: (context) => {
     context.host.openDialog?.(MARKDOWN_IMPORT_DIALOG, markdownImportPayload(context))
     return true

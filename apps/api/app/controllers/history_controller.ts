@@ -19,7 +19,7 @@ import User from '#models/user'
 import ObjectStorage, { contentDisposition } from '#services/object_storage'
 import { projectFor } from '#services/project_access'
 import RealtimeClient from '#services/realtime_client'
-import { historyRetention } from '#services/entitlements'
+import { accountOfProject, historyRetention } from '#services/entitlements'
 import {
   findVersion,
   restoreVersion,
@@ -75,8 +75,9 @@ export default class HistoryController {
       versions: page.map(serializeVersion),
       authors: await versionAuthors(page.flatMap((version) => version.authorIds)),
       nextCursor: rows.length > query.limit ? (page.at(-1)?.id ?? null) : null,
-      // Conservation du plan du propriétaire (tâche 12) ; les versions avec label restent.
-      retentionDays: (await historyRetention({ id: project.ownerId }, user)).days,
+      // Conservation du plan du propriétaire ou de l'équipe (tâche 12) ; les versions avec label
+      // restent.
+      retentionDays: (await historyRetention(await accountOfProject(project), user)).days,
     }
   }
 

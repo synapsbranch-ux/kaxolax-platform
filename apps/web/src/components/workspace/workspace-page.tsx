@@ -9,10 +9,11 @@ import {
   type LogEntry,
   type PdfPosition,
   presenceUserFor,
+  type ProjectRole,
   type ProjectSearchMatch,
   type SpellcheckLanguage,
 } from '@kaxolax/contracts'
-import { type ActionHost, editorSettings } from '@kaxolax/editor'
+import { type ActionHost, type CitationProvider, editorSettings } from '@kaxolax/editor'
 import { Alert, Button, Skeleton } from '@kaxolax/ui'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -57,9 +58,11 @@ import {
   eventEffect,
   historyFeed,
   type RealtimeMessage,
+  suggestionFeed,
 } from '@/lib/project-events'
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/sharing'
 import { documentByPath } from '@/lib/tree'
+import { zoteroFeed } from '@/lib/zotero'
 import { WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle, SyncState } from './editor/code-editor'
 import { EditorColumn } from './editor/editor-column'
@@ -76,8 +79,10 @@ import { SpellcheckMenu } from './spellcheck/spellcheck-menu'
 import { useSpellcheck } from './spellcheck/use-spellcheck'
 import { useCompile } from './use-compile'
 import { useDocumentOutline } from './use-outline'
+import { useEditMode } from './use-edit-mode'
 import { useProjectIndex } from './use-project-index'
 import { useProjectMeta } from './use-project-meta'
+import { useProjectZotero } from './use-project-zotero'
 import { useRealtimeSocket } from './use-realtime'
 import { useEditorActions, WorkspaceActionsProvider } from './workspace-actions'
 import type { WorkspaceTools } from './workspace-tools'
@@ -98,6 +103,12 @@ const FOLLOW_GRACE_MS = 3_000
 const EDIT_DOCUMENT_TIMEOUT_MS = 15_000
 /** Liste vide stable (arborescence pas encore chargée). */
 const NO_DOCUMENTS: readonly TreeDocument[] = []
+
+/** Fin du message d'un changement de rôle : ce que devient l'éditeur. */
+function roleChangeDetail(role: ProjectRole, readOnly: boolean): string {
+  if (role === 'reviewer') return ' : vos modifications deviennent des suggestions.'
+  return readOnly ? ' : éditeur en lecture seule.' : '.'
+}
 
 /**
  * Page projet : charge le projet, l'arborescence et la dernière compilation, tient les onglets
@@ -169,6 +180,9 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   )
 
   const canEdit = project !== null && canEditRole(project.role)
+  // Mode Modifier / Suggérer (même source que la colonne de l'éditeur) : en Suggérer, les outils
+  // qui modifient le texte restent disponibles, même pour un relecteur (suggestions).
+  const editMode = useEditMode(projectId, user?.id ?? null, project?.role ?? null)
   // Chat lu seulement s'il est affiché : sidebar visible, onglet Chats, sans recherche par-dessus.
   const chat = useProjectChat(
     project?.id ?? null,
@@ -339,7 +353,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
       if (message.kind === 'role') {
         setProject((current) => (current ? { ...current, role: message.message.role } : current))
         setNotice({
-          message: `Votre rôle est maintenant ${ROLE_LABELS[message.message.role].toLowerCase()} (${ROLE_DESCRIPTIONS[message.message.role]})${message.message.readOnly ? ' : éditeur en lecture seule.' : '.'}`,
+          message: `Votre rôle est maintenant ${ROLE_LABELS[message.message.role].toLowerCase()} (${ROLE_DESCRIPTIONS[message.message.role]})${roleChangeDetail(message.message.role, message.message.readOnly)}`,
           level: 'info',
         })
         return
@@ -373,8 +387,14 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         case 'history':
           historyFeed.publish(effect.event)
           break
+        case 'suggestion':
+          suggestionFeed.publish(effect.event)
+          break
         case 'project':
           setProject((current) => (current ? { ...current, ...effect.changes } : current))
+          break
+        case 'zotero':
+          zoteroFeed.publish(effect.event)
           break
         case 'none':
           break
@@ -596,8 +616,14 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   useEffect(() => {
     activePath.current = activeDocument?.path ?? null
   })
+  // Source de citations Zotero (bibliothèque liée), fournie plus bas par `useProjectZotero`.
+  const zoteroCitations = useRef<() => CitationProvider | null>(() => null)
   const completion = useMemo(
-    () => ({ sources: () => projectIndex, currentFile: () => activePath.current }),
+    () => ({
+      sources: () => projectIndex,
+      currentFile: () => activePath.current,
+      citationProvider: () => zoteroCitations.current(),
+    }),
     [projectIndex],
   )
 
@@ -821,6 +847,12 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     else setNotice({ message, level })
   }, [])
 
+  // Zotero : synchro à l'ouverture (éditeurs), puis source de citations de l'autocomplétion.
+  const zotero = useProjectZotero(projectId, project === null ? null : canEdit, notify)
+  useEffect(() => {
+    zoteroCitations.current = zotero.citationProvider
+  }, [zotero.citationProvider])
+
   const settings: CompileSettings = {
     compiler: project?.compiler ?? 'pdflatex',
     autoCompile: preferences.autoCompile,
@@ -904,6 +936,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     >
       <WorkspaceActionsProvider
         canEdit={canEdit}
+        editMode={editMode.mode}
         compile={runCompile}
         downloadZip={downloadZip}
         searchProject={searchProject}
@@ -968,6 +1001,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               loading={currentTabs === null}
               canEdit={canEdit}
               canComment={project !== null && canCommentRole(project.role)}
+              role={project?.role ?? null}
               selfId={user?.id ?? null}
               membersVersion={membersVersion}
               settings={editorConfig}

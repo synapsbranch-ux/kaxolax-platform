@@ -22,6 +22,7 @@ import { PlanLimitNotice } from '@/components/billing/plan-limit-notice'
 import { api, ApiError, errorMessage, formValue } from '@/lib/api'
 import { markPlanLimitHandled } from '@/lib/plan-limits'
 import { authUrl } from '@/lib/sharing'
+import { TEAM_PLAN_REQUIRED_MESSAGE } from '@/lib/teams'
 import { templateResumeHref } from '@/lib/templates'
 
 /** Messages des refus propres à la galerie (codes `TEMPLATE_ERRORS`). */
@@ -35,6 +36,8 @@ function createErrorMessage(error: unknown): string {
         return 'Le template est momentanément indisponible. Réessayez dans quelques instants.'
       case 'E_TEMPLATE_INTEGRITY':
         return 'Le fichier du template est en cours de mise à jour. Réessayez dans quelques minutes.'
+      case 'E_TEAM_PLAN_REQUIRED':
+        return TEAM_PLAN_REQUIRED_MESSAGE
       default:
         break
     }

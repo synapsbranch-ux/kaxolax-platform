@@ -25,6 +25,7 @@ import type { ActionHost, ActionRegistry } from './actions/registry.js'
 import { markdownPasteDetector } from './actions/markdown.js'
 import { autoCompile, type AutoCompileOptions } from './auto-compile.js'
 import { latexFolding } from './folding.js'
+import { externalCitationSource } from './completion/external-citations.js'
 import { latexAutocomplete, type LatexCompletionOptions } from './completion/latex-completion.js'
 import { latexLanguage, latexLanguageData } from './language.js'
 import { editorKeymap, type EditorKeymapMode } from './settings.js'
@@ -44,8 +45,10 @@ export * from './auto-compile.js'
 export * from './outline.js'
 export * from './presence.js'
 export * from './comments.js'
+export * from './suggestions.js'
 export * from './settings.js'
 export * from './completion/bibtex.js'
+export * from './completion/external-citations.js'
 export * from './completion/latex-completion.js'
 export * from './completion/latex-data.js'
 export * from './completion/project-index.js'
@@ -148,6 +151,18 @@ function hostGetter(host: ActionHost | (() => ActionHost)): () => ActionHost {
   return typeof host === 'function' ? host : () => host
 }
 
+/** Autocomplétion LaTeX, avec la source externe de citations si l'application en fournit une. */
+function completionExtension(options: LatexCompletionOptions = {}): Extension {
+  const { citationProvider, sources } = options
+  const sourcesOf = () => (typeof sources === 'function' ? sources() : (sources ?? null))
+  return latexAutocomplete(
+    options,
+    citationProvider
+      ? [externalCitationSource({ provider: citationProvider, sources: sourcesOf })]
+      : [],
+  )
+}
+
 /** Raccourcis propres à Kaxolax. */
 export function kaxolaxKeymap(options: LatexEditorOptions): Extension {
   return keymap.of([
@@ -195,7 +210,7 @@ export function latexExtensions(options: LatexExtensionsOptions = {}): Extension
     search({ top: true }),
     lineWrappingCompartment.of(options.lineWrapping === false ? [] : EditorView.lineWrapping),
     readOnlyCompartment.of(readOnlyExtension(options.readOnly === true)),
-    options.completion === false ? [] : latexAutocomplete(options.completion),
+    options.completion === false ? [] : completionExtension(options.completion),
     spellcheckCompartment.of(options.spellcheck ? spellcheck(options.spellcheck) : []),
     options.actions ? options.actions.registry.keymap(options.actions.host) : [],
     options.actions ? markdownPasteDetector(hostGetter(options.actions.host)) : [],

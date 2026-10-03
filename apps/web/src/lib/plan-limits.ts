@@ -2,6 +2,7 @@ import {
   type PlanLimitError,
   planLimitErrorSchema,
   storageStateMessageSchema,
+  TEAM_PLAN,
 } from '@kaxolax/contracts'
 
 /**
@@ -38,28 +39,33 @@ export function formatSeconds(seconds: number): string {
 export function planLabel(slug: string): string {
   if (slug === 'free') return 'Free'
   if (slug === 'pro') return 'Pro'
+  if (slug === 'team') return 'Team'
   return slug
 }
 
 /** Titre et explication d'un refus, selon la limite atteinte. */
 export function planLimitMessage(error: PlanLimitError): { title: string; description: string } {
   const plan = planLabel(error.limit.plan)
+  // Plan d'équipe : ses limites (stockage et crédits mutualisés) sont celles de l'équipe.
+  const team = error.limit.plan === TEAM_PLAN
+  const holder = team ? 'de l’équipe' : 'du propriétaire du projet'
+  const yours = team ? 'Le plan Team de l’équipe' : `Votre plan ${plan}`
   const { max } = error.limit
   switch (error.limit.name) {
     case 'compile_time':
       return {
         title: 'Durée de compilation dépassée',
-        description: `Le plan ${plan} du propriétaire du projet limite chaque compilation à ${formatSeconds(max)}. Un plan supérieur permet des compilations plus longues.`,
+        description: `Le plan ${plan} ${holder} limite chaque compilation à ${formatSeconds(max)}. Un plan supérieur permet des compilations plus longues.`,
       }
     case 'collaborators':
       return {
         title: 'Limite de collaborateurs atteinte',
-        description: `Le plan ${plan} du propriétaire du projet permet ${String(max)} collaborateur${max > 1 ? 's' : ''} (invitations en attente comprises). Un plan supérieur permet d'inviter sans limite.`,
+        description: `Le plan ${plan} ${holder} permet ${String(max)} collaborateur${max > 1 ? 's' : ''} (invitations en attente comprises). Un plan supérieur permet d'inviter sans limite.`,
       }
     case 'storage':
       return {
         title: 'Espace de stockage plein',
-        description: `Le plan ${plan} du propriétaire du projet offre ${formatBytes(max)}${error.current === undefined ? '' : ` (utilisés : ${formatBytes(error.current)})`}. Libérez de la place ou passez à un plan supérieur.`,
+        description: `Le plan ${plan} ${holder} offre ${formatBytes(max)}${error.current === undefined ? '' : ` (utilisés : ${formatBytes(error.current)})`}. Libérez de la place ou passez à un plan supérieur.`,
       }
     case 'history':
       return {
@@ -69,12 +75,12 @@ export function planLimitMessage(error: PlanLimitError): { title: string; descri
     case 'ai_credits':
       return {
         title: 'Crédits IA épuisés',
-        description: `Votre plan ${plan} inclut ${String(max)} crédits IA par mois${error.current === undefined ? '' : ` (utilisés : ${String(error.current)})`}. Ils sont renouvelés le 1er du mois ; un plan supérieur en offre davantage.`,
+        description: `${yours} inclut ${String(max)} crédits IA par mois${error.current === undefined ? '' : ` (utilisés : ${String(error.current)})`}. Ils sont renouvelés le 1er du mois ; un plan supérieur en offre davantage.`,
       }
     case 'image_credits':
       return {
         title: "Crédits d'images épuisés",
-        description: `Votre plan ${plan} permet ${String(max)} image${max > 1 ? 's' : ''} par mois. Elles sont renouvelées le 1er du mois ; un plan supérieur en offre davantage.`,
+        description: `${yours} permet ${String(max)} image${max > 1 ? 's' : ''} par mois. Elles sont renouvelées le 1er du mois ; un plan supérieur en offre davantage.`,
       }
   }
 }

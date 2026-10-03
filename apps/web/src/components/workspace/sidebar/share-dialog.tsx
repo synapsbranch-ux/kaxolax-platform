@@ -61,7 +61,7 @@ export function ShareButton({
           <DialogTitle className="truncate">Partager « {project?.name ?? ''} »</DialogTitle>
           <DialogDescription>
             {manage
-              ? 'Invitez des collaborateurs par email ou partagez un lien. Éditeur : édite et compile ; relecteur : lit, compile et commente ; lecteur : lit et compile.'
+              ? 'Invitez des collaborateurs par email ou partagez un lien. Éditeur : édite, compile et accepte les suggestions ; relecteur : commente et suggère des modifications ; lecteur : lit et compile.'
               : 'Les membres du projet et leur rôle.'}
           </DialogDescription>
         </DialogHeader>

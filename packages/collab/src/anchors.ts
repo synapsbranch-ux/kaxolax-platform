@@ -46,12 +46,40 @@ export function createCommentAnchor(text: Y.Text, from: number, to: number): Uin
   if (from >= to) throw new RangeError('Anchor range is empty')
   const start = Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, from, 0))
   const end = Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, to, -1))
+  return encodeAnchor(start, end)
+}
+
+function encodeAnchor(start: Uint8Array, end: Uint8Array): Uint8Array {
   const bytes = new Uint8Array(HEADER_BYTES + start.length + end.length)
   bytes[0] = ANCHOR_VERSION
   new DataView(bytes.buffer).setUint32(1, start.length)
   bytes.set(start, HEADER_BYTES)
   bytes.set(end, HEADER_BYTES + start.length)
   return bytes
+}
+
+/**
+ * Ancre d'un point du texte (insertion suggérée, voir `suggestions.ts`) : début et fin identiques,
+ * attachés au caractère qui suit `at` (une frappe d'un autre auteur juste avant ce caractère
+ * passe avant le point) ; en fin de texte, au dernier caractère (le point reste juste après lui).
+ * Seul le point d'un texte vide est attaché au type lui-même. Même format que les plages.
+ */
+export function createPointAnchor(text: Y.Text, at: number): Uint8Array {
+  if (!Number.isInteger(at) || at < 0 || at > text.length) {
+    throw new RangeError('Anchor position outside of the text')
+  }
+  const assoc = at === text.length && at > 0 ? -1 : 0
+  const position = Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, at, assoc))
+  return encodeAnchor(position, position)
+}
+
+/** Vrai si l'ancre se lit et désigne un point (début et fin encodés à l'identique). */
+export function isPointAnchor(bytes: Uint8Array): boolean {
+  if (decodeCommentAnchor(bytes) === null) return false
+  const startLength = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1)
+  const start = bytes.subarray(HEADER_BYTES, HEADER_BYTES + startLength)
+  const end = bytes.subarray(HEADER_BYTES + startLength)
+  return start.length === end.length && start.every((byte, index) => byte === end[index])
 }
 
 /** Lit une ancre encodée : null si le format est invalide (version, longueurs, positions). */

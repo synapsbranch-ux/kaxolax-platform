@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import {
@@ -15,17 +15,23 @@ import testUtils from '@adonisjs/core/services/test_utils'
 import db from '@adonisjs/lucid/services/db'
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
+import { DateTime } from 'luxon'
 import compileConfig from '#config/compile'
 import AiUsage from '#models/ai_usage'
+import ClerkOrganization from '#models/clerk_organization'
 import Document from '#models/document'
 import File from '#models/file'
 import Project from '#models/project'
 import ProjectMember from '#models/project_member'
+import Subscription from '#models/subscription'
 import type User from '#models/user'
+import Workspace from '#models/workspace'
+import WorkspaceMember from '#models/workspace_member'
 import CompileGateway, {
   CompileServiceUnavailableException,
   ConvertFailedException,
 } from '#services/compile_gateway'
+import { planLimitsCache } from '#services/entitlements'
 import ObjectStorage from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
 import { FakeAnthropicApi, useFakeClaude } from '#tests/claude'
@@ -1008,5 +1014,122 @@ test.group('markdown import: AI cleanup', (group) => {
     unavailable.assertStatus(503)
     assert.equal(unavailable.body().code, 'E_AI_UNAVAILABLE')
     assert.lengthOf(gateway.requests, 0)
+  })
+})
+
+/**
+ * Équipe (miroir d'une Organisation Clerk, plan `team` actif) : un administrateur, un membre. Le
+ * membre est éditeur des projets de l'équipe par défaut (`projects.team_role`), sans ligne
+ * `project_members`.
+ */
+async function createTeam() {
+  const admin = await createUser()
+  const member = await createUser()
+  const organizationId = `org_${randomUUID().replaceAll('-', '').slice(0, 24)}`
+  await ClerkOrganization.create({
+    clerkOrganizationId: organizationId,
+    name: 'Lab',
+    slug: 'lab',
+    createdByClerkUserId: admin.clerkUserId,
+    deletedAt: null,
+    eventAt: DateTime.now(),
+  })
+  const workspace = await Workspace.create({
+    name: 'Lab',
+    type: 'team',
+    ownerId: admin.id,
+    aiEnabled: true,
+    clerkOrganizationId: organizationId,
+  })
+  await WorkspaceMember.createMany([
+    { workspaceId: workspace.id, userId: admin.id, role: 'admin' },
+    { workspaceId: workspace.id, userId: member.id, role: 'member' },
+  ])
+  const subscription = await Subscription.create({
+    userId: null,
+    clerkOrganizationId: organizationId,
+    clerkSubscriptionItemId: `csi_${randomUUID()}`,
+    planSlug: 'team',
+    status: 'active',
+    periodEnd: null,
+  })
+  return { admin, member, workspace, subscription }
+}
+
+test.group('markdown import: team projects', (group) => {
+  useFakes(group)
+  group.each.teardown(() => {
+    planLimitsCache.clear()
+  })
+
+  test('a team editor converts Markdown in a team project, against the team storage', async ({
+    client,
+    assert,
+  }) => {
+    const team = await createTeam()
+    const created = await client
+      .post('/api/v1/projects')
+      .json({ name: 'Paper', workspaceId: team.workspace.id })
+      .loginAs(team.admin)
+    created.assertStatus(201)
+    const projectId = created.body().project.id as string
+    // Éditeur par l'équipe seulement : aucune ligne de membre du projet.
+    assert.isNull(await ProjectMember.query().where({ projectId, userId: team.member.id }).first())
+    // 500 Mo dans le projet : refusés par le plan gratuit du propriétaire, pas par celui de
+    // l'équipe, dont le stockage est mutualisé.
+    await File.create({
+      projectId,
+      folderId: null,
+      name: 'big.pdf',
+      s3Key: `projects/${projectId}/files/big`,
+      sha256: 'a'.repeat(64),
+      sizeBytes: 500 * 1024 * 1024,
+      mimeType: 'application/pdf',
+    })
+
+    const response = await convert(client, team.member, projectId, {
+      markdown: '# Introduction\n\n![](data:image/png;base64,AAAA)',
+      targetPath: 'chapters/intro.tex',
+    })
+    response.assertStatus(201)
+    const body = markdownImportResponseSchema.parse(response.body())
+    assert.equal(body.document?.path, 'chapters/intro.tex')
+    const document = await Document.findOrFail(body.document?.id)
+    const update = await db
+      .from('document_updates')
+      .where('document_id', document.id)
+      .select('user_id')
+      .first()
+    assert.equal(update?.user_id, team.member.id)
+    const [event] = realtime.events
+    assert.equal(event?.type, 'tree.changed')
+    if (event?.type === 'tree.changed') assert.equal(event.actorId, team.member.id)
+
+    // Stockage de l'équipe plein : refus au nom du plan de l'équipe, image téléversée retirée.
+    await db.table('plan_limits').insert({
+      plan_slug: 'tiny_team',
+      max_compile_seconds: 20,
+      max_collaborators: 0,
+      history_retention_days: 1,
+      storage_bytes: 1,
+    })
+    planLimitsCache.clear()
+    team.subscription.planSlug = 'tiny_team'
+    await team.subscription.save()
+    const full = await convert(client, team.member, projectId, {
+      markdown: '# A\n\n![](data:image/png;base64,AAAA)',
+      targetPath: 'notes.tex',
+    })
+    full.assertStatus(403)
+    full.assertBodyContains({ code: 'E_PLAN_LIMIT', limit: { name: 'storage', plan: 'tiny_team' } })
+    assert.lengthOf(storage.deleted, 1)
+
+    // Membre de l'équipe relecteur sur ce projet : pas de conversion.
+    await Project.query().where('id', projectId).update({ teamRole: 'reviewer' })
+    const reviewer = await convert(client, team.member, projectId, {
+      markdown: '# A',
+      dryRun: true,
+    })
+    reviewer.assertStatus(403)
   })
 })

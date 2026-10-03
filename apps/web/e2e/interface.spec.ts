@@ -610,7 +610,7 @@ test('workspace filter from the sidebar footer and the dashboard', async ({ acco
     'GET',
     `/projects/${ownId}`,
   )
-  const { workspaces } = await api<{ workspaces: { id: string; name: string }[] }>(
+  const { workspaces } = await api<{ workspaces: { id: string; type: string }[] }>(
     owner.page,
     'GET',
     '/workspaces',
@@ -620,11 +620,12 @@ test('workspace filter from the sidebar footer and the dashboard', async ({ acco
   const page = owner.page
   const rows = page.getByTestId('project-row')
 
-  // Pied de la sidebar du projet : workspace du projet, menu vers le tableau de bord filtré.
+  // Pied de la sidebar du projet : workspace du projet (le personnel s'affiche « Personnel »),
+  // menu vers le tableau de bord filtré.
   const switcher = page.getByTestId('workspace-switcher').filter({ visible: true }).first()
-  await expect(switcher).toHaveText(workspace.name)
+  await expect(switcher).toHaveText('Personnel')
   await switcher.click()
-  await page.getByRole('menuitemradio', { name: workspace.name }).click()
+  await page.getByRole('menuitemradio', { name: 'Personnel' }).click()
   await expect(page).toHaveURL(new RegExp(`/dashboard\\?workspace=${workspace.id}$`))
   await expect(rows.filter({ hasText: DEMO_NAME })).toHaveCount(1)
   await expect(rows.filter({ hasText: 'Projet de Grace' })).toHaveCount(0)

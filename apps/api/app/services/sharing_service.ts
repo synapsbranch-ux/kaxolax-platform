@@ -48,11 +48,13 @@ import { collaboratorLimit } from '#services/plans'
 import { recordSharingEvent } from '#services/sharing_audit'
 import {
   isUuid,
+  PROJECT_ACCESS_VIEW,
   ProjectForbiddenException,
   projectFor,
   ProjectNotFoundException,
 } from '#services/project_access'
 import { InvalidNewOwnerException, transferOwnership } from '#services/project_ownership'
+import { dropZoteroKeyUnlessEditor } from '#services/zotero/link_access'
 import {
   hashToken,
   isTokenShaped,
@@ -174,7 +176,8 @@ async function invitationEntry(
 // --- Limite de collaborateurs ---------------------------------------------------------------
 
 /**
- * Collaborateurs d'un projet (`projectCollaboratorCount`) et limite du plan de son propriétaire.
+ * Collaborateurs d'un projet (`projectCollaboratorCount`) et limite du plan de son propriétaire (de
+ * l'organisation pour un projet d'équipe ; les membres de l'équipe n'y comptent pas).
  * `excludeInvitationId` : invitation qui va être acceptée ou renvoyée, comptée à part.
  * `requester` : compte qui agit ; s'il est le propriétaire, la limite vient des claims de son
  * jeton, sinon du dernier plan enregistré pour lui (relevé de ses claims ou miroir des webhooks,
@@ -187,7 +190,7 @@ async function collaboratorUsage(
   requester?: User,
 ): Promise<CollaboratorUsage> {
   const used = await projectCollaboratorCount(project.id, client, excludeInvitationId)
-  const { plan, max } = await collaboratorLimit(project.ownerId, client, requester)
+  const { plan, max } = await collaboratorLimit(project, client, requester)
   return { plan, max, used }
 }
 
@@ -310,6 +313,28 @@ async function joinOrRaise(
 
 // --- Membres --------------------------------------------------------------------------------
 
+/** Accès d'équipe d'un projet de workspace d'équipe (null pour un projet personnel). */
+async function teamAccessOf(project: Project): Promise<ProjectMembersResponse['team']> {
+  const row = (await db
+    .from('workspaces as w')
+    .where('w.id', project.workspaceId)
+    .where('w.type', 'team')
+    .select('w.id', 'w.name')
+    .select(
+      db.raw(
+        '(SELECT COUNT(*)::int FROM workspace_members wm WHERE wm.workspace_id = w.id) AS count',
+      ),
+    )
+    .first()) as { id: string; name: string; count: number } | null
+  if (!row) return null
+  return {
+    workspaceId: row.id,
+    name: row.name,
+    memberRole: project.teamRole,
+    memberCount: row.count,
+  }
+}
+
 /**
  * Membres du projet (tout membre). Le propriétaire reçoit aussi les invitations en attente et
  * l'usage de sa limite de collaborateurs.
@@ -324,6 +349,7 @@ export async function projectMembers(
     members: await listMembers(project.id, { userId: user.id, manager }),
     invitations: manager ? await listInvitations(project.id) : [],
     collaborators: manager ? await collaboratorUsage(project, undefined, undefined, user) : null,
+    team: await teamAccessOf(project),
   }
 }
 
@@ -349,6 +375,8 @@ export async function changeMemberRole(
     if (changed) {
       member.role = role
       await member.useTransaction(trx).save()
+      // Sans `edit` (rôle d'équipe compris), sa clé Zotero ne sert plus au lien du projet.
+      await dropZoteroKeyUnlessEditor(project.id, member.userId, trx)
       await recordSharingEvent(
         {
           projectId: project.id,
@@ -372,17 +400,21 @@ export async function removeMember(user: User, projectId: string, memberId: stri
   await db.transaction(async (trx) => {
     const { project, role } = await projectFor(user, projectId, 'read', { trx, lock: true })
     if (memberId === user.id) {
-      if (role === 'owner') throw new OwnerCannotLeaveException()
-      await ProjectMember.query({ client: trx })
+      // Ligne de membre du projet (un accès d'équipe seul ne se quitte qu'en quittant l'équipe).
+      const own = await ProjectMember.query({ client: trx })
         .where({ projectId: project.id, userId: user.id })
-        .delete()
+        .first()
+      if (!own) throw new MemberNotFoundException()
+      if (own.role === 'owner') throw new OwnerCannotLeaveException()
+      await own.useTransaction(trx).delete()
+      await dropZoteroKeyUnlessEditor(project.id, user.id, trx)
       await recordSharingEvent(
         {
           projectId: project.id,
           actorId: user.id,
           action: 'member.left',
           targetUserId: user.id,
-          metadata: { role },
+          metadata: { role: own.role },
         },
         trx,
       )
@@ -397,6 +429,7 @@ export async function removeMember(user: User, projectId: string, memberId: stri
     if (!member) throw new MemberNotFoundException()
     if (member.role === 'owner') throw new OwnerRoleLockedException()
     await member.useTransaction(trx).delete()
+    await dropZoteroKeyUnlessEditor(project.id, member.userId, trx)
     await recordSharingEvent(
       {
         projectId: project.id,
@@ -421,10 +454,13 @@ export async function transferProjectOwnership(
 ): Promise<{ fromUserId: string; toUserId: string }> {
   return db.transaction(async (trx) => {
     const { project } = await projectFor(owner, projectId, 'transferOwnership', { trx, lock: true })
+    // Membre du projet, ou de son équipe (accès effectif).
     const membership = isUuid(newOwnerId)
-      ? await ProjectMember.query({ client: trx })
-          .where({ projectId: project.id, userId: newOwnerId })
-          .first()
+      ? ((await trx
+          .from(PROJECT_ACCESS_VIEW)
+          .where({ project_id: project.id, user_id: newOwnerId })
+          .select('role')
+          .first()) as { role: string } | null)
       : null
     const newOwner = membership
       ? await User.query({ client: trx }).where('id', newOwnerId).first()

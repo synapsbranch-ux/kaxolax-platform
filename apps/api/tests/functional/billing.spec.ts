@@ -23,7 +23,7 @@ import type User from '#models/user'
 import { PaymentPastDueMail, ProWelcomeMail } from '#mails/billing_mails'
 import ProjectInvitationMail from '#mails/project_invitation_mail'
 import CompileGateway from '#services/compile_gateway'
-import { historyRetention, limitsOf } from '#services/entitlements'
+import { historyRetention, limitsOf, userAccount } from '#services/entitlements'
 import RealtimeClient from '#services/realtime_client'
 import { clerkTokenFor } from '#tests/clerk'
 import { signWebhook } from '#tests/clerk_keys'
@@ -132,7 +132,7 @@ test.group('billing: entitlements and GET /me/plan', (group) => {
       storageBytes: FREE_STORAGE,
     })
     assert.equal(plan.upgradeUrl, 'http://localhost:3000/pricing')
-    assert.deepEqual(await historyRetention(user), { plan: 'free', days: 1 })
+    assert.deepEqual(await historyRetention(userAccount(user.id)), { plan: 'free', days: 1 })
   })
 
   test('reads the plan and features from the token claims first', async ({ client, assert }) => {
@@ -171,14 +171,14 @@ test.group('billing: entitlements and GET /me/plan', (group) => {
     assert.include(plan, { plan: 'pro', source: 'subscription' })
     assert.equal(plan.subscription?.status, 'past_due')
     assert.equal(plan.limits.maxCompileSeconds, 240)
-    assert.deepEqual(await historyRetention(user), { plan: 'pro', days: null })
+    assert.deepEqual(await historyRetention(userAccount(user.id)), { plan: 'pro', days: null })
 
     // Résilié : le plan reste acquis jusqu'à la fin de la période, puis Free.
     const other = await createUser()
     await subscribe(other, 'pro', 'canceled')
-    assert.equal((await historyRetention(other)).plan, 'pro')
+    assert.equal((await historyRetention(userAccount(other.id))).plan, 'pro')
     await Subscription.query().where('userId', other.id).update({ periodEnd: '2020-01-01' })
-    assert.equal((await historyRetention(other)).plan, 'free')
+    assert.equal((await historyRetention(userAccount(other.id))).plan, 'free')
   })
 
   test('applies the free limits to a plan unknown to plan_limits', async ({ client, assert }) => {
@@ -500,7 +500,7 @@ test.group('billing: ownership transfer', (group) => {
 // --- Webhooks Billing -------------------------------------------------------------------------
 
 interface ItemOptions {
-  plan?: 'free' | 'pro'
+  plan?: 'free' | 'pro' | 'team'
   periodEnd?: number | null
   payer?: Record<string, unknown>
 }
@@ -517,7 +517,7 @@ function billingItem(user: User | null, id: string, status: string, options: Ite
     period_end: options.periodEnd === undefined ? Date.now() + 30 * 86_400_000 : options.periodEnd,
     plan: {
       id: `cplan_${plan}`,
-      name: plan === 'pro' ? 'Pro' : 'Free',
+      name: plan === 'pro' ? 'Pro' : plan === 'team' ? 'Team' : 'Free',
       slug: plan,
       is_default: plan === 'free',
     },
@@ -718,13 +718,39 @@ test.group('billing: webhooks', (group) => {
     )
   })
 
-  test('ignores organization payers and unrelated billing events', async ({ client, assert }) => {
+  test('mirrors organization payers without email, ignores unrelated events', async ({
+    client,
+    assert,
+  }) => {
+    // Plan d'organisation (tâche 10) : reflété par `clerk_organization_id`, sans email.
     const data = billingItem(null, 'csi_org', 'active', { payer: { organization_id: 'org_1' } })
     ;(await sendEvent(client, 'subscriptionItem.active', data)).assertStatus(204)
     ;(
       await sendEvent(client, 'paymentAttempt.created', { id: 'pa_1', status: 'paid' })
     ).assertStatus(204)
-    assert.isNull(await Subscription.findBy('clerkSubscriptionItemId', 'csi_org'))
+    const mirrored = await Subscription.findByOrFail('clerkSubscriptionItemId', 'csi_org')
+    assert.isNull(mirrored.userId)
+    assert.equal(mirrored.clerkOrganizationId, 'org_1')
+    assert.lengthOf(sentMails(), 0)
+  })
+
+  test('treats a payer carrying both user_id and organization_id as the organization', async ({
+    client,
+    assert,
+  }) => {
+    // `BillingPayerJSON` déclare les deux champs facultatifs et indépendants : le membre qui a
+    // souscrit peut figurer à côté de l'organisation, l'abonnement reste celui de l'équipe.
+    const member = await createUser()
+    const data = billingItem(member, 'csi_org_both', 'active', {
+      plan: 'team',
+      payer: { user_id: member.clerkUserId, organization_id: 'org_both' },
+    })
+    ;(await sendEvent(client, 'subscriptionItem.active', data)).assertStatus(204)
+    const mirrored = await Subscription.findByOrFail('clerkSubscriptionItemId', 'csi_org_both')
+    assert.isNull(mirrored.userId)
+    assert.equal(mirrored.clerkOrganizationId, 'org_both')
+    assert.equal(mirrored.planSlug, 'team')
+    assert.isNull(await Subscription.findBy('userId', member.id))
     assert.lengthOf(sentMails(), 0)
   })
 })

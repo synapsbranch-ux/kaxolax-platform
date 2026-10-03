@@ -18,11 +18,15 @@ import {
   openInTree,
   openProject,
   openReview,
+  openSuggestions,
   placeCursorAfter,
   placeCursorOn,
   runTool,
   selectText,
+  setEditMode,
+  suggestedText,
 } from './project'
+import { createTeam, deleteTeam, teamPlanActive } from './teams'
 import {
   clearScreenshots,
   SCREENSHOT_DIR,
@@ -54,6 +58,9 @@ const VARIANT_TIMEOUT_MS = 600_000
 /** Mot mal orthographié de la démonstration (menu du correcteur). */
 const MISSPELLED = 'dimenssions'
 const VERSION_LABEL = 'Version soumise'
+/** Équipe de démonstration (Ada administratrice, Grace membre) et son projet. */
+const TEAM_NAME = 'Laboratoire Fourier'
+const TEAM_PROJECT_NAME = 'Rapport d’équipe'
 const TOOL_MENUS = [
   ['file', '06-tools-file'],
   ['format', '06-tools-format'],
@@ -77,6 +84,11 @@ interface Demo {
   invitation: string | null
   /** Session de l'admin dans l'application admin (bannière active), ouverte à la demande. */
   adminPage: Page | null
+  /**
+   * Équipe de démonstration (Organisation Clerk et workspace d'équipe) ; `active` : plan
+   * d'équipe actif, avec un projet d'équipe (sans plan, l'API refuse d'en créer).
+   */
+  team: { organizationId: string; workspaceId: string; active: boolean }
 }
 
 let demo: Demo | null = null
@@ -100,7 +112,8 @@ function contextFor(viewport: ScreenViewport, theme: ScreenTheme): BrowserContex
 /**
  * Projet de démonstration : importé par Ada (correcteur en français), Grace éditrice, trois
  * compilations (versions), modifications des deux autrices (dont un mot mal orthographié pour le
- * menu du correcteur), un label, trois fils de commentaires (dont un résolu), une conversation
+ * menu du correcteur), un label, trois fils de commentaires (dont un résolu), deux suggestions
+ * de Grace (suivi des modifications), une conversation
  * dans le chat, un lien de partage en lecture seule et une invitation en attente. Grace reste
  * connectée sur main.tex (présence) ; la barre Tools d'Ada est refermée.
  */
@@ -160,6 +173,16 @@ async function seedDemo(accounts: Accounts): Promise<Demo> {
   await owner.page.getByTestId('review-toggle').click()
   await collaborator.page.getByTestId('review-toggle').click()
 
+  // Suivi des modifications : deux suggestions de Grace (mode Suggérer), un ajout et un
+  // remplacement, affichées en ligne et dans le panneau Review ; Grace repasse en Modifier.
+  await setEditMode(collaborator.page, 'suggest')
+  await placeCursorAfter(collaborator.page, 'montre la température')
+  await collaborator.page.keyboard.type(' moyenne')
+  await selectText(collaborator.page, 'homogène')
+  await collaborator.page.keyboard.type('d’acier')
+  await expect.poll(() => suggestedText(owner.page)).toBe('d’acier moyenne')
+  await setEditMode(collaborator.page, 'edit')
+
   // Chat : conversation avec une mention et une référence de fichier.
   const say = (account: Account, body: string) =>
     api(account.page, 'POST', `/projects/${projectId}/chat/messages`, { body })
@@ -180,7 +203,18 @@ async function seedDemo(accounts: Accounts): Promise<Demo> {
   // Les outils de la préparation (recherche) ont ouvert la barre Tools, préférence du compte :
   // refermée, toutes les variantes de 04-project sont prises sans elle.
   await hideTools(owner.page)
+  // Équipe : Ada administratrice, Grace membre, un projet d'équipe.
+  const created = await createTeam(owner, TEAM_NAME, [collaborator])
+  const team = { ...created, active: await teamPlanActive(owner.page, created.organizationId) }
+  // Projet d'équipe : seulement si l'organisation a un plan actif (sinon refusé par l'API).
+  if (team.active) {
+    await api(owner.page, 'POST', '/projects', {
+      name: TEAM_PROJECT_NAME,
+      workspaceId: team.workspaceId,
+    })
+  }
   return {
+    team,
     accounts,
     owner,
     collaborator,
@@ -247,6 +281,7 @@ test.afterAll(async () => {
     })
   }
   await demo?.accounts.dispose()
+  if (demo) await deleteTeam(demo.team.organizationId)
   demo = null
   await writeScreenshotIndex()
 })
@@ -440,6 +475,38 @@ async function captureOutside(shots: Shots, page: Page, viewport: ScreenViewport
       await expect(page.getByTestId('join-card')).toContainText('comme relecteur')
     })
   }
+  await captureTeams(shots, page)
+}
+
+/** Écrans des équipes : sélecteur, projets de l'équipe, page de l'équipe, création. */
+async function captureTeams(shots: Shots, page: Page): Promise<void> {
+  const { team } = seeded()
+  await shots.take('28-workspace-switcher', async () => {
+    await page.goto('/dashboard')
+    await expect(page.getByTestId('project-row').first()).toBeVisible()
+    await page.getByTestId('workspace-switcher').filter({ visible: true }).first().click()
+    await expect(page.getByRole('menuitemradio', { name: TEAM_NAME })).toBeVisible()
+  })
+  await tidy(() => page.keyboard.press('Escape'))
+  await shots.take('28-team-dashboard', async () => {
+    await page.goto(`/dashboard?workspace=${team.workspaceId}`)
+    await expect(page.getByTestId('team-summary').getByTestId('team-plan-badge')).toBeVisible()
+    if (team.active) {
+      await expect(
+        page.getByTestId('project-row').filter({ hasText: TEAM_PROJECT_NAME }),
+      ).toBeVisible()
+    }
+  })
+  await shots.take('28-team', async () => {
+    await page.goto(`/team/${team.organizationId}`)
+    await expect(page.getByTestId('team-name')).toHaveText(TEAM_NAME)
+    await expect(page.getByTestId('team-plan').getByRole('meter').first()).toBeVisible()
+    await expect(page.locator('.cl-organizationProfile-root')).toBeVisible()
+  })
+  await shots.take('28-team-new', async () => {
+    await page.goto('/team/new')
+    await expect(page.locator('.cl-createOrganization-root input[name="name"]')).toBeVisible()
+  })
 }
 
 /** Page projet : éditeur, PDF, barre Tools et ses menus. */
@@ -573,9 +640,21 @@ async function capturePanels(shots: Shots, page: Page, viewport: ScreenViewport)
   await tidy(() => hideSidebar(page))
   await shots.take('13-review', async () => {
     await onProject(page, projectId)
-    await openReview(page)
+    const panel = await openReview(page)
+    await panel.getByTestId('review-comments-tab').click()
     await expect(page.getByTestId('comment-thread')).toHaveCount(2)
     await page.getByTestId('comment-thread').first().click()
+  })
+  await tidy(async () => {
+    if (await page.getByTestId('review-panel').isVisible()) {
+      await page.getByTestId('review-toggle').click()
+    }
+  })
+  await shots.take('13-suggestions', async () => {
+    await onProject(page, projectId)
+    await openSuggestions(page)
+    await expect(page.getByTestId('suggestion-card')).toHaveCount(2)
+    await page.getByTestId('suggestion-card').first().click()
   })
   await tidy(async () => {
     if (await page.getByTestId('review-panel').isVisible()) {
@@ -704,7 +783,7 @@ async function captureDialogs(shots: Shots, page: Page) {
 
 /** Écrans de l'admin (thème sombre uniquement), avec une bannière programmée dans la liste. */
 async function captureAdmin(shots: Shots, page: Page) {
-  const { admin, collaborator, projectId } = seeded()
+  const { admin, collaborator, projectId, team } = seeded()
   await signInAdmin(page, admin.user)
   try {
     await shots.take('23-admin-users', async () => {
@@ -724,6 +803,15 @@ async function captureAdmin(shots: Shots, page: Page) {
       await page.goto(adminUrl(`/projects/${projectId}`))
       await expect(page.getByRole('heading', { level: 1, name: DEMO_NAME })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Archiver', exact: true })).toBeVisible()
+    })
+    await shots.take('29-admin-organizations', async () => {
+      await page.goto(adminUrl('/organizations'))
+      await expect(page.getByRole('row').filter({ hasText: TEAM_NAME }).first()).toBeVisible()
+    })
+    await shots.take('29-admin-organization', async () => {
+      await page.goto(adminUrl(`/organizations/${team.organizationId}`))
+      await expect(page.getByRole('heading', { level: 1, name: TEAM_NAME })).toBeVisible()
+      await expect(page.getByRole('row').filter({ hasText: TEAM_PROJECT_NAME })).toBeVisible()
     })
     await shots.take('25-admin-banners', async () => {
       await page.goto(adminUrl('/banners'))

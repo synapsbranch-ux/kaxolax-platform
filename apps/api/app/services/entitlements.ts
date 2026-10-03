@@ -16,6 +16,19 @@ import type User from '#models/user'
  * récente des deux sources enregistrées (relevé des claims du dernier jeton du compte, miroir
  * `subscriptions` alimenté par les webhooks), sinon du plan par défaut `free`. Les valeurs chiffrées viennent de
  * plan_limits (cache court). Une limite dont la feature manque retombe sur la valeur de Free.
+ *
+ * Workspace d'équipe (Organisation Clerk) : ses projets prennent les droits du plan de
+ * l'organisation, quel que soit le propriétaire ou l'auteur de l'action. Plan et features d'après
+ * les claims de portée organisation (`o:`) du jeton si l'organisation active de la requête
+ * (`o.id`) est celle du workspace, sinon d'après le miroir des abonnements d'organisation, sinon
+ * `free`. Un plan `credits_per_seat` multiplie ses crédits par les membres du workspace.
+ *
+ * Organisation sans plan actif (`isActiveOrganizationPlan` : aucun plan payant connu de
+ * plan_limits) : aucune part Free propre, sinon chaque organisation créée gratuitement
+ * ajouterait sa réserve de crédits, son stockage et ses membres hors limite de collaborateurs.
+ * Sa réserve de crédits est vide (l'IA est imputée à l'auteur, `creditAccountFor`) et aucun
+ * projet ne peut y être créé, importé ni déplacé (`assertWorkspaceAcceptsProjects`) ; les projets
+ * d'une équipe dont l'abonnement a pris fin gardent les limites de Free.
  */
 
 export type EntitlementSource = 'claims' | 'subscription' | 'default'
@@ -36,6 +49,10 @@ export interface EffectiveLimits extends PlanLimits {
   readonly entitlements: Entitlements
   readonly aiCredits: number
   readonly imageCredits: number
+  /** Sièges comptés (membres de l'équipe) ; 1 pour un compte personnel. */
+  readonly seats: number
+  /** Crédits du plan multipliés par `seats`. */
+  readonly perSeat: boolean
 }
 
 /** Ligne de plan_limits (null = illimité, historique complet). */
@@ -47,6 +64,77 @@ export interface PlanLimitRow {
   storageBytes: number
   aiMonthlyCredits: number
   imageMonthlyCredits: number
+  /** Crédits multipliés par les sièges de l'équipe (plan d'organisation). */
+  creditsPerSeat?: boolean
+}
+
+/**
+ * Compte dont les limites s'appliquent : un utilisateur (projets personnels, crédits personnels)
+ * ou un workspace d'équipe (plan de son organisation, stockage et crédits mutualisés).
+ */
+export type BillingAccount =
+  | { readonly type: 'user'; readonly id: string }
+  | { readonly type: 'team'; readonly workspaceId: string; readonly clerkOrganizationId: string }
+
+export function userAccount(id: string): BillingAccount {
+  return { type: 'user', id }
+}
+
+/** Clé stable d'un compte (verrous consultatifs, journaux). */
+export function accountKey(account: BillingAccount): string {
+  return account.type === 'user' ? `user:${account.id}` : `team:${account.workspaceId}`
+}
+
+/**
+ * Compte d'un workspace : l'équipe pour un workspace d'équipe, sinon `personalOwnerId` (le
+ * propriétaire du projet ou du workspace personnel).
+ */
+async function accountOf(
+  workspaceId: string,
+  personalOwnerId: string | null,
+  client?: TransactionClientContract,
+): Promise<BillingAccount | null> {
+  const row = (await (client ?? db)
+    .from('workspaces')
+    .where('id', workspaceId)
+    .select('type', 'owner_id', 'clerk_organization_id')
+    .first()) as { type: string; owner_id: string; clerk_organization_id: string | null } | null
+  if (!row) return personalOwnerId === null ? null : userAccount(personalOwnerId)
+  if (row.type === 'team' && row.clerk_organization_id !== null) {
+    return { type: 'team', workspaceId, clerkOrganizationId: row.clerk_organization_id }
+  }
+  return userAccount(personalOwnerId ?? row.owner_id)
+}
+
+/** Compte dont les limites s'appliquent à un projet (son équipe, sinon son propriétaire). */
+export async function accountOfProject(
+  project: { ownerId: string; workspaceId: string },
+  client?: TransactionClientContract,
+): Promise<BillingAccount> {
+  return (
+    (await accountOf(project.workspaceId, project.ownerId, client)) ?? userAccount(project.ownerId)
+  )
+}
+
+/**
+ * Compte d'un nouveau projet : celui du workspace demandé (une équipe : son organisation), sinon
+ * l'utilisateur. L'appartenance au workspace est vérifiée par l'appelant.
+ */
+export async function accountForNewProject(
+  user: { id: string },
+  workspaceId: string | undefined,
+  client?: TransactionClientContract,
+): Promise<BillingAccount> {
+  if (workspaceId === undefined) return userAccount(user.id)
+  return (await accountOf(workspaceId, null, client)) ?? userAccount(user.id)
+}
+
+/** Compte d'un workspace (null s'il n'existe pas). */
+export async function accountOfWorkspace(
+  workspaceId: string,
+  client?: TransactionClientContract,
+): Promise<BillingAccount | null> {
+  return accountOf(workspaceId, null, client)
 }
 
 /** Statuts Clerk d'un élément d'abonnement qui donne accès à son plan. */
@@ -89,6 +177,35 @@ export function userScopedValues(claim: unknown): string[] {
   return values
 }
 
+/**
+ * Valeurs de portée organisation d'un claim `pla` ou `fea` : éléments `o:valeur` (ou `ou`/`uo`),
+ * comme `splitByScope` de @clerk/shared. Elles décrivent l'organisation active du jeton (`o.id`).
+ */
+export function organizationScopedValues(claim: unknown): string[] {
+  if (typeof claim !== 'string' || claim.trim() === '') return []
+  const values: string[] = []
+  for (const part of claim.split(',')) {
+    const element = part.trim()
+    const colon = element.indexOf(':')
+    if (colon === -1) continue
+    const scope = element.slice(0, colon)
+    const value = element.slice(colon + 1)
+    if (value !== '' && (scope === 'o' || scope === 'ou' || scope === 'uo')) values.push(value)
+  }
+  return values
+}
+
+/** Organisation active d'un jeton de session v2 (claim `o` : `id`, `rol`, `slg`), ou null. */
+export function activeOrganizationOf(
+  claims: Readonly<Record<string, unknown>>,
+): { id: string; role: string | null; slug: string | null } | null {
+  const o = claims.o
+  if (typeof o !== 'object' || o === null || !('id' in o) || typeof o.id !== 'string') return null
+  const role = 'rol' in o && typeof o.rol === 'string' ? o.rol : null
+  const slug = 'slg' in o && typeof o.slg === 'string' ? o.slg : null
+  return { id: o.id, role, slug }
+}
+
 function isPlanFeature(value: string): value is PlanFeature {
   return (PLAN_FEATURES as readonly string[]).includes(value)
 }
@@ -106,6 +223,25 @@ export function entitlementsFromClaims(
   return {
     plan,
     features: new Set(userScopedValues(claims.fea).filter(isPlanFeature)),
+    source: 'claims',
+  }
+}
+
+/**
+ * Droits d'une organisation lus dans les claims d'un jeton vérifié, si son organisation active
+ * (`o.id`) est `clerkOrganizationId` : `pla` (ex. `o:team`) et `fea` (ex. `o:long_compile`),
+ * portée organisation. Null sinon (autre organisation active, aucun plan d'organisation).
+ */
+export function organizationEntitlementsFromClaims(
+  claims: Readonly<Record<string, unknown>>,
+  clerkOrganizationId: string,
+): Entitlements | null {
+  if (activeOrganizationOf(claims)?.id !== clerkOrganizationId) return null
+  const [plan] = organizationScopedValues(claims.pla)
+  if (plan === undefined) return null
+  return {
+    plan,
+    features: new Set(organizationScopedValues(claims.fea).filter(isPlanFeature)),
     source: 'claims',
   }
 }
@@ -177,6 +313,7 @@ interface PlanLimitDbRow {
   storage_bytes: string | number
   ai_monthly_credits: number
   image_monthly_credits: number
+  credits_per_seat: boolean
 }
 
 async function loadPlanLimits(slug: string): Promise<PlanLimitRow | null> {
@@ -194,6 +331,7 @@ async function loadPlanLimits(slug: string): Promise<PlanLimitRow | null> {
     storageBytes: Number(row.storage_bytes),
     aiMonthlyCredits: row.ai_monthly_credits,
     imageMonthlyCredits: row.image_monthly_credits,
+    creditsPerSeat: row.credits_per_seat,
   }
 }
 
@@ -251,10 +389,19 @@ export function effectiveLimits(
   entitlements: Entitlements,
   plan: PlanLimitRow,
   free: PlanLimitRow,
+  seats = 1,
 ): EffectiveLimits {
   const granted = (name: keyof typeof PLAN_LIMIT_FEATURES) =>
     entitlements.features.has(PLAN_LIMIT_FEATURES[name])
+  // Plan par siège : crédits du plan multipliés par les sièges (au moins un), avant le plancher
+  // de Free si la feature `ai` manque.
+  const perSeat = plan.creditsPerSeat === true
+  const multiplier = perSeat ? Math.max(1, seats) : 1
+  const planAi = plan.aiMonthlyCredits * multiplier
+  const planImages = plan.imageMonthlyCredits * multiplier
   return {
+    seats: Math.max(1, seats),
+    perSeat,
     entitlements,
     maxCompileSeconds: granted('compile_time')
       ? plan.maxCompileSeconds
@@ -268,12 +415,10 @@ export function effectiveLimits(
     storageBytes: granted('storage')
       ? plan.storageBytes
       : Math.min(plan.storageBytes, free.storageBytes),
-    aiCredits: granted('ai_credits')
-      ? plan.aiMonthlyCredits
-      : Math.min(plan.aiMonthlyCredits, free.aiMonthlyCredits),
+    aiCredits: granted('ai_credits') ? planAi : Math.min(planAi, free.aiMonthlyCredits),
     imageCredits: granted('image_credits')
-      ? plan.imageMonthlyCredits
-      : Math.min(plan.imageMonthlyCredits, free.imageMonthlyCredits),
+      ? planImages
+      : Math.min(planImages, free.imageMonthlyCredits),
   }
 }
 
@@ -300,6 +445,35 @@ export async function mirroredPlanSlug(
     .orderByRaw('(plan_slug = ?) ASC, updated_at DESC', [FREE_PLAN])
     .first()) as { plan_slug: string } | null
   return row?.plan_slug ?? null
+}
+
+/**
+ * Slug du plan en cours d'une organisation d'après le miroir (mêmes règles que
+ * `mirroredPlanSlug`), avec l'élément d'abonnement retenu ; null sans abonnement en cours.
+ */
+export async function mirroredOrganizationSubscription(
+  clerkOrganizationId: string,
+  client?: TransactionClientContract,
+): Promise<{ planSlug: string; status: string; periodEnd: Date | null } | null> {
+  const row = (await (client ?? db)
+    .from('subscriptions')
+    .select('plan_slug', 'status', 'period_end')
+    .where('clerk_organization_id', clerkOrganizationId)
+    .where((query) => {
+      void query.whereIn('status', [...ACCESS_STATUSES]).orWhere((canceled) => {
+        void canceled.where('status', CANCELED_STATUS).where('period_end', '>', db.raw('now()'))
+      })
+    })
+    .orderByRaw('(plan_slug = ?) ASC, updated_at DESC', [FREE_PLAN])
+    .first()) as { plan_slug: string; status: string; period_end: Date | null } | null
+  return row ? { planSlug: row.plan_slug, status: row.status, periodEnd: row.period_end } : null
+}
+
+/** Droits d'après un slug du miroir (features déduites des valeurs chiffrées). */
+async function entitlementsOfSlug(slug: string | null): Promise<Entitlements> {
+  if (slug === null) return { plan: FREE_PLAN, features: new Set(), source: 'default' }
+  const features = featuresFromLimits(await planLimitRow(slug), await planLimitRow(FREE_PLAN))
+  return { plan: slug, features, source: 'subscription' }
 }
 
 async function mirroredEntitlements(
@@ -430,7 +604,7 @@ export async function entitlementsOf(
   )
 }
 
-/** Limites effectives d'un compte (voir `entitlementsOf`). */
+/** Limites effectives d'un compte personnel (voir `entitlementsOf`). */
 export async function limitsOf(
   account: { id: string },
   requester?: User | null,
@@ -445,13 +619,92 @@ export async function limitsOf(
 }
 
 /**
+ * Droits d'une organisation : claims de portée organisation de la requête si son organisation
+ * active est celle-ci, sinon miroir des abonnements d'organisation, sinon `free`.
+ */
+export async function organizationEntitlements(
+  clerkOrganizationId: string,
+  requester?: User | null,
+  client?: TransactionClientContract,
+): Promise<Entitlements> {
+  const claims = requester ? sessionClaims.get(requester) : undefined
+  const fromClaims = claims ? organizationEntitlementsFromClaims(claims, clerkOrganizationId) : null
+  if (fromClaims) return fromClaims
+  const mirrored = await mirroredOrganizationSubscription(clerkOrganizationId, client)
+  return entitlementsOfSlug(mirrored?.planSlug ?? null)
+}
+
+/**
+ * Vrai si les droits d'une organisation viennent d'un plan payant connu de Kaxolax : autre que
+ * `free`, avec sa ligne plan_limits (un plan d'organisation par défaut de Clerk, inconnu ici,
+ * n'en est pas un).
+ */
+export async function isActiveOrganizationPlan(entitlements: Entitlements): Promise<boolean> {
+  if (entitlements.plan === FREE_PLAN) return false
+  return (await planLimitRow(entitlements.plan)).planSlug === entitlements.plan
+}
+
+/** Vrai si l'organisation a un plan actif (voir `isActiveOrganizationPlan`). */
+export async function hasActiveOrganizationPlan(
+  clerkOrganizationId: string,
+  requester?: User | null,
+  client?: TransactionClientContract,
+): Promise<boolean> {
+  return isActiveOrganizationPlan(
+    await organizationEntitlements(clerkOrganizationId, requester, client),
+  )
+}
+
+/** Membres d'un workspace d'équipe (sièges). */
+export async function workspaceSeats(
+  workspaceId: string,
+  client?: TransactionClientContract,
+): Promise<number> {
+  const row = (await (client ?? db)
+    .from('workspace_members')
+    .where('workspace_id', workspaceId)
+    .count('* as total')
+    .first()) as { total: string | number } | null
+  return Number(row?.total ?? 0)
+}
+
+/**
+ * Limites effectives d'un compte de facturation : celles du compte personnel, ou celles du plan
+ * de l'organisation pour une équipe (crédits multipliés par les sièges si le plan est par siège ;
+ * aucun crédit sans plan actif). `requester` : utilisateur de la requête (ses claims servent
+ * s'ils concernent ce compte).
+ */
+export async function limitsOfAccount(
+  account: BillingAccount,
+  requester?: User | null,
+  client?: TransactionClientContract,
+): Promise<EffectiveLimits> {
+  if (account.type === 'user') return limitsOf({ id: account.id }, requester, client)
+  const entitlements = await organizationEntitlements(
+    account.clerkOrganizationId,
+    requester,
+    client,
+  )
+  const limits = effectiveLimits(
+    entitlements,
+    await planLimitRow(entitlements.plan),
+    await planLimitRow(FREE_PLAN),
+    await workspaceSeats(account.workspaceId, client),
+  )
+  // Sans plan actif, pas de réserve mutualisée : pas de part Free par organisation créée.
+  if (await isActiveOrganizationPlan(entitlements)) return limits
+  return { ...limits, aiCredits: 0, imageCredits: 0 }
+}
+
+/**
  * Durée de conservation de l'historique d'un compte (tâche 8 : purge des versions de ses
- * projets), en jours ; null : historique complet. Les versions avec label ne sont jamais purgées.
+ * projets ; une équipe : plan de l'organisation), en jours ; null : historique complet. Les
+ * versions avec label ne sont jamais purgées.
  */
 export async function historyRetention(
-  account: { id: string },
+  account: BillingAccount,
   requester?: User | null,
 ): Promise<{ plan: string; days: number | null }> {
-  const limits = await limitsOf(account, requester)
+  const limits = await limitsOfAccount(account, requester)
   return { plan: limits.entitlements.plan, days: limits.historyRetentionDays }
 }

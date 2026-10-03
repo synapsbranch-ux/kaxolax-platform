@@ -44,6 +44,11 @@ export interface ConnectionContext {
    * soit le rôle ; ces refus ne comptent pas dans `rejectedUpdates`.
    */
   storageFull?: boolean
+  /**
+   * Origine dédiée d'une connexion directe qui applique une suggestion acceptée (`userId` : son
+   * auteur, pour l'historique) : suggestion en cours et membre qui l'a acceptée.
+   */
+  suggestion?: { id: string; decidedBy: string }
 }
 
 /** Fermeture imposée (membre retiré, compte banni ou supprimé) : code Forbidden de Hocuspocus. */

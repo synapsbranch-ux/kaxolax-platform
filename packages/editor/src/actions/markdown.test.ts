@@ -69,6 +69,13 @@ describe('markdown import action', () => {
         host: { openDialog, readOnly: true },
       }),
     ).toBe(false)
+    // Relecteur en mode Suggérer : éditeur modifiable, mais pas la permission `edit` du projet.
+    expect(
+      registry.isEnabled(MARKDOWN_IMPORT_DIALOG, {
+        view: null,
+        host: { openDialog, readOnly: false, canEditProject: false },
+      }),
+    ).toBe(false)
     expect(registry.run(MARKDOWN_IMPORT_DIALOG, { view: null, host: { openDialog } })).toBe(true)
     expect(openDialog).toHaveBeenCalledWith(MARKDOWN_IMPORT_DIALOG, { kind: 'markdown-import' })
   })

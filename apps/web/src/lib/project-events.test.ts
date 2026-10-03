@@ -7,6 +7,7 @@ import {
   historyFeed,
   parseBroadcastMessage,
   parseRealtimeMessage,
+  suggestionFeed,
 } from './project-events'
 
 const SELF = '00000000-0000-4000-8000-000000000001'
@@ -135,5 +136,27 @@ describe('realtime messages', () => {
     unsubscribe()
     historyFeed.publish(event)
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('relays suggestion events to the suggestion list', () => {
+    const created = {
+      type: 'suggestion.created' as const,
+      suggestionId: DOC,
+      documentId: DOC,
+      authorId: OTHER,
+    }
+    const decided = {
+      type: 'suggestion.decided' as const,
+      decisions: [{ suggestionId: DOC, documentId: DOC, status: 'accepted' as const }],
+      actorId: SELF,
+    }
+    expect(eventEffect(created, SELF)).toEqual({ kind: 'suggestion', event: created })
+    expect(eventEffect(decided, SELF)).toEqual({ kind: 'suggestion', event: decided })
+    const listener = vi.fn()
+    const unsubscribe = suggestionFeed.subscribe(listener)
+    suggestionFeed.publish(created)
+    unsubscribe()
+    suggestionFeed.publish(decided)
+    expect(listener).toHaveBeenCalledExactlyOnceWith(created)
   })
 })

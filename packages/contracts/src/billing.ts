@@ -13,6 +13,11 @@ const count = z.number().int().nonnegative()
 export const FREE_PLAN = 'free'
 /** Slug du plan payant (Pro) dans le Dashboard Clerk. */
 export const PRO_PLAN = 'pro'
+/**
+ * Slug du plan d'organisation (Team, par siège) dans le Dashboard Clerk. Ses crédits IA et images
+ * (`plan_limits.credits_per_seat`) sont multipliés par le nombre de membres de l'équipe.
+ */
+export const TEAM_PLAN = 'team'
 
 /**
  * Features des plans, par slug du Dashboard Clerk (claim `fea` du jeton de session). `ai` lève
@@ -29,9 +34,10 @@ export const planFeatureSchema = z.enum(PLAN_FEATURES)
 export type PlanFeature = z.infer<typeof planFeatureSchema>
 
 /**
- * Limites appliquées par l'API (chacune levée par une feature). Les crédits (`ai_credits`,
- * `image_credits`) sont ceux du plan de l'utilisateur qui lance l'action ; les autres, ceux du
- * propriétaire du projet.
+ * Limites appliquées par l'API (chacune levée par une feature). Pour un projet personnel : les
+ * crédits (`ai_credits`, `image_credits`) sont ceux du plan de l'utilisateur qui lance l'action,
+ * les autres ceux du propriétaire du projet. Pour un projet d'équipe : toutes sont celles du plan
+ * de l'organisation (stockage et crédits mutualisés).
  */
 export const planLimitNameSchema = z.enum([
   'compile_time',
@@ -64,7 +70,10 @@ export const planLimitErrorSchema = z.object({
   message: z.string(),
   limit: z.object({
     name: planLimitNameSchema,
-    /** Slug du plan Clerk dont la limite s'applique (celui du propriétaire du projet). */
+    /**
+     * Slug du plan Clerk dont la limite s'applique : celui du propriétaire du projet, ou de
+     * l'organisation pour un projet d'équipe.
+     */
     plan: z.string(),
     max: count,
   }),
@@ -108,6 +117,39 @@ export const mePlanResponseSchema = z.object({
   upgradeUrl: z.url(),
 })
 export type MePlanResponse = z.infer<typeof mePlanResponseSchema>
+
+/**
+ * `GET /api/v1/workspaces/:id/plan` (tout membre d'une équipe) : plan de l'organisation, limites
+ * mutualisées, usage du workspace et crédits du mois (multipliés par les sièges pour un plan par
+ * siège). `source` comme `mePlanResponseSchema` (claims de l'organisation active, miroir des
+ * webhooks d'abonnement d'organisation, ou plan par défaut).
+ */
+export const workspacePlanResponseSchema = z.object({
+  workspaceId: z.uuid(),
+  plan: z.string(),
+  /**
+   * Plan payant actif : sans lui, aucun projet ne peut entrer dans l'équipe (403
+   * `E_TEAM_PLAN_REQUIRED`) et la réserve de crédits est vide (l'IA est imputée à l'auteur).
+   */
+  active: z.boolean(),
+  source: z.enum(['claims', 'subscription', 'default']),
+  features: z.array(planFeatureSchema),
+  limits: planLimitsSchema,
+  /** Membres de l'équipe (sièges facturés par Clerk pour un plan par siège). */
+  seats: count,
+  /** Crédits du plan multipliés par les sièges. */
+  perSeat: z.boolean(),
+  usage: z.object({ storageBytes: count }),
+  credits: aiCreditsSchema,
+  subscription: z
+    .object({
+      status: z.string(),
+      periodEnd: z.iso.datetime().nullable(),
+    })
+    .nullable(),
+  upgradeUrl: z.url(),
+})
+export type WorkspacePlanResponse = z.infer<typeof workspacePlanResponseSchema>
 
 /**
  * Message sans état (stateless Hocuspocus) du service temps réel quand le stockage du propriétaire

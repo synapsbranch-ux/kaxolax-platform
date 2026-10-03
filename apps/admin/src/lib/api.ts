@@ -1,4 +1,8 @@
 import {
+  type AdminOrganizationResponse,
+  adminOrganizationResponseSchema,
+  type AdminOrganizationsResponse,
+  adminOrganizationsResponseSchema,
   type AdminAuditAction,
   type AdminAuditLogResponse,
   adminAuditLogResponseSchema,
@@ -129,6 +133,19 @@ export const adminApi = {
     request('POST', `/admin/users/${id}/revoke-sessions`, adminRevokeSessionsResponseSchema),
   deleteUser: (id: string): Promise<AdminUserActionResponse> =>
     request('DELETE', `/admin/users/${id}`, adminUserActionResponseSchema),
+
+  organizations: (q: string, page: number): Promise<AdminOrganizationsResponse> =>
+    request(
+      'GET',
+      `/admin/organizations${query({ q: q.trim(), page })}`,
+      adminOrganizationsResponseSchema,
+    ),
+  organization: (clerkOrganizationId: string): Promise<AdminOrganizationResponse> =>
+    request(
+      'GET',
+      `/admin/organizations/${encodeURIComponent(clerkOrganizationId)}`,
+      adminOrganizationResponseSchema,
+    ),
 
   projects: (q: string, view: AdminProjectView, page: number): Promise<AdminProjectsResponse> =>
     request(

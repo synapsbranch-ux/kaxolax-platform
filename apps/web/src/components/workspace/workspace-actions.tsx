@@ -4,6 +4,7 @@ import {
   type ActionContext,
   type ActionHost,
   type ActionRegistry,
+  canEdit as canEditContext,
   createDefaultRegistry,
   hasEditor,
   MARKDOWN_IMPORT_DIALOG,
@@ -22,7 +23,9 @@ import {
 } from 'react'
 import { NameDialog } from '@/components/name-dialog'
 import { useSettings } from '@/components/preferences/settings-provider'
+import { actionsReadOnly, type EditMode } from '@/lib/suggestions'
 import type { WordCountPayload } from '@/lib/word-count'
+import { ZOTERO_DIALOGS } from '@/lib/zotero'
 import { ACTION_DIALOGS, WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle } from './editor/code-editor'
 import { useFileActions } from './file-actions'
@@ -58,11 +61,12 @@ interface PendingPrompt {
 
 /**
  * Fournit le registre d'actions (actions de base de @kaxolax/editor) et les callbacks de
- * l'application : création et upload de fichiers (désactivés en lecture seule), compilation, zip,
+ * l'application : création et upload de fichiers (désactivés sans droit d'édition), compilation, zip,
  * recherche dans le projet, saisie d'un texte, boîtes de dialogue des outils et messages.
  */
 export function WorkspaceActionsProvider({
   canEdit,
+  editMode,
   compile,
   downloadZip,
   searchProject,
@@ -72,6 +76,12 @@ export function WorkspaceActionsProvider({
   children,
 }: {
   canEdit: boolean
+  /**
+   * Mode effectif de l'éditeur (`useEditMode`) : en Suggérer, les actions qui modifient le texte
+   * restent disponibles même sans droit d'édition (relecteur), leurs modifications devenant des
+   * suggestions. Fichiers et dossiers restent réservés à `canEdit`.
+   */
+  editMode: EditMode | null
   compile: () => void
   downloadZip: () => void
   searchProject: (query: string) => void
@@ -91,7 +101,8 @@ export function WorkspaceActionsProvider({
   const { openSettings } = useSettings()
 
   // Outils de l'application (tâche 10) : compteur de mots et paramètres (menu Fichier),
-  // suggestions du correcteur pour le mot sous le curseur (menu Remplacer, F7).
+  // suggestions du correcteur pour le mot sous le curseur (menu Remplacer, F7) ; Zotero (étape 3,
+  // tâche 9) : panneau du lien (menu Fichier) et sélecteur de citations (menu Structures).
   useEffect(
     () =>
       registry.register([
@@ -120,6 +131,30 @@ export function WorkspaceActionsProvider({
           },
         },
         {
+          id: ZOTERO_DIALOGS.panel,
+          label: 'Zotero : bibliothèque liée',
+          menu: 'file',
+          group: 'integrations',
+          icon: 'library',
+          when: (context) => context.host.openDialog !== undefined,
+          run: (context) => {
+            context.host.openDialog?.(ZOTERO_DIALOGS.panel)
+            return true
+          },
+        },
+        {
+          id: ZOTERO_DIALOGS.cite,
+          label: 'Insérer une citation Zotero',
+          menu: 'structures',
+          group: 'references',
+          icon: 'book-marked',
+          when: (context) => canEditContext(context) && context.host.openDialog !== undefined,
+          run: (context) => {
+            context.host.openDialog?.(ZOTERO_DIALOGS.cite)
+            return true
+          },
+        },
+        {
           id: 'replace.spelling',
           label: 'Corriger l’orthographe du mot',
           menu: 'replace',
@@ -135,7 +170,8 @@ export function WorkspaceActionsProvider({
 
   const host = useMemo<ActionHost>(
     () => ({
-      readOnly: !canEdit,
+      readOnly: actionsReadOnly(canEdit, editMode),
+      canEditProject: canEdit,
       compile,
       downloadZip,
       searchProject,
@@ -163,7 +199,7 @@ export function WorkspaceActionsProvider({
           }
         : {}),
     }),
-    [canEdit, compile, downloadZip, searchProject, notify, files, editor],
+    [canEdit, editMode, compile, downloadZip, searchProject, notify, files, editor],
   )
   const context = useMemo(() => contextGetter(editor, host), [editor, host])
 

@@ -73,12 +73,17 @@ async function activeUsers(since: Date, until: Date): Promise<number> {
   return row?.count ?? 0
 }
 
-/** Abonnements à l'instant, par plan : comptes distincts actifs ou en retard de paiement. */
+/**
+ * Abonnements à l'instant, par plan : payeurs distincts (comptes, ou organisations pour un plan
+ * d'équipe) actifs ou en retard de paiement.
+ */
 async function subscriptionsByPlan() {
   return rows<{ plan_slug: string; active: number; past_due: number }>(
     `SELECT plan_slug,
-            COUNT(DISTINCT user_id) FILTER (WHERE status = 'active')::int AS active,
-            COUNT(DISTINCT user_id) FILTER (WHERE status = 'past_due')::int AS past_due
+            COUNT(DISTINCT COALESCE(user_id::text, clerk_organization_id))
+              FILTER (WHERE status = 'active')::int AS active,
+            COUNT(DISTINCT COALESCE(user_id::text, clerk_organization_id))
+              FILTER (WHERE status = 'past_due')::int AS past_due
      FROM subscriptions
      WHERE status IN ('active', 'past_due')
      GROUP BY plan_slug

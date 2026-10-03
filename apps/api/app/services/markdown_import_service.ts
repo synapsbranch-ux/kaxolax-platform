@@ -36,7 +36,7 @@ import { reserveCompiler } from '#services/compiler_quota'
 import { cleanupLatex, latexProblem } from '#services/markdown_cleanup'
 import type ObjectStorage from '#services/object_storage'
 import { fileKey } from '#services/object_storage'
-import { assertStorageAvailable } from '#services/plan_enforcement'
+import { assertProjectStorageAvailable } from '#services/plan_enforcement'
 import { projectFor } from '#services/project_access'
 import { type ProjectContent, projectContent } from '#services/project_content'
 import type RealtimeClient from '#services/realtime_client'
@@ -529,7 +529,7 @@ async function writeImport(
           (total, entry) => total + (entry.existing === null ? entry.item.content.byteLength : 0),
           0,
         )
-      await assertStorageAvailable(project.ownerId, newBytes, { requester: user, trx })
+      await assertProjectStorageAvailable(project, newBytes, { requester: user, trx })
       const changes: TreeChange[] = []
       const media: ImportedMedia[] = []
       const usedKeys: string[] = []
