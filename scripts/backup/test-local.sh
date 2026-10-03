@@ -8,7 +8,16 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 image=kaxolax-pg-backup:test
-docker build -q -f scripts/backup/Dockerfile -t "$image" . >/dev/null
+dockerfile=scripts/backup/Dockerfile
+# Empreintes des binaires de chaque architecture (étapes downloads-<arch>) : rien n'est exécuté,
+# aucune émulation n'est nécessaire.
+sed -n 's/^FROM scratch AS downloads-\([a-z0-9]*\)$/\1/p' "$dockerfile" | while read -r arch; do
+  docker build -q --platform "linux/$arch" --target "downloads-$arch" --output type=cacheonly \
+    -f "$dockerfile" . >/dev/null
+done
+# Image testée : celle de la plateforme locale (binaires de son architecture).
+docker build -q --platform "linux/$(docker version --format '{{.Server.Arch}}')" \
+  -f "$dockerfile" -t "$image" . >/dev/null
 
 admin_url=postgres://kaxolax:kaxolax@127.0.0.1:5432/postgres
 source_db="kaxolax_backup_selftest_$$"

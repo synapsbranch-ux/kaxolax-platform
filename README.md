@@ -128,7 +128,7 @@ packages/
 deploy/railway/  configuration des services Railway (config as code)
 docs/          décisions d'architecture (decisions.md), déploiement (deploy.md)
 docker/        configuration des services locaux, Dockerfile des services
-scripts/       outils de développement ; backup/ : sauvegardes PostgreSQL vers R2
+scripts/       outils de développement ; backup/ : sauvegardes PostgreSQL vers R2 ; ci/ : tests des images
 ```
 
 ## Image TeX Live
@@ -148,7 +148,8 @@ Guide pas à pas : [docs/deploy.md](docs/deploy.md). En résumé :
 - **Railway** : web, admin, api, realtime, PostgreSQL, Redis et le job cron de sauvegarde ; un
   fichier par service dans `deploy/railway/` (Dockerfile, healthcheck, migrations avant
   déploiement, réplicas). `docker/Dockerfile` choisit son étape finale avec `KAXOLAX_SERVICE`
-  (Railway) ou `--target web|api|realtime|compile-gateway|compile-agent` (CI, local).
+  (Railway et CI, voir `images.yml`) ou `--target <service>` (local ; compile-gateway et
+  compile-agent en CI).
 - **Cloudflare** : DNS, CDN, WAF, R2 (SDK S3 existant, `S3_REGION=auto`), Worker de compilation
   `apps/compile-worker` avec un conteneur par projet (`pnpm --filter @kaxolax/compile-worker deploy`).
 - **Compilation** : `COMPILE_BACKEND=gateway` (défaut local et CI : synchrone, compile-gateway et
@@ -158,6 +159,55 @@ Guide pas à pas : [docs/deploy.md](docs/deploy.md). En résumé :
 - L'infrastructure as code (Terraform Cloudflare, provisionnement Railway) est dans
   `kaxolax-infra`. `.github/workflows/images.yml` construit et vérifie les images (amd64) sans
   rien pousser ni déployer.
+
+## Intégration continue
+
+`.github/workflows/ci.yml`, à chaque push sur `main` et chaque PR :
+
+- `checks` : format, lint, typecheck, tests (pile docker compose) et build ;
+- `local-stack` : pile docker compose complète, puis `pnpm stack:check` ;
+- `backup` : shellcheck, empreintes des binaires de chaque architecture, sauvegarde, rétention et
+  restauration sur la pile locale (`scripts/backup/test-local.sh`) ;
+- `integration` : agent de compilation sous runc puis gVisor avec l'image TeX Live publiée, puis
+  parcours Playwright sur `pnpm dev` (API, temps réel, web, admin, agent et gateway attendus) ;
+- `secrets` (gitleaks, tout l'historique), `ci-lint` (actionlint pour les workflows, hadolint pour
+  les Dockerfiles) et `commits` (commitlint, PR).
+
+`.github/workflows/images.yml`, à chaque push sur `main` et pour les PR qui touchent le code, les
+Dockerfiles ou leur configuration, sans rien pousser ni déployer :
+
+- `services` : `docker/Dockerfile` construit comme sur Railway (étape finale `service`,
+  `--build-arg KAXOLAX_SERVICE=<service>`, sans `--target`) pour web, admin, api et realtime, plus
+  les cibles compile-gateway et compile-agent ; chaque image démarre avec la commande, les
+  migrations et la sonde de santé de `deploy/railway/<service>.json`
+  (`scripts/ci/service-smoke-test.mjs`) ;
+- `compile-container` : conteneur de compilation Cloudflare sur l'image TeX Live publiée, piloté
+  par son API HTTP comme le Worker : compilation réelle (PDF, SyncTeX), `\input` hors du projet
+  refusé et suite malveillante (`scripts/ci/container-compile-test.mjs`).
+
+Les actions sont épinglées par SHA de commit et les images d'outillage (gitleaks, shellcheck,
+hadolint, actionlint) par empreinte, le tag en commentaire. Le test du conteneur de compilation
+se lance aussi en local, sur n'importe quelle image TeX Live de base :
+
+```bash
+docker build --platform linux/amd64 -f apps/compile-worker/container/Dockerfile \
+  --build-arg TEXLIVE_IMAGE=kaxolax-texlive:2026-medium -t kaxolax/compile-container:local .
+node scripts/ci/container-compile-test.mjs --image kaxolax/compile-container:local
+# Image de base sans /usr/share/kaxolax/malicious : --cases <kaxolax-texlive-images>/tests/malicious
+```
+
+La base doit être l'image durcie de `kaxolax-texlive-images` : une image sans son étape de
+durcissement (`chmod 0600 /etc/passwd /etc/group`) donne quatre fausses fuites.
+
+**Échec connu de `compile-container`** (le job reste rouge jusqu'à ces deux changements, hors des
+workflows ; avec eux, essayés en local, la suite passe entièrement) :
+
+- `apps/compile-worker/container/Dockerfile` lance Node en PID 1, qui ne réclame pas les orphelins
+  d'une compilation tuée : ils restent zombies et comptent dans `RLIMIT_NPROC` tant que la VM vit.
+  Le test l'exige (vérification 1 et vérification finale) ; correction attendue :
+  `ENTRYPOINT ["tini", "--"]` (ou un autre init qui réclame les orphelins) ;
+- l'image TeX Live publiée sur GHCR n'a pas encore l'étape de durcissement : republication en
+  attente.
 
 ## Conventions
 

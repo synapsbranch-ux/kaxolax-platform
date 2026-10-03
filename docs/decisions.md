@@ -707,3 +707,29 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Import zip et projet depuis un template passent tous deux par `createProjectFromZip` : contenu attribué à la personne qui crée le projet dans le journal de l'historique (`recordInitialStates`) et compté dans son stockage (`assertStorageAvailable`).
 - Restauration d'une version : stockage du propriétaire vérifié pour ce qu'elle ajoute (textes plus longs avant tout remplacement ; documents et binaires recréés mesurés dans la transaction, option `applied` de `assertStorageAvailable`) ; une restauration qui libère de la place passe toujours. `tree.changed` publié après la validation.
 - Temps réel : journal des mises à jour par auteur et garde du stockage côte à côte ; une connexion en lecture seule (stockage plein) ne produit aucune mise à jour à journaliser, le document meta reste en lecture seule.
+
+## 2026-10-03 · CI : images de service construites et démarrées comme sur Railway
+
+- `images.yml` construit web, admin, api et realtime sans `--target`, avec `--build-arg KAXOLAX_SERVICE=<service>` : l'étape finale `service` est celle que Railway construit. compile-gateway et compile-agent (hors Railway) restent des cibles, avec le même argument.
+- `scripts/ci/service-smoke-test.mjs` démarre chaque image avec `startCommand`, `preDeployCommand` (migrations de l'API) et la sonde `healthcheckPath` de `deploy/railway/<service>.json`, seule source de ces valeurs ; `PORT=8080` injecté comme Railway, `NODE_ENV=production`, secrets tirés au hasard, base PostgreSQL temporaire sur la pile docker compose ; aucun processus root, sauf l'agent de compilation (socket Docker).
+- Scripts de CI en Node sans dépendance (ni jq ni paquet npm), annotés `// @ts-check` comme `scripts/check-local-stack.mjs`.
+- Filtres des PR complétés : `turbo.json`, `package.json`, `pnpm-workspace.yaml`, `.dockerignore`, `.nvmrc`, `deploy/railway/**`, `scripts/ci/**`, `docker-compose.yml` (pile du test des services).
+
+## 2026-10-03 · CI : conteneur de compilation Cloudflare testé par son API
+
+- `scripts/ci/container-compile-test.mjs` lance l'image sur un réseau Docker interne (pas d'Internet, comme `enableInternet = false`) ; l'hôte l'atteint par un relais TCP lancé depuis la même image, un réseau interne étant fermé à l'hôte.
+- Protocole du Worker : jeton interne (401 sans lui), `/blobs/missing` puis `PUT /blobs/:sha256` (binaire corrompu refusé), compilation, sorties relues par `/outputs/*` (taille vérifiée) puis supprimées, SyncTeX dans les deux sens et restauré après `clear-cache`, comptage de mots, cache des binaires.
+- `\input` hors du projet (fichier réservé à root par chemin absolu et relatif, `/proc/1/environ` qui contient le jeton) : échec sans fuite. Suite malveillante de kaxolax-texlive-images avec les attentes de `malicious.test.ts` ; l'« hôte » est la VM (fichier témoin réservé à root) et le jeton interne ne doit apparaître dans aucune sortie. `outputContains` (sortie de latexmk) n'est pas exposé par l'API : ignoré, comme dans l'agent.
+- Image de base paramétrable (`--build-arg TEXLIVE_IMAGE`), cas lus dans l'image ou passés par `--cases` : en local, base `kaxolax-texlive:2026-medium` construite par kaxolax-texlive-images (ou tirée de GHCR). Une image d'émulation (`kaxolax-texlive-emul:2026-medium`) n'a pas l'étape de durcissement : sans `chmod 0600 /etc/passwd /etc/group` (`openin_any` n'a plus d'effet depuis TeX Live 2026), quatre cas donnent de fausses fuites.
+- Aucun processus de l'UID du sandbox ne doit rester, zombies compris : PID 1 doit réclamer les orphelins d'une compilation tuée (sinon ils comptent dans RLIMIT_NPROC tant que la VM vit). Le test exige un init en PID 1 (tini, docker-init, dumb-init, catatonit) et l'agent pour fils direct ; la cible `/proc/<pid>/environ` est celle du processus de l'agent.
+- Échec connu : `apps/compile-worker/container/Dockerfile` lance Node en PID 1 (défaut réel, pas seulement du test) et l'image TeX Live publiée n'est pas encore durcie (republication en attente) ; le job `compile-container` reste rouge jusqu'à `ENTRYPOINT ["tini", "--"]` dans ce Dockerfile (hors de la tâche CI) et la republication. Essayé en local avec les deux : suite entière verte.
+- Cas malveillants `command` (hors API de compilation) signalés `# SKIP`, jamais comptés comme réussis ; un cas exigé au format `command` fait échouer la suite.
+- Recherche de fuites : seules les ressources envoyées et intactes sont exclues ; tout fichier écrit par la compilation est inspecté, `.tex` compris (plus strict que `malicious.test.ts`, qui exclut tous les `.tex`).
+
+## 2026-10-03 · CI : outillage épinglé, sauvegardes multi-architecture
+
+- Images d'outillage épinglées par l'empreinte de leur index multi-architecture, tag en commentaire : gitleaks v8.30.1, shellcheck v0.11.0 (au lieu du binaire du runner), hadolint v2.14.0 et actionlint 1.7.12 dans un nouveau job `ci-lint` (workflows et Dockerfiles : GitHub n'est pas joignable pour les essayer avant).
+- `scripts/backup/Dockerfile` : une étape `downloads-<arch>` par architecture (amd64, arm64), choisie par `TARGETARCH` à travers `ARG DOWNLOADS_STAGE` (hadolint refuse `FROM downloads-${TARGETARCH}`) ; l'empreinte de l'image PostgreSQL est bien celle de son index multi-architecture.
+- Empreintes arm64 : rclone vérifiée contre `SHA256SUMS` de la release ; age ne publie pas de sommes (preuves Sigsum seulement) : empreinte du fichier de la release GitHub.
+- `test-local.sh` vérifie les téléchargements de chaque architecture sans émulation (`--target downloads-<arch>`, sortie `cacheonly`), puis construit et teste l'image de la plateforme locale.
+- Boucle de santé du parcours e2e : l'admin (`:3001/healthz`) et le gateway (`/health` avec le jeton de développement, agent disponible) sont aussi attendus.

@@ -1,9 +1,13 @@
 name: images
 
-# Images Docker des services (docker/Dockerfile) : construites et testées (smoke test) pour
-# vérifier le Dockerfile, en linux/amd64 comme Railway, qui les construit lui-même au
-# déploiement. Rien n'est poussé ni déployé d'ici (décisions C.1 et C.2 : pas de staging,
-# plus d'AWS). Le conteneur de compilation Cloudflare est vérifié de la même façon.
+# Images Docker, construites et testées en linux/amd64 sans rien pousser ni déployer :
+# - services : docker/Dockerfile construit comme Railway le construit (sans --target, étape finale
+#   `service` choisie par KAXOLAX_SERVICE) pour web, admin, api et realtime, plus les cibles
+#   compile-gateway et compile-agent ; chaque image démarre avec la commande et la sonde de santé
+#   de deploy/railway/<service>.json (scripts/ci/service-smoke-test.mjs) ;
+# - conteneur de compilation Cloudflare : construit sur l'image TeX Live publiée, puis compilation
+#   réelle, \input hors du projet et suite malveillante par son API HTTP
+#   (scripts/ci/container-compile-test.mjs). L'image déployée est construite par `wrangler deploy`.
 
 on:
   push:
@@ -14,7 +18,15 @@ on:
       - apps/**
       - packages/**
       - functions/**
+      - deploy/railway/**
+      - docker-compose.yml
+      - scripts/ci/**
+      - package.json
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - turbo.json
+      - .dockerignore
+      - .nvmrc
       - .github/workflows/images.yml
 
 permissions:
@@ -25,47 +37,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: build (amd64)
+  services:
+    name: service images (amd64, Railway build and start)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       DOCKER_BUILDKIT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
 
-      - name: Build
+      # Railway ne passe pas de --target : l'étape finale `service` reprend KAXOLAX_SERVICE.
+      - name: Build (Railway services)
         run: |
-          for target in web api realtime compile-gateway compile-agent; do
+          for svc in web admin api realtime; do
+            docker build --platform linux/amd64 -f docker/Dockerfile \
+              --build-arg KAXOLAX_SERVICE="$svc" -t "kaxolax/$svc:${GITHUB_SHA}" .
+          done
+      - name: Build (compile-gateway, compile-agent)
+        run: |
+          for target in compile-gateway compile-agent; do
             docker build --platform linux/amd64 -f docker/Dockerfile --target "$target" \
-              -t "kaxolax/$target:${GITHUB_SHA}" .
+              --build-arg KAXOLAX_SERVICE="$target" -t "kaxolax/$target:${GITHUB_SHA}" .
           done
           docker images 'kaxolax/*'
 
-      - name: Smoke test
-        run: |
-          docker run --rm "kaxolax/web:${GITHUB_SHA}" node -e "require('fs').accessSync('apps/web/server.js')"
-          docker run --rm "kaxolax/api:${GITHUB_SHA}" node -e "require('fs').accessSync('build/bin/server.js')"
-          for target in realtime compile-gateway compile-agent; do
-            docker run --rm "kaxolax/$target:${GITHUB_SHA}" node -e "require('fs').accessSync('dist/main.js')"
-          done
+      - run: docker compose up -d --wait postgres redis s3 s3-init
+      - name: Smoke test (start command and health check of each image)
+        run: >-
+          node scripts/ci/service-smoke-test.mjs --tag "$GITHUB_SHA"
+          web admin api realtime compile-gateway compile-agent
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v
 
-  # Conteneur de compilation Cloudflare (linux/amd64, imposé par Cloudflare Containers) : construit
-  # pour vérifier le Dockerfile ; l'image publiée est construite et poussée par `wrangler deploy`.
-  # Production (Railway) : Railway construit lui-même web, api et realtime depuis docker/Dockerfile.
+  # Conteneur de compilation Cloudflare (linux/amd64, imposé par Cloudflare Containers) sur l'image
+  # TeX Live publiée par kaxolax-texlive-images (argument TEXLIVE_IMAGE du Dockerfile).
+  # ÉCHEC CONNU tant que deux changements hors de ce workflow ne sont pas faits :
+  # - apps/compile-worker/container/Dockerfile lance Node en PID 1 (CMD sans init) : il ne réclame
+  #   pas les orphelins d'une compilation tuée, zombies comptés dans RLIMIT_NPROC tant que la VM
+  #   vit. Vérifications 1 (init en PID 1) et finale (aucun zombie) en échec ; correction attendue :
+  #   init en ENTRYPOINT (tini --), avec la tâche propriétaire du Dockerfile ;
+  # - l'image ghcr.io/…/kaxolax-texlive:2026-medium publiée n'a pas encore l'étape de durcissement
+  #   (chmod 0600 /etc/passwd /etc/group ; republication en attente, tâche 0b point 11) : quatre
+  #   cas malveillants donnent de fausses fuites jusque-là.
+  # Avec ces deux changements (essayés en local hors dépôt), la suite passe entièrement.
   compile-container:
-    name: build compile container (amd64)
+    name: compile container (amd64, real compiles and malicious suite)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       DOCKER_BUILDKIT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
       - name: Build
         run: >-
           docker build --platform linux/amd64 -f apps/compile-worker/container/Dockerfile
-          -t kaxolax/compile-container:${{ github.sha }} .
-      - name: Smoke test
-        run: >-
-          docker run --rm --entrypoint node kaxolax/compile-container:${{ github.sha }}
-          -e "require('fs').accessSync('/opt/kaxolax/agent/dist/container-main.js')"
+          -t "kaxolax/compile-container:${GITHUB_SHA}" .
+      - name: Real compiles, \input outside the project and malicious suite
+        run: node scripts/ci/container-compile-test.mjs --image "kaxolax/compile-container:${GITHUB_SHA}"

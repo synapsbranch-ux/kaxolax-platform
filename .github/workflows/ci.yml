@@ -49,15 +49,18 @@ jobs:
       - if: always()
         run: docker compose down -v
 
-  # Sauvegardes PostgreSQL : image du job cron, sauvegarde chiffrée, rétention et test de
-  # restauration sur la pile locale (S3 SeaweedFS à la place de R2).
+  # Sauvegardes PostgreSQL : image du job cron (plateforme du runner), sauvegarde chiffrée,
+  # rétention et test de restauration sur la pile locale (S3 SeaweedFS à la place de R2) ;
+  # test-local.sh vérifie aussi les empreintes des binaires de chaque architecture (amd64, arm64).
   backup:
     name: postgres backup and restore test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      SHELLCHECK_IMAGE: koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d # v0.11.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: shellcheck -x scripts/backup/*.sh
+      - run: docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE" -x scripts/backup/*.sh
       - run: docker compose up -d --wait postgres s3 s3-init
       - run: scripts/backup/test-local.sh
       - if: always()
@@ -131,14 +134,20 @@ jobs:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_JWT_KEY: ${{ secrets.CLERK_JWT_KEY }}
+        # API, temps réel, web, admin, agent (401 sans jeton : il répond) et gateway, qui doit voir
+        # l'agent disponible (jeton interne de développement, lu dans son .env.example).
         run: |
           pnpm --filter @kaxolax/api migrate
           nohup pnpm dev > "$RUNNER_TEMP/dev.log" 2>&1 &
+          token="$(sed -n 's/^INTERNAL_TOKEN=//p' apps/compile-gateway/.env.example)"
           for _ in $(seq 1 90); do
             if curl -fs -o /dev/null http://localhost:3333/api/v1/health &&
               curl -fs -o /dev/null http://localhost:1234/health &&
               curl -fs -o /dev/null http://localhost:3000/healthz &&
-              curl -s -o /dev/null http://localhost:3200/health; then
+              curl -fs -o /dev/null http://localhost:3001/healthz &&
+              curl -s -o /dev/null http://localhost:3200/health &&
+              curl -fs -H "x-internal-token: $token" http://localhost:3100/health |
+              grep -q '"available":true'; then
               exit 0
             fi
             sleep 2
@@ -158,13 +167,30 @@ jobs:
     name: gitleaks (full history)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      GITLEAKS_IMAGE: zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f # v8.30.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: >-
-          docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.30.1
+          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS_IMAGE"
           git /repo --redact --verbose --exit-code 1
+
+  # Workflows (actionlint, qui passe aussi shellcheck sur les blocs `run`) et Dockerfiles (hadolint).
+  ci-lint:
+    name: workflows and Dockerfiles (actionlint, hadolint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_IMAGE: rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+      HADOLINT_IMAGE: hadolint/hadolint@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e # v2.14.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$ACTIONLINT_IMAGE" -color
+      - run: >-
+          git ls-files -z -- '*Dockerfile' |
+          xargs -0 docker run --rm -v "$PWD:/repo:ro" -w /repo "$HADOLINT_IMAGE" hadolint
 
   commits:
     name: conventional commits
