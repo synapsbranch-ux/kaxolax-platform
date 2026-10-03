@@ -1,7 +1,9 @@
 import * as Y from 'yjs'
 import { describe, expect, it } from 'vitest'
 import {
+  appendTextBlock,
   type AttributedUpdate,
+  blockAppendix,
   createDocumentState,
   minimalReplacement,
   readDocumentText,
@@ -184,5 +186,35 @@ describe('minimal replacement', () => {
     Y.applyUpdate(doc, update)
     expect(doc.getText(TEXT_FIELD).toJSON()).toBe('Bonjour à tous')
     expect(replaceStateText(next, 'Bonjour à tous').update).toBeNull()
+  })
+})
+
+describe('block append', () => {
+  it('separates the block from the text with a blank line, once', () => {
+    expect(blockAppendix('', '@a{x,}')).toBe('@a{x,}\n')
+    expect(blockAppendix('@a{x,}', ' @b{y,} \n')).toBe('\n\n@b{y,}\n')
+    expect(blockAppendix('@a{x,}\n', '@b{y,}')).toBe('\n@b{y,}\n')
+    expect(blockAppendix('@a{x,}\n\n', '@b{y,}')).toBe('@b{y,}\n')
+    expect(blockAppendix('@a{x,}\n\n@b{y,}\n', '@b{y,}')).toBeNull()
+    expect(blockAppendix('texte', '  ')).toBeNull()
+  })
+
+  it('keeps a concurrent edit made elsewhere in the document', () => {
+    const base = createDocumentState('% en-tête\n@a{x,}\n')
+    const server = new Y.Doc()
+    const client = new Y.Doc()
+    Y.applyUpdate(server, base)
+    Y.applyUpdate(client, base)
+    // Frappe d'un client au début, pas encore reçue par le serveur quand il ajoute le bloc.
+    client.getText(TEXT_FIELD).insert(0, '% note\n')
+    server.transact(() => {
+      expect(appendTextBlock(server.getText(TEXT_FIELD), '@b{y,}')).toBe(true)
+    })
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server))
+    const expected = '% note\n% en-tête\n@a{x,}\n\n@b{y,}\n'
+    expect(server.getText(TEXT_FIELD).toJSON()).toBe(expected)
+    expect(client.getText(TEXT_FIELD).toJSON()).toBe(expected)
+    expect(appendTextBlock(server.getText(TEXT_FIELD), '@b{y,}')).toBe(false)
   })
 })

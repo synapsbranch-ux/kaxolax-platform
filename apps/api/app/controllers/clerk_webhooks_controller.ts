@@ -22,6 +22,8 @@ import { announceAutoJoins, announceDepartures } from '#services/project_events'
 import { type DeletedProject, releaseDeletedProject } from '#services/project_service'
 import type { JoinedProject } from '#services/sharing_service'
 import RealtimeClient from '#services/realtime_client'
+import ZoteroClient from '#services/zotero/client'
+import { revokeZoteroKeys } from '#services/zotero/connection'
 
 const SIGNATURE_HEADERS = ['svix-id', 'svix-timestamp', 'svix-signature'] as const
 
@@ -34,9 +36,17 @@ interface WebhookEffects {
   joined: { userId: string; projects: JoinedProject[] } | null
   /** Projets partagés quittés par un compte supprimé, à annoncer. */
   left: { userId: string; projectIds: string[] } | null
+  /** Clés Zotero d'un compte supprimé, à révoquer chez Zotero (au mieux). */
+  zoteroKeys: string[]
 }
 
-const NO_EFFECTS: WebhookEffects = { deleted: [], disconnectUserId: null, joined: null, left: null }
+const NO_EFFECTS: WebhookEffects = {
+  deleted: [],
+  disconnectUserId: null,
+  joined: null,
+  left: null,
+  zoteroKeys: [],
+}
 
 /**
  * Webhooks Clerk (user.created, user.updated, user.deleted, et Billing : subscription.*,
@@ -54,6 +64,7 @@ export default class ClerkWebhooksController {
     private readonly realtime: RealtimeClient,
     private readonly storage: ObjectStorage,
     private readonly outputs: CompileOutputStorage,
+    private readonly zotero: ZoteroClient,
   ) {}
 
   async handle({ request, response }: HttpContext) {
@@ -107,13 +118,17 @@ export default class ClerkWebhooksController {
         }
       }
       if (event.type === 'user.deleted' && typeof event.data.id === 'string') {
-        const { userId, deleted, leftProjectIds } = await deleteClerkUser(event.data.id, trx)
+        const { userId, deleted, leftProjectIds, zoteroKeys } = await deleteClerkUser(
+          event.data.id,
+          trx,
+        )
         if (userId === null) return NO_EFFECTS
         return {
           ...NO_EFFECTS,
           deleted,
           disconnectUserId: userId,
           left: { userId, projectIds: leftProjectIds },
+          zoteroKeys,
         }
       }
       if (isBillingEvent(event.type)) {
@@ -137,6 +152,7 @@ export default class ClerkWebhooksController {
     }
     if (effects.left) {
       await announceDepartures(this.realtime, effects.left.userId, effects.left.projectIds, null)
+      await revokeZoteroKeys(this.zotero, effects.zoteroKeys, { userId: effects.left.userId })
     }
     if (!(await deliverBillingMails(eventId))) {
       response.serviceUnavailable({

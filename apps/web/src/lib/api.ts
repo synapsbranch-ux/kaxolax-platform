@@ -189,6 +189,14 @@ async function freshToken(): Promise<string | null> {
   return token
 }
 
+/**
+ * Appel de l'API REST (même origine, jeton de session Clerk) ; corps JSON renvoyé tel quel.
+ * Exporté pour les modules d'API par domaine (`lib/zotero.ts`).
+ */
+export async function apiRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return request<T>(method, path, body)
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' }
   if (body !== undefined) headers['content-type'] = 'application/json'

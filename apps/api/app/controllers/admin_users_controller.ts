@@ -15,6 +15,7 @@ import {
 import ClerkBackend from '#services/clerk_backend'
 import ObjectStorage, { CompileOutputStorage } from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
+import ZoteroClient from '#services/zotero/client'
 import { adminUsersQueryValidator } from '#validators/admin'
 
 /** Admin : comptes (recherche, fiche, bannissement, sessions, suppression via Clerk). */
@@ -27,8 +28,9 @@ export default class AdminUsersController {
     realtime: RealtimeClient,
     storage: ObjectStorage,
     outputs: CompileOutputStorage,
+    zotero: ZoteroClient,
   ) {
-    this.deps = { clerk, realtime, storage, outputs }
+    this.deps = { clerk, realtime, storage, outputs, zotero }
   }
 
   async index({ request }: HttpContext) {

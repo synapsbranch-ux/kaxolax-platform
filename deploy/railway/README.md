@@ -76,6 +76,7 @@ Clerk et SMTP fournis par l'opérateur.
 | `HISTORY_RETRY_SECONDS`                                                   | facultative : délai avant un nouvel essai de version automatique en échec (défaut 600)                                 |
 | `HISTORY_PURGE_SECONDS`                                                   | facultative : purge des versions expirées selon le plan, en secondes (défaut 3600 ; 0 désactive)                       |
 | `ANTHROPIC_API_KEY`                                                       | facultative, secret : clé de la Console Anthropic (API keys) (¶)                                                       |
+| `ZOTERO_CLIENT_KEY`, `ZOTERO_CLIENT_SECRET`                               | facultatives (secret pour la seconde) : application OAuth de zotero.org/oauth/apps (docs/deploy.md §2.1) (◊)           |
 
 `COMPILE_GATEWAY_URL` n'est pas posée en production (mode `gateway` seulement). L'API n'utilise
 pas Redis : pas de `REDIS_URL` (le script signale une ancienne valeur restée en place).
@@ -102,6 +103,9 @@ routes `/texlive/*` répondent 503 en production.
 (¶) Clé de l'API Anthropic (Claude), côté api seulement (jamais sur web ni admin). Sans elle,
 l'IA est désactivée : toute route d'IA répond 503 `E_AI_UNAVAILABLE` et la santé de l'admin
 (`/admin/ai/health`) l'indique.
+
+(◊) Application OAuth 1.0a de Zotero, URL de rappel `https://app.<domaine>/integrations/zotero/callback`.
+Sans ces deux variables, l'intégration Zotero est désactivée (503 `E_ZOTERO_UNAVAILABLE`).
 
 ### realtime
 

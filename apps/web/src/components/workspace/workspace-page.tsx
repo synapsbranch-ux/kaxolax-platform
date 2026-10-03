@@ -12,7 +12,7 @@ import {
   type ProjectSearchMatch,
   type SpellcheckLanguage,
 } from '@kaxolax/contracts'
-import { type ActionHost, editorSettings } from '@kaxolax/editor'
+import { type ActionHost, type CitationProvider, editorSettings } from '@kaxolax/editor'
 import { Alert, Button, Skeleton } from '@kaxolax/ui'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -53,6 +53,7 @@ import {
 } from '@/lib/project-events'
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/sharing'
 import { documentByPath } from '@/lib/tree'
+import { zoteroFeed } from '@/lib/zotero'
 import { WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle, SyncState } from './editor/code-editor'
 import { EditorColumn } from './editor/editor-column'
@@ -71,6 +72,7 @@ import { useCompile } from './use-compile'
 import { useDocumentOutline } from './use-outline'
 import { useProjectIndex } from './use-project-index'
 import { useProjectMeta } from './use-project-meta'
+import { useProjectZotero } from './use-project-zotero'
 import { useRealtimeSocket } from './use-realtime'
 import { useEditorActions, WorkspaceActionsProvider } from './workspace-actions'
 import type { WorkspaceTools } from './workspace-tools'
@@ -367,6 +369,9 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
         case 'project':
           setProject((current) => (current ? { ...current, ...effect.changes } : current))
           break
+        case 'zotero':
+          zoteroFeed.publish(effect.event)
+          break
         case 'none':
           break
       }
@@ -587,8 +592,14 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   useEffect(() => {
     activePath.current = activeDocument?.path ?? null
   })
+  // Source de citations Zotero (bibliothèque liée), fournie plus bas par `useProjectZotero`.
+  const zoteroCitations = useRef<() => CitationProvider | null>(() => null)
   const completion = useMemo(
-    () => ({ sources: () => projectIndex, currentFile: () => activePath.current }),
+    () => ({
+      sources: () => projectIndex,
+      currentFile: () => activePath.current,
+      citationProvider: () => zoteroCitations.current(),
+    }),
     [projectIndex],
   )
 
@@ -807,6 +818,12 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     if (level === 'error') setError(message)
     else setNotice({ message, level })
   }, [])
+
+  // Zotero : synchro à l'ouverture (éditeurs), puis source de citations de l'autocomplétion.
+  const zotero = useProjectZotero(projectId, project === null ? null : canEdit, notify)
+  useEffect(() => {
+    zoteroCitations.current = zotero.citationProvider
+  }, [zotero.citationProvider])
 
   const settings: CompileSettings = {
     compiler: project?.compiler ?? 'pdflatex',

@@ -4,6 +4,7 @@ import { buildStatusSchema } from './builds.js'
 import { commentThreadUpdatedEventSchema } from './comments.js'
 import { compileResultSchema } from './compile.js'
 import { versionKindSchema } from './history.js'
+import { zoteroLinkSchema } from './integrations.js'
 import { spellcheckLanguageSchema } from './projects.js'
 import { projectRoleSchema } from './realtime.js'
 
@@ -175,6 +176,17 @@ export const compileUpdatedEventSchema = z.object({
 })
 export type CompileUpdatedEvent = z.infer<typeof compileUpdatedEventSchema>
 
+/**
+ * Lien Zotero du projet créé, modifié, synchronisé ou retiré (tâche 9) : le panneau Zotero ouvert
+ * recopie `link` (null : plus de lien). `actorId` : membre à l'origine du changement.
+ */
+export const zoteroUpdatedEventSchema = z.object({
+  type: z.literal('zotero.updated'),
+  actorId: z.uuid().nullable(),
+  link: zoteroLinkSchema.nullable(),
+})
+export type ZoteroUpdatedEvent = z.infer<typeof zoteroUpdatedEventSchema>
+
 export const projectEventSchema = z.discriminatedUnion('type', [
   treeChangedEventSchema,
   memberAddedEventSchema,
@@ -187,6 +199,7 @@ export const projectEventSchema = z.discriminatedUnion('type', [
   compileUpdatedEventSchema,
   versionCreatedEventSchema,
   projectUpdatedEventSchema,
+  zoteroUpdatedEventSchema,
 ])
 export type ProjectEvent = z.infer<typeof projectEventSchema>
 export type ProjectEventType = ProjectEvent['type']

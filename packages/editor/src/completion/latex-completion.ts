@@ -20,6 +20,7 @@ import {
   KNOWN_PACKAGES,
   PACKAGE_COMPLETIONS,
 } from './latex-data.js'
+import type { CitationProvider } from './external-citations.js'
 import type { CompletionSources } from './project-index.js'
 
 export interface LatexCompletionOptions {
@@ -27,6 +28,11 @@ export interface LatexCompletionOptions {
   sources?: CompletionSources | (() => CompletionSources | null)
   /** Chemin du fichier édité (exclu des propositions de `\input`). */
   currentFile?: () => string | null
+  /**
+   * Source externe de citations (bibliothèque Zotero liée), interrogée après `\cite{` en plus
+   * des clés des .bib du projet ; null : aucune pour l'instant (lue à chaque complétion).
+   */
+  citationProvider?: () => CitationProvider | null
 }
 
 /** Argument en cours de saisie : commande, début de l'argument, texte déjà tapé. */
@@ -453,10 +459,16 @@ function documentPackages(state: EditorState): string[] {
   return names
 }
 
-/** Autocomplétion LaTeX (voir `latexCompletionSource`), activée pendant la frappe. */
-export function latexAutocomplete(options: LatexCompletionOptions = {}): Extension {
+/**
+ * Autocomplétion LaTeX (voir `latexCompletionSource`), activée pendant la frappe ; `extra` :
+ * sources supplémentaires (citations externes, voir `externalCitationSource`).
+ */
+export function latexAutocomplete(
+  options: LatexCompletionOptions = {},
+  extra: readonly CompletionSource[] = [],
+): Extension {
   return autocompletion({
-    override: [latexCompletionSource(options)],
+    override: [latexCompletionSource(options), ...extra],
     activateOnTyping: true,
     maxRenderedOptions: 100,
   })

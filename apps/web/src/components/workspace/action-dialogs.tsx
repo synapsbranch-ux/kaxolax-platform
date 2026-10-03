@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@kaxolax/ui'
 import { Component, type ComponentType, type ReactNode, useEffect, useState } from 'react'
+import { ZOTERO_DIALOGS } from '@/lib/zotero'
 
 /** Propriétés d'une boîte de dialogue ouverte par une action (`host.openDialog(id, payload)`). */
 export interface ActionDialogProps {
@@ -154,4 +155,7 @@ export const ACTION_DIALOGS: Partial<Record<string, DialogComponent>> = {
   [WRITING_DIALOGS.table]: lazyDialog(() => import('./writing/table-dialog')),
   [PACKAGE_MANAGER_DIALOG]: lazyDialog(() => import('./tools/package-manager-dialog')),
   [WORD_COUNT_DIALOG]: lazyDialog(() => import('./tools/word-count-dialog')),
+  // Zotero (étape 3, tâche 9) : panneau du lien et sélecteur de citations.
+  [ZOTERO_DIALOGS.panel]: lazyDialog(() => import('./tools/zotero-dialog')),
+  [ZOTERO_DIALOGS.cite]: lazyDialog(() => import('./tools/zotero-citation-dialog')),
 }

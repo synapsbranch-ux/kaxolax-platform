@@ -46,21 +46,46 @@ une dépendance de `apps/compile-worker` (`pnpm --filter @kaxolax/compile-worker
 Aucun secret dans un dépôt. Les générer une fois et les garder dans le gestionnaire de mots de
 passe de l'équipe.
 
-| Secret                                           | Création                           | Où                                                     |
-| ------------------------------------------------ | ---------------------------------- | ------------------------------------------------------ |
-| `APP_KEY`                                        | `openssl rand -base64 48`          | api                                                    |
-| `REALTIME_TOKEN_SECRET`, `INTERNAL_TOKEN`        | `openssl rand -base64 48`          | api, realtime                                          |
-| `COMPILE_WORKER_SECRET` (≥ 32 caractères)        | `openssl rand -base64 48`          | api, Worker (`wrangler secret put`)                    |
-| `CLERK_*`                                        | Dashboard Clerk (production)       | api, web, admin                                        |
-| `SMTP_*`                                         | fournisseur SMTP                   | api                                                    |
-| `ANTHROPIC_API_KEY` (facultative)                | Console Anthropic, API keys        | api                                                    |
-| Jetons R2 `app`, `backup`                        | Terraform (`kaxolax-infra`)        | api ; backup                                           |
-| Jetons R2 `templates_publish`, `texlive_publish` | Terraform (`kaxolax-infra`)        | CI de kaxolax-templates ; CI de kaxolax-texlive-images |
-| Clé age des sauvegardes                          | `age-keygen -o kaxolax-backup.key` | clé **publique** seule dans `backup`                   |
+| Secret                                             | Création                           | Où                                                     |
+| -------------------------------------------------- | ---------------------------------- | ------------------------------------------------------ |
+| `APP_KEY`                                          | `openssl rand -base64 48`          | api                                                    |
+| `REALTIME_TOKEN_SECRET`, `INTERNAL_TOKEN`          | `openssl rand -base64 48`          | api, realtime                                          |
+| `COMPILE_WORKER_SECRET` (≥ 32 caractères)          | `openssl rand -base64 48`          | api, Worker (`wrangler secret put`)                    |
+| `CLERK_*`                                          | Dashboard Clerk (production)       | api, web, admin                                        |
+| `SMTP_*`                                           | fournisseur SMTP                   | api                                                    |
+| `ANTHROPIC_API_KEY` (facultative)                  | Console Anthropic, API keys        | api                                                    |
+| `ZOTERO_CLIENT_KEY`, `ZOTERO_CLIENT_SECRET` (fac.) | zotero.org/oauth/apps (§2.1)       | api                                                    |
+| Jetons R2 `app`, `backup`                          | Terraform (`kaxolax-infra`)        | api ; backup                                           |
+| Jetons R2 `templates_publish`, `texlive_publish`   | Terraform (`kaxolax-infra`)        | CI de kaxolax-templates ; CI de kaxolax-texlive-images |
+| Clé age des sauvegardes                            | `age-keygen -o kaxolax-backup.key` | clé **publique** seule dans `backup`                   |
 
 `kaxolax-infra/railway/provision.sh` génère `APP_KEY`, `REALTIME_TOKEN_SECRET`,
 `INTERNAL_TOKEN` et `COMPILE_WORKER_SECRET` s'ils manquent et ne les remplace jamais.
 Sans `ANTHROPIC_API_KEY`, l'IA est désactivée : toute route d'IA répond 503 `E_AI_UNAVAILABLE`.
+Sans `ZOTERO_CLIENT_KEY` et `ZOTERO_CLIENT_SECRET`, l'intégration Zotero est désactivée : ses
+routes répondent 503 `E_ZOTERO_UNAVAILABLE`, l'interface l'indique, le reste fonctionne.
+
+### 2.1 Application OAuth Zotero
+
+Une application par environnement (production, préproduction, développement local), créée avec
+le compte Zotero de l'équipe :
+
+1. Se connecter sur zotero.org, puis ouvrir https://www.zotero.org/oauth/apps → « Register a new
+   application ».
+2. Nom « Kaxolax » (affiché à l'utilisateur sur la page d'autorisation), type « Browser »,
+   site `https://app.<domaine>`, **URL de rappel `https://app.<domaine>/integrations/zotero/callback`**
+   (`APP_URL` de l'api suivie de `/integrations/zotero/callback` ; en local
+   `http://localhost:3000/integrations/zotero/callback`).
+3. Recopier la « Client Key » dans `ZOTERO_CLIENT_KEY` et le « Client Secret » dans
+   `ZOTERO_CLIENT_SECRET` (secret) de l'api, puis redéployer l'api.
+4. Vérifier : Compte → Intégrations → « Connecter Zotero » mène à zotero.org, qui demande un accès
+   en lecture seule (bibliothèque sans les notes, groupes en lecture, aucune écriture), puis
+   revient sur Kaxolax « Connecté en tant que … ».
+
+Le secret ne quitte jamais l'api. Les clés d'API des utilisateurs sont chiffrées en base avec
+`APP_KEY` (changer `APP_KEY` sans garder l'ancienne clé les rend illisibles : les utilisateurs
+reconnectent Zotero). Changer la clé et le secret de l'application n'invalide pas les clés déjà
+émises ; les révoquer se fait par utilisateur (déconnexion dans Kaxolax, ou zotero.org/settings/keys).
 
 ## 3. Cloudflare : zone, DNS, WAF, R2
 
@@ -183,7 +208,7 @@ Avec `kaxolax-infra/railway/provision.sh` (procédure §4), ou à la main :
    `TEXLIVE_INDEX_KEY` (sorties Terraform) ; `REALTIME_INTERNAL_URL` sur le réseau privé ;
    `TRUSTED_PROXY_HOPS=2` (IP et `X-Forwarded-*` restent forgeables : note ‡) ;
    `SMTP_PORT=465` avec `SMTP_SECURE=true` ; `ANTHROPIC_API_KEY` facultative (secret, api
-   seulement). Web : `REALTIME_PUBLIC_URL`, `S3_PUBLIC_ENDPOINT`, `TEMPLATES_PUBLIC_URL` et
+   seulement) ; `ZOTERO_CLIENT_KEY` et `ZOTERO_CLIENT_SECRET` facultatives (§2.1, api seulement). Web : `REALTIME_PUBLIC_URL`, `S3_PUBLIC_ENDPOINT`, `TEMPLATES_PUBLIC_URL` et
    `TEMPLATES_CATALOG_URL`, mêmes valeurs que l'api, lues à l'exécution pour la CSP (absentes :
    lues sur `GET /api/v1/client-config`, avertissement au démarrage). Realtime : `REDIS_URL`
    obligatoire en production. `API_INTERNAL_URL` du web et de l'admin est lue **au build**

@@ -28,6 +28,11 @@ l'API).
   commune (`PlanLimitDialog`, layout `(app)`) pour tout appel de l'API ; un écran qui affiche le
   refus lui-même (modale de partage) appelle `markPlanLimitHandled(error)` dans son `catch` et
   passe `error.planLimit` au composant.
+- **Intégrations** (`/account/integrations`, page ajoutée à `<UserProfile />`) : connecter
+  Zotero (OAuth sur zotero.org, accès en lecture seule) ou le déconnecter
+  (`components/integrations/zotero-connection.tsx`). zotero.org renvoie sur
+  `/integrations/zotero/callback`, qui termine la connexion auprès de l'API avec la même session
+  puis revient aux intégrations.
 - 404, et `/healthz` (sonde publique).
 - **Galerie de templates** (`components/templates/`) : `/templates` (publique, rendue par le
   serveur depuis `GET /api/v1/templates`) avec recherche (sans accents, même fonction
@@ -127,6 +132,15 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
       `POST /projects/:id/word-count` (texcount dans le sandbox) après envoi des dernières
       frappes ; document principal ou fichier ouvert ; total, texte, titres, légendes, formules,
       détail par section ; chargement, erreurs traduites, Recompter.
+    - **Zotero** (étape 3, `lib/zotero.ts`) : panneau Fichier → « Zotero : bibliothèque liée »
+      (`tools/zotero-dialog.tsx` : bibliothèque, collection, `.bib` cible, format, état et date
+      de la dernière synchro, erreurs, Synchroniser, Modifier, Retirer le lien ; lecture pour
+      tous, actions pour les éditeurs) ; Structures → « Insérer une citation Zotero »
+      (`tools/zotero-citation-dialog.tsx` : recherche, `\cite{clé}` au curseur ou ajouté à la
+      citation sous le curseur, entrée ajoutée au `.bib`) ; autocomplétion de `\cite{` complétée
+      par la bibliothèque liée (`useProjectZotero`, source `externalCitationSource` de
+      `@kaxolax/editor`) ; synchro `open` à l'ouverture du projet (éditeurs, limitée par l'API) ;
+      événement `zotero.updated` pour les panneaux ouverts.
     - **Barre d'état** sous l'éditeur : ligne et colonne, mode Vim/Emacs, langue du correcteur,
       compteur de mots, paramètres.
   - PDF (pdf.js) : pastille de statut (Recompiler, Ctrl+Entrée) et son menu (auto-compilation,
@@ -315,13 +329,15 @@ pnpm --filter @kaxolax/web exec playwright test e2e/chat.spec.ts   # un seul dom
 
 Variables (environnement du shell, pas de `.env` lu) :
 
-| Variable                                    | Rôle                                                                  |
-| ------------------------------------------- | --------------------------------------------------------------------- |
-| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | instance Clerk **de développement** (obligatoires, `global-setup.ts`) |
-| `E2E_BASE_URL`                              | application (défaut `http://localhost:3000`)                          |
-| `E2E_ADMIN_URL`                             | admin (défaut `http://localhost:3001`)                                |
-| `E2E_MAILPIT_URL`                           | API de Mailpit (défaut `http://localhost:8025`)                       |
-| `PLAYWRIGHT_CHROMIUM_EXECUTABLE`            | Chromium déjà installé, à la place de celui de Playwright             |
+| Variable                                     | Rôle                                                                  |
+| -------------------------------------------- | --------------------------------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`  | instance Clerk **de développement** (obligatoires, `global-setup.ts`) |
+| `E2E_BASE_URL`                               | application (défaut `http://localhost:3000`)                          |
+| `E2E_ADMIN_URL`                              | admin (défaut `http://localhost:3001`)                                |
+| `E2E_MAILPIT_URL`                            | API de Mailpit (défaut `http://localhost:8025`)                       |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE`             | Chromium déjà installé, à la place de celui de Playwright             |
+| `E2E_ZOTERO_USERNAME`, `E2E_ZOTERO_PASSWORD` | compte zotero.org de test (`zotero.spec.ts`, sauté sans elles)        |
+| `E2E_ZOTERO_QUERY`                           | texte d'une référence de ce compte (défaut `the`)                     |
 
 Parcours (un fichier par domaine, `e2e/*.spec.ts`), chacun indépendant : il crée ses comptes et
 ses projets, et les supprime à la fin (projets possédés par l'API, comptes par l'API Backend de
@@ -349,6 +365,10 @@ Clerk) :
   et Emacs, retour à la ligne, correcteur désactivé) appliqués à chaud, gardés après rechargement
   et sur un autre appareil, autocomplétion (`\cite{` mesurée, `\ref`, `\eqref`, commandes des
   packages chargés, chemins de `\input` et `\includegraphics`) ;
+- `zotero.spec.ts` (étape 3, sauté sans compte Zotero de test ni application OAuth sur l'API) :
+  connexion OAuth sur zotero.org, lien de la bibliothèque, synchro vers `references.bib`,
+  synchro idempotente, citation insérée par le sélecteur ; captures `zotero-panel.png` et
+  `zotero-citation-picker.png` dans `e2e/screenshots/` ;
 - `spellcheck.spec.ts` : correcteur (langue du projet changée depuis la barre d'état, commandes
   LaTeX et maths ignorées, correction proposée au clic droit, dictionnaire personnel gardé après
   rechargement) ;

@@ -3,6 +3,7 @@ import {
   type AssignableRole,
   canManageMembers,
   type CollaboratorUsage,
+  hasPermission,
   higherRole,
   INVITATION_MAX_SENDS,
   INVITATION_RESEND_INTERVAL_SECONDS,
@@ -53,6 +54,7 @@ import {
   ProjectNotFoundException,
 } from '#services/project_access'
 import { InvalidNewOwnerException, transferOwnership } from '#services/project_ownership'
+import { dropZoteroKeyOf } from '#services/zotero/link_access'
 import {
   hashToken,
   isTokenShaped,
@@ -349,6 +351,8 @@ export async function changeMemberRole(
     if (changed) {
       member.role = role
       await member.useTransaction(trx).save()
+      // Sans `edit`, sa clé Zotero ne sert plus au lien du projet.
+      if (!hasPermission(role, 'edit')) await dropZoteroKeyOf(project.id, member.userId, trx)
       await recordSharingEvent(
         {
           projectId: project.id,
@@ -376,6 +380,7 @@ export async function removeMember(user: User, projectId: string, memberId: stri
       await ProjectMember.query({ client: trx })
         .where({ projectId: project.id, userId: user.id })
         .delete()
+      await dropZoteroKeyOf(project.id, user.id, trx)
       await recordSharingEvent(
         {
           projectId: project.id,
@@ -397,6 +402,7 @@ export async function removeMember(user: User, projectId: string, memberId: stri
     if (!member) throw new MemberNotFoundException()
     if (member.role === 'owner') throw new OwnerRoleLockedException()
     await member.useTransaction(trx).delete()
+    await dropZoteroKeyOf(project.id, member.userId, trx)
     await recordSharingEvent(
       {
         projectId: project.id,
