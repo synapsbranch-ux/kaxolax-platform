@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import { createDocumentState, documentName, metaDocumentName } from '@kaxolax/collab'
-import { signRealtimeToken } from '@kaxolax/collab/token'
+import {
+  createDocumentState,
+  documentName,
+  metaDocumentName,
+  userChannelName,
+} from '@kaxolax/collab'
+import { signRealtimeToken, signUserRealtimeToken } from '@kaxolax/collab/token'
 import { type ProjectRole, REALTIME_TOKEN_TTL_SECONDS } from '@kaxolax/contracts'
 import pg from 'pg'
 import { pino } from 'pino'
 import { WebSocket } from 'ws'
 import * as Y from 'yjs'
-import { createRealtimeServer } from '../src/server.js'
+import { createRealtimeServer, type RealtimeDependencies } from '../src/server.js'
 import { DocumentStore } from '../src/store.js'
 import { TEST_DATABASE } from './global-setup.js'
 
@@ -25,6 +30,7 @@ export async function startServer(
   roles: { ROLE_RECHECK_MS?: number; ROLE_SWEEP_MS?: number } = {},
   redis: { REDIS_URL?: string; REDIS_PREFIX?: string } = {},
   history: { HISTORY_FLUSH_MS?: number } = {},
+  dependencies: RealtimeDependencies = {},
 ): Promise<{ server: RealtimeServer; url: string; httpUrl: string }> {
   const server = createRealtimeServer(
     {
@@ -42,6 +48,7 @@ export async function startServer(
     },
     store,
     pino({ level: 'silent' }),
+    dependencies,
   )
   await server.listen()
   const base = `127.0.0.1:${String(server.address.port)}`
@@ -117,6 +124,22 @@ export function tokenFor(
   )
 }
 
+/** Jeton du canal temps réel d'un utilisateur (`POST /me/realtime-token` de l'API). */
+export function userTokenFor(
+  userId: string,
+  options: { secret?: string; expiresIn?: number; issuedIn?: number } = {},
+): string {
+  return signUserRealtimeToken(
+    {
+      scope: 'user',
+      sub: userId,
+      iat: Math.floor(Date.now() / 1000) + (options.issuedIn ?? 0),
+      exp: Math.floor(Date.now() / 1000) + (options.expiresIn ?? REALTIME_TOKEN_TTL_SECONDS),
+    },
+    options.secret ?? TOKEN_SECRET,
+  )
+}
+
 export interface Client {
   provider: HocuspocusProvider
   doc: Y.Doc
@@ -138,6 +161,11 @@ export function connectMeta(
   options: { clientId?: number } = {},
 ): Client {
   return connectTo(url, metaDocumentName(projectId), token, options)
+}
+
+/** Connexion au canal d'un utilisateur (bannière système). */
+export function connectUserChannel(url: string, userId: string, token: string): Client {
+  return connectTo(url, userChannelName(userId), token)
 }
 
 /** `clientId` : clientId Yjs imposé (reconnexion d'un même client sur une autre instance). */

@@ -12,7 +12,7 @@ export default class SearchController {
   constructor(private readonly realtime: RealtimeClient) {}
 
   /**
-   * Recherche dans tout le projet (rôle viewer) : texte courant de chaque document, instantané du
+   * Recherche dans tout le projet (permission `read`) : texte courant de chaque document, instantané du
    * service temps réel ou état enregistré. `q`, `caseSensitive`, `wholeWord`, `regex`. La
    * recherche tourne dans un worker ; une nouvelle recherche du même utilisateur remplace la
    * précédente (409 pour celle-ci), et 429 quand toutes les places du processus sont prises.
@@ -20,7 +20,7 @@ export default class SearchController {
   async search({ params, auth, request }: HttpContext) {
     const query = validateWithZod(projectSearchQuerySchema, request.qs())
     const user = auth.getUserOrFail()
-    const { project } = await projectFor(user, String(params.id), 'viewer')
+    const { project } = await projectFor(user, String(params.id), 'read')
     return projectSearches.search(
       user.id,
       query,

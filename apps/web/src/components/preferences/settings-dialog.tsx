@@ -33,6 +33,7 @@ import {
 } from '@kaxolax/ui'
 import { MoonIcon, SunIcon, XIcon } from 'lucide-react'
 import { type ReactNode, useId, useState } from 'react'
+import { PlanUsage } from '@/components/billing/plan-usage'
 import { errorMessage } from '@/lib/api'
 import {
   CUSTOM_FONT,
@@ -59,9 +60,10 @@ const SAMPLE = [
 
 /**
  * Paramètres : onglet Éditeur (thème, coloration, police, taille, hauteur de ligne, raccourcis,
- * retour à la ligne), Correcteur (activation, dictionnaire personnel) et Projet (langue du
- * correcteur, sur la page projet). Chaque changement est appliqué tout de suite aux éditeurs
- * ouverts et enregistré dans les préférences de l'utilisateur (tous ses appareils).
+ * retour à la ligne), Correcteur (activation, dictionnaire personnel), Projet (langue du
+ * correcteur, sur la page projet) et Plan (plan, stockage utilisé et limites, en lecture). Chaque
+ * changement est appliqué tout de suite aux éditeurs ouverts et enregistré dans les préférences
+ * de l'utilisateur (tous ses appareils).
  */
 export default function SettingsDialog({
   section,
@@ -94,7 +96,12 @@ export default function SettingsDialog({
         <Tabs
           value={section}
           onValueChange={(value) => {
-            if (value === 'editor' || value === 'spellcheck' || value === 'project')
+            if (
+              value === 'editor' ||
+              value === 'spellcheck' ||
+              value === 'project' ||
+              value === 'plan'
+            )
               onSectionChange(value)
           }}
           className="min-h-0"
@@ -103,6 +110,7 @@ export default function SettingsDialog({
             <TabsTrigger value="editor">Éditeur</TabsTrigger>
             <TabsTrigger value="spellcheck">Correcteur</TabsTrigger>
             {project ? <TabsTrigger value="project">Projet</TabsTrigger> : null}
+            <TabsTrigger value="plan">Plan</TabsTrigger>
           </TabsList>
           <div className="min-h-0 overflow-y-auto pr-1">
             <TabsContent value="editor">
@@ -116,6 +124,9 @@ export default function SettingsDialog({
                 <ProjectSection project={project} />
               </TabsContent>
             ) : null}
+            <TabsContent value="plan">
+              <PlanUsage className="pt-2" />
+            </TabsContent>
           </div>
         </Tabs>
       </DialogContent>

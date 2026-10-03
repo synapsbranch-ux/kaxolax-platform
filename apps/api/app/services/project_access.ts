@@ -1,9 +1,4 @@
-import {
-  hasPermission,
-  isRoleAtLeast,
-  PROJECT_PERMISSIONS,
-  type ProjectPermission,
-} from '@kaxolax/contracts'
+import { hasPermission, type ProjectPermission } from '@kaxolax/contracts'
 import { Exception } from '@adonisjs/core/exceptions'
 import db from '@adonisjs/lucid/services/db'
 import { type TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -31,24 +26,11 @@ export interface ProjectAccess {
 }
 
 /**
- * Exigence d'une route : une permission de la matrice (`@kaxolax/contracts`, forme à utiliser),
- * ou un rôle minimal (forme historique, encore utilisée par la compilation, réécrite en parallèle
- * par la tâche 14 : `'viewer'` y équivaut à la permission `compile`).
+ * Exigence d'une route : une permission de la matrice (`@kaxolax/contracts`), jamais un rôle
+ * minimal. La compilation (lancer, arrêter, vider le cache, SyncTeX, réveil du compilateur)
+ * demande `compile` ; lire son résultat, `read`.
  */
-export type ProjectRequirement = ProjectPermission | ProjectRole
-
-const PERMISSIONS: ReadonlySet<string> = new Set(PROJECT_PERMISSIONS)
-
-function isPermission(requirement: ProjectRequirement): requirement is ProjectPermission {
-  return PERMISSIONS.has(requirement)
-}
-
-/** Vrai si le rôle satisfait l'exigence, selon la matrice des permissions. */
-export function roleSatisfies(role: ProjectRole, requirement: ProjectRequirement): boolean {
-  return isPermission(requirement)
-    ? hasPermission(role, requirement)
-    : isRoleAtLeast(role, requirement)
-}
+export type ProjectRequirement = ProjectPermission
 
 /**
  * Charge un projet dont l'utilisateur est membre, si son rôle accorde la permission demandée
@@ -73,7 +55,7 @@ export async function projectFor(
   if (options.lock === true) void projectQuery.forUpdate()
   const project = await projectQuery.first()
   if (!project) throw new ProjectNotFoundException()
-  if (!roleSatisfies(member.role, requirement)) throw new ProjectForbiddenException()
+  if (!hasPermission(member.role, requirement)) throw new ProjectForbiddenException()
   return { project, role: member.role }
 }
 

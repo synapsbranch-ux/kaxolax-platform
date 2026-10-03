@@ -1,5 +1,7 @@
 import {
   type ActiveBanner,
+  type BroadcastEvent,
+  broadcastEventSchema,
   type ChatMessageCreatedEvent,
   type CommentCreatedEvent,
   type CommentThreadUpdatedEvent,
@@ -30,6 +32,17 @@ export function parseRealtimeMessage(payload: string): RealtimeMessage | null {
   }
   const role = roleChangedMessageSchema.safeParse(value)
   return role.success ? { kind: 'role', message: role.data } : null
+}
+
+/**
+ * Message sans état reçu sur le canal de l'utilisateur (`user:{id}`) : seuls les événements
+ * diffusés à tous (bannière système) y sont attendus, tout le reste est ignoré.
+ */
+export function parseBroadcastMessage(payload: string): BroadcastEvent | null {
+  const message = parseProjectEventMessage(payload)
+  if (message === null) return null
+  const event = broadcastEventSchema.safeParse(message.event)
+  return event.success ? event.data : null
 }
 
 /** Effet d'un événement sur la page projet, pour l'utilisateur `selfId`. */
@@ -84,8 +97,9 @@ type BannerListener = (banners: ActiveBanner[]) => void
 const bannerListeners = new Set<BannerListener>()
 
 /**
- * Bannières reçues en direct (événement `banner.changed` du document meta) : la page projet les
- * publie, la bannière système (`SystemBanner`, layout de l'application) s'y abonne.
+ * Bannières reçues en direct par le document meta (événement `banner.changed`) : la page projet
+ * les publie, la bannière système (`SystemBanner`, layout de l'application) s'y abonne, en plus
+ * du canal de l'utilisateur ouvert sur toutes les pages (`useUserChannel`).
  */
 export const bannerFeed = {
   publish(banners: ActiveBanner[]): void {

@@ -1,10 +1,10 @@
-import { UserProfile } from '@clerk/nextjs'
 import Link from 'next/link'
+import { AccountProfile } from '@/components/billing/account-profile'
 
 /**
- * Compte : profil, sécurité (MFA, sessions et appareils), facturation (onglet Billing de Clerk :
+ * Compte : profil, plan et usage (/account/plan), facturation (onglet Billing de Clerk :
  * abonnement, factures, moyens de paiement ; affiché quand Billing est activé pour les
- * utilisateurs) et suppression, gérés par Clerk.
+ * utilisateurs), sécurité (MFA, sessions et appareils) et suppression, gérés par Clerk.
  */
 export default function AccountPage() {
   return (
@@ -12,7 +12,7 @@ export default function AccountPage() {
       <Link href="/dashboard" className="self-start text-sm text-muted-foreground hover:underline">
         ← Tableau de bord
       </Link>
-      <UserProfile path="/account" routing="path" />
+      <AccountProfile />
     </main>
   )
 }

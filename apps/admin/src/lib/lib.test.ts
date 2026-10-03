@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hasAdminAccess } from './access'
 import { formatBytes, formatDuration, isoToLocalInput, localInputToIso } from './format'
+import { cancelledSummary, compileStatusRows } from './stats'
 
 describe('hasAdminAccess', () => {
   const admin = { sub: 'user_1', metadata: { role: 'admin' }, fva: [3, 3] }
@@ -50,5 +51,37 @@ describe('format', () => {
     const iso = localInputToIso('2026-10-01T09:30')
     expect(iso).not.toBeNull()
     expect(isoToLocalInput(iso)).toBe('2026-10-01T09:30')
+  })
+})
+
+describe('statistiques des compilations', () => {
+  const compiles = {
+    total: 4,
+    byStatus: { success: 1, failure: 1, timeout: 1, error: 1 },
+    cancelled: 3,
+    averageDurationMs: 6000,
+    failureRate: 0.75,
+    byAgent: [],
+  }
+
+  it('donne la part de chaque statut terminé, sans les annulations', () => {
+    const rows = compileStatusRows(compiles)
+    expect(rows.map((row) => row.label)).toEqual([
+      'Réussies',
+      'Erreurs LaTeX',
+      'Durée dépassée',
+      'Erreur du service',
+    ])
+    expect(rows.every((row) => row.value === 1 && row.display.includes('25'))).toBe(true)
+    expect(cancelledSummary(compiles)).toContain('Annulées : 3')
+  })
+
+  it('reste lisible sans compilation terminée', () => {
+    const empty = {
+      ...compiles,
+      total: 0,
+      byStatus: { success: 0, failure: 0, timeout: 0, error: 0 },
+    }
+    expect(compileStatusRows(empty).every((row) => row.display === '0 · —')).toBe(true)
   })
 })

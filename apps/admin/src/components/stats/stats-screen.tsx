@@ -1,6 +1,5 @@
 'use client'
 
-import { type CompileStatus, compileStatusSchema } from '@kaxolax/contracts'
 import { Card, CardContent, CardHeader, CardTitle, cn } from '@kaxolax/ui'
 import Link from 'next/link'
 import { useMemo, type ReactNode } from 'react'
@@ -9,16 +8,10 @@ import { DataTable, ErrorAlert, PageHeader } from '@/components/ui'
 import { useApiData } from '@/components/use-api-data'
 import { adminApi } from '@/lib/api'
 import { formatDuration, formatNumber, formatRate } from '@/lib/format'
+import { cancelledSummary, compileStatusRows } from '@/lib/stats'
 
 /** Périodes proposées, en jours. */
 export const STATS_PERIODS = [7, 30, 90, 365] as const
-
-const STATUS_LABELS: Record<CompileStatus, string> = {
-  success: 'Réussies',
-  failure: 'Erreurs LaTeX',
-  timeout: 'Durée dépassée',
-  error: 'Erreur du service',
-}
 
 const DAY_MS = 86_400_000
 
@@ -34,7 +27,10 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
   )
 }
 
-/** Statistiques : inscriptions, actifs, abonnés Pro, compilations (volume, durée, échecs, agents). */
+/**
+ * Statistiques : inscriptions, actifs, abonnés Pro, compilations terminées (volume, durée, échecs,
+ * agents) et annulées à part.
+ */
 export function StatsScreen({ days }: { days: number }) {
   // Période figée au montage (la clé de la page change avec `days`).
   const period = useMemo(() => {
@@ -94,7 +90,7 @@ export function StatsScreen({ days }: { days: number }) {
             <StatCard
               label={`Compilations (${String(days)} j)`}
               value={formatNumber(stats.compiles.total)}
-              hint={`Durée moyenne ${formatDuration(stats.compiles.averageDurationMs)} · échecs ${formatRate(stats.compiles.failureRate)}`}
+              hint={`Terminées · durée moyenne ${formatDuration(stats.compiles.averageDurationMs)} · échecs ${formatRate(stats.compiles.failureRate)}`}
             />
           </div>
 
@@ -113,16 +109,10 @@ export function StatsScreen({ days }: { days: number }) {
                 <CardTitle>Compilations par résultat</CardTitle>
               </CardHeader>
               <CardContent>
-                <HorizontalBars
-                  rows={compileStatusSchema.options.map((status) => {
-                    const value = stats.compiles.byStatus[status]
-                    return {
-                      label: STATUS_LABELS[status],
-                      value,
-                      display: `${formatNumber(value)} · ${formatRate(stats.compiles.total === 0 ? null : value / stats.compiles.total)}`,
-                    }
-                  })}
-                />
+                <HorizontalBars rows={compileStatusRows(stats.compiles)} />
+                <p className="mt-3 text-xs text-muted-foreground" data-testid="stats-cancelled">
+                  {cancelledSummary(stats.compiles)}
+                </p>
               </CardContent>
             </Card>
             <Card>

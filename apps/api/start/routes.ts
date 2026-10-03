@@ -32,10 +32,13 @@ const HistoryController = () => import('#controllers/history_controller')
 const TexliveController = () => import('#controllers/texlive_controller')
 const WordCountsController = () => import('#controllers/word_counts_controller')
 const TemplatesController = () => import('#controllers/templates_controller')
+const ClientConfigController = () => import('#controllers/client_config_controller')
 
 router
   .group(() => {
     router.get('health', () => ({ status: 'ok' }))
+    // Origines vues par le navigateur (CSP du serveur web) : publiques, rien de secret.
+    router.get('client-config', [ClientConfigController, 'show'])
 
     // Signé par Clerk (Standard Webhooks) : ni session ni jeton.
     router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
@@ -60,6 +63,8 @@ router
         router.patch('me/preferences', [PreferencesController, 'update'])
         // Bannières système actives (affichées en haut de l'application).
         router.get('banners/active', [BannersController, 'active'])
+        // Canal temps réel du compte (bannière système en direct sur toutes les pages).
+        router.post('me/realtime-token', [RealtimeController, 'userToken'])
 
         router.get('workspaces', [WorkspacesController, 'index'])
 

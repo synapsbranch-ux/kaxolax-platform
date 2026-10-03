@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { signRealtimeToken, verifyRealtimeToken } from './token.js'
+import {
+  signRealtimeToken,
+  signUserRealtimeToken,
+  verifyRealtimeToken,
+  verifyUserRealtimeToken,
+} from './token.js'
 
 const secret = 's'.repeat(40)
 const claims = {
@@ -33,5 +38,21 @@ describe('realtime token', () => {
 
   it.each(['', 'garbage', 'v1.a.b.c', 'v2.a.b'])('rejects %j', (token) => {
     expect(verifyRealtimeToken(token, secret, 1_000)).toBeNull()
+  })
+})
+
+describe('user channel token', () => {
+  const user = { scope: 'user' as const, sub: claims.sub, iat: 900, exp: 2_000_000_000 }
+
+  it('round-trips and expires', () => {
+    const token = signUserRealtimeToken(user, secret)
+    expect(verifyUserRealtimeToken(token, secret, 1_000)).toEqual(user)
+    expect(verifyUserRealtimeToken(token, secret, 2_000_000_000)).toBeNull()
+    expect(verifyUserRealtimeToken(token, 'x'.repeat(40), 1_000)).toBeNull()
+  })
+
+  it('is never accepted as a project token, and the other way round', () => {
+    expect(verifyRealtimeToken(signUserRealtimeToken(user, secret), secret, 1_000)).toBeNull()
+    expect(verifyUserRealtimeToken(signRealtimeToken(claims, secret), secret, 1_000)).toBeNull()
   })
 })

@@ -17,6 +17,7 @@ import ProjectVersion from '#models/project_version'
 import type User from '#models/user'
 import {
   createVersion,
+  createVersionSafely,
   type HistoryDependencies,
   lockHistory,
   readManifest,
@@ -41,7 +42,9 @@ import {
  * d'abord créée (rien n'est perdu), puis le texte des documents existants est remplacé par le
  * service temps réel (les clients connectés reçoivent la mise à jour Yjs), enfin l'arborescence
  * est remise dans l'état de la version (documents et fichiers recréés avec leur identifiant,
- * déplacés, ou supprimés ; dossiers ; document principal).
+ * déplacés, ou supprimés ; dossiers ; document principal). Une fois la restauration réussie, une
+ * version de l'état restauré (`restored`) est créée tout de suite, au nom de la personne qui
+ * restaure : l'historique ne dépend pas du prochain balayage des versions automatiques.
  *
  * Le remplacement des textes ne peut pas faire partie de la transaction : si un remplacement ou
  * la transaction échoue, les textes déjà remplacés sont remis dans l'état de la version de
@@ -487,8 +490,16 @@ export async function restoreVersion(
     changes: [],
     ...(input.scope === 'project' ? { mainDocumentId: manifest.mainDocumentId } : {}),
   })
+  // État restauré : au mieux (la restauration est faite ; en cas d'échec, le balayage des
+  // versions automatiques le rattrape, sans auteur garanti).
+  const restored = await createVersionSafely(deps, project.id, {
+    kind: 'restored',
+    actorId: user.id,
+    authorIds: [user.id],
+  })
   return {
     backupVersionId: backup.version.id,
+    restoredVersionId: restored?.created ? restored.version.id : null,
     restored: { documents: documents.length, files: files.length },
   }
 }
