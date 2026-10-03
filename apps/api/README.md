@@ -48,7 +48,7 @@ même origine que l'application (rewrites Next.js en local, CDN en production) :
   déplacement, suppression récursive. Chemins calculés, jamais stockés. Noms uniques dans un
   dossier, tous types confondus, vérifiés en transaction avec le projet verrouillé.
 - **Recherche dans tout le projet** : `GET /projects/:id/search?q=&caseSensitive=&wholeWord=&regex=`
-  (rôle viewer) cherche dans le texte courant de chaque document (instantané temps réel, sinon
+  (permission `read`) cherche dans le texte courant de chaque document (instantané temps réel, sinon
   état enregistré, comme la compilation). Au plus 500 occurrences `{ documentId, path, line,
 column, length, preview, previewStart }` (ligne à partir de 1, colonne en unités UTF-16 à
   partir de 0), triées par chemin, avec `truncated`. `q` : 200 caractères au plus ; en mode
@@ -201,13 +201,15 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     processus web toutes les `HISTORY_SWEEP_SECONDS` ; un projet en échec est retenté après
     `HISTORY_RETRY_SECONDS` sans bloquer les autres), à chaque compilation manuelle (`compile`,
     synchrone et asynchrone, d'un owner ou editor, une fois la compilation acceptée ;
-    `trigger: 'auto'` n'en crée pas) et avant chaque restauration
-    (`restore`). Rien n'est créé si rien n'a changé depuis la précédente. Verrou consultatif
+    `trigger: 'auto'` n'en crée pas), avant chaque restauration (`restore` : l'état remplacé) et
+    juste après une restauration réussie (`restored` : l'état restauré, migration `…0150`). Rien
+    n'est créé si rien n'a changé depuis la précédente. Verrou consultatif
     PostgreSQL par projet et condition revérifiée sous ce verrou : une seule version, quel que
     soit le nombre d'instances.
   - Auteurs (`author_ids`) : comptes dont des mises à jour Yjs entrent dans la version, lus dans
     le journal `document_updates` (migration `…0028`) écrit par le service temps réel ; la
-    création d'un document par l'API (création, upload, import) y entre au nom de son auteur.
+    création d'un document par l'API (création, upload, import) y entre au nom de son auteur. La
+    version `restored` compte toujours la personne qui restaure (même pour un binaire seul).
   - Stockage objet : manifeste (`history/versions/<id>/manifest.json.gz` : arborescence, document
     principal, changements), diff attribué de chaque document modifié (`diffs/<documentId>.json.gz`)
     et texte compressé adressé par sha256 (`history/texts/<sha256>.gz`, partagé entre versions,
@@ -224,7 +226,9 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     par le service temps réel (modification Yjs minimale reçue par les clients connectés), puis
     arborescence remise exactement dans l'état de la version (documents et fichiers recréés avec
     leur identifiant, déplacés ou supprimés, dossiers, document principal) ; événement
-    `tree.changed` (`reason: 'restore'`). Verrou de l'historique pris avant la ligne du projet
+    `tree.changed` (`reason: 'restore'`), puis version `restored` de l'état restauré, au mieux
+    (`restoredVersionId` de la réponse : null si rien n'a changé ou en cas d'échec, que le
+    balayage rattrape). Verrou de l'historique pris avant la ligne du projet
     (même ordre que la création d'une version). Si un remplacement de texte ou la transaction de
     l'arborescence échoue, les textes déjà remplacés sont remis dans l'état de la version de
     sauvegarde : 503 `E_HISTORY_REALTIME_UNAVAILABLE`, rien n'est modifié ; si cette remise
@@ -242,7 +246,9 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
 
 - **Temps réel** : `POST /projects/:id/realtime-token` signe un jeton de 5 minutes pour le
   service `apps/realtime` (`REALTIME_TOKEN_SECRET`, `REALTIME_PUBLIC_URL`), valable pour les
-  documents du projet et pour son document meta (`project:{id}:meta`). À la suppression
+  documents du projet et pour son document meta (`project:{id}:meta`). `POST /me/realtime-token`
+  (tout compte connecté) signe le jeton du canal du compte (`user:{id}`, `scope: 'user'`,
+  `userRealtimeTokenResponseSchema` avec le nom du canal) : il n'ouvre aucun document de projet. À la suppression
   d'un document, d'un dossier ou d'un projet, l'API demande au service de fermer les connexions
   ouvertes (`REALTIME_INTERNAL_URL`, `INTERNAL_TOKEN`), au mieux et avec un délai de 2 s.
 - **Événements du projet** (`packages/contracts/src/events.ts`) : après la validation de sa
@@ -275,6 +281,11 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
 - **Import zip** : `POST /imports`, puis `POST /imports/:uploadId/complete` crée le projet
   (`@kaxolax/zip-importer`), dans le workspace `workspaceId` (facultatif) ou le workspace
   personnel.
+- **Configuration du navigateur** : `GET /client-config` (public, `Cache-Control: no-store`,
+  `clientConfigSchema`) rend `realtimeUrl` (`REALTIME_PUBLIC_URL`), `storageUrl` (origine des URL
+  présignées : `S3_PUBLIC_ENDPOINT`, sinon `S3_ENDPOINT`, sinon point d'accès régional AWS) et
+  `templateUrls` (`TEMPLATES_CATALOG_URL`, base des fichiers). Le serveur web y lit les origines
+  de sa CSP qu'il n'a pas reçues en variables.
 - **Galerie de templates** (contrat : `packages/contracts/src/templates.ts`) : catalogue
   `templates.json` v1 publié par le dépôt kaxolax-templates sur un bucket R2 public (format :
   README de ce dépôt, « Contrat du catalogue »), lu à `TEMPLATES_CATALOG_URL`
@@ -305,7 +316,9 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   première erreur, transmis tels quels au gateway puis à l'agent) (instantané temps réel + table `files`, envoyé
   au compile-gateway ; résultat enregistré dans `compiles`, URL présignées du PDF et du log),
   `POST /projects/:id/compile/stop`, `GET /projects/:id/compile/last`,
-  `POST /projects/:id/compile/clear-cache`. Mode `COMPILE_BACKEND=cloudflare` (production) :
+  `POST /projects/:id/compile/clear-cache`. Permissions de la matrice : `compile` pour lancer,
+  arrêter, vider le cache, SyncTeX et le réveil du compilateur (tous les rôles aujourd'hui) ;
+  `read` pour la dernière compilation et l'état d'une compilation. Mode `COMPILE_BACKEND=cloudflare` (production) :
   `POST /projects/:id/compile` répond 202 `{ buildId, status }` (`queued`, ou `preparing` si le
   conteneur se réveille ; état initial, que le client ignore s'il a déjà reçu un événement du
   même `buildId`), le Worker (`apps/compile-worker`) rappelle
@@ -366,11 +379,11 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   navigation (`GET /downloads/:token`, rôle revérifié au téléchargement).
 
 - **Bannière système** : `GET /banners/active` (tout compte connecté) renvoie les bannières
-  commencées et pas encore terminées, maintenance d'abord. Le web la relit toutes les 60 s et au
-  retour sur l'onglet ; `RealtimeClient.notifyBannerChanged`, appelée à chaque création,
-  modification ou suppression, diffuse aussi `banner.changed` en direct à tous les clients
-  connectés à un document meta.
-  modification ou suppression, sera branchée sur le document meta des projets (tâche 5).
+  commencées et pas encore terminées, maintenance d'abord. Le web la relit toutes les 60 s, au
+  retour sur l'onglet et à chaque reconnexion de son canal temps réel ;
+  `RealtimeClient.notifyBannerChanged`, appelée à chaque création, modification ou suppression,
+  diffuse aussi `banner.changed` en direct à toutes les pages connectées (canal `user:{id}` de
+  chaque compte) et aux documents meta des projets ouverts, sur toutes les instances du service.
 - **Abonnements (Clerk Billing)** (contrats : `packages/contracts/src/billing.ts`).
   - Droits (`app/services/entitlements.ts`) : plan et features lus dans les claims `pla`
     (`u:pro`) et `fea` (`u:long_compile,…`) du jeton vérifié (`has({ plan })`/`has({ feature })`,
@@ -519,8 +532,9 @@ upgradeUrl }` (`app/exceptions/plan_limit.ts`).
   - Statistiques : `GET /admin/stats?from=&to=` (30 derniers jours par défaut, 366 au plus) :
     inscriptions par jour UTC, utilisateurs actifs sur 7 et 30 jours (compilation lancée, auteur
     d'une version ou propriétaire d'un projet modifié), abonnés par plan (`active`, `past_due`),
-    compilations (volume, statuts, durée moyenne, taux d'échec = statut autre que `success`,
-    par agent).
+    compilations terminées (volume, statuts finaux, durée moyenne, taux d'échec = statut
+    terminé autre que `success`, par agent) ; les compilations asynchrones en cours (`queued`,
+    `preparing`, `running`) sont ignorées et les annulations comptées à part (`cancelled`).
   - Journal : chaque action écrit `admin_audit_log` dans la transaction de son effet ; un échec
     significatif (Clerk en erreur, erreur interne) de toute action (comptes, projets, bannières)
     est journalisé avec `outcome: failure`. Les actions sur un compte n'y gardent que ses

@@ -15,7 +15,7 @@ import {
 } from 'react'
 
 /** Onglets de la boîte des paramètres. */
-export type SettingsSection = 'editor' | 'spellcheck' | 'project'
+export type SettingsSection = 'editor' | 'spellcheck' | 'project' | 'plan'
 
 /** Réglages du projet ouvert, affichés dans l'onglet Projet (page projet seulement). */
 export interface ProjectSettings {

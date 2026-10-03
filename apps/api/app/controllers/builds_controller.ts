@@ -18,8 +18,9 @@ export default class BuildsController {
     private readonly realtime: RealtimeClient,
   ) {}
 
+  /** État d'une compilation : lecture du projet (les événements `compile.updated` vont à tous). */
   async show({ params, auth }: HttpContext) {
-    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'viewer')
+    const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'read')
     const buildId = String(params.buildId)
     if (!isUuid(buildId)) throw new BuildNotFoundException()
     return {
@@ -32,14 +33,15 @@ export default class BuildsController {
   }
 
   /**
-   * Appelée à l'ouverture de l'éditeur : réveille le conteneur du projet pour que la première
+   * Appelée à l'ouverture de l'éditeur par tout rôle qui peut compiler (permission `compile`) :
+   * réveille le conteneur du projet pour que la première
    * compilation n'attende pas son démarrage. Sans effet en mode `gateway`. Plafonné par
    * utilisateur sans jamais refuser : au plafond (moins un emplacement gardé pour une vraie
    * compilation), `skipped` et aucun réveil (voir `reserveCompiler`).
    */
   async warm({ params, auth, response }: HttpContext): Promise<WarmCompilerResponse> {
     const user = auth.getUserOrFail()
-    const { project } = await projectFor(user, String(params.id), 'viewer')
+    const { project } = await projectFor(user, String(params.id), 'compile')
     if (compileConfig.backend !== 'cloudflare') return { status: 'unsupported' }
     if (!(await reserveCompiler(user.id, project.id, { warm: true }))) return { status: 'skipped' }
     await this.worker.warm(project.id)

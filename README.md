@@ -90,19 +90,19 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 
 ## Commandes
 
-| Commande                         | Effet                                                         |
-| -------------------------------- | ------------------------------------------------------------- |
-| `pnpm dev`                       | Lance tous les paquets et apps en mode développement          |
-| `pnpm build`                     | Compile tout                                                  |
-| `pnpm lint`                      | ESLint (règles typées strictes)                               |
-| `pnpm typecheck`                 | Vérification des types                                        |
-| `pnpm test`                      | Tests (Vitest, Japa) ; la stack locale doit tourner           |
-| `pnpm check`                     | lint + typecheck + tests + build, comme la CI                 |
-| `pnpm format`                    | Formate avec Prettier (`format:check` pour vérifier)          |
-| `pnpm stack:up`                  | `docker compose up -d --wait`                                 |
-| `pnpm stack:check`               | Vérifie que la stack locale répond                            |
-| `pnpm stack:down`                | Arrête la stack (`docker compose down -v` efface les données) |
-| `pnpm --filter @kaxolax/web e2e` | Parcours Playwright de la « Définition de terminé »           |
+| Commande                         | Effet                                                              |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `pnpm dev`                       | Lance tous les paquets et apps en mode développement               |
+| `pnpm build`                     | Compile tout                                                       |
+| `pnpm lint`                      | ESLint (règles typées strictes)                                    |
+| `pnpm typecheck`                 | Vérification des types                                             |
+| `pnpm test`                      | Tests (Vitest, Japa) ; la stack locale doit tourner                |
+| `pnpm check`                     | lint + typecheck + tests + build, comme la CI                      |
+| `pnpm format`                    | Formate avec Prettier (`format:check` pour vérifier)               |
+| `pnpm stack:up`                  | `docker compose up -d --wait`                                      |
+| `pnpm stack:check`               | Vérifie que la stack locale répond                                 |
+| `pnpm stack:down`                | Arrête la stack (`docker compose down -v` efface les données)      |
+| `pnpm --filter @kaxolax/web e2e` | Parcours Playwright de la DoD et de la MFA (CI) ; `e2e:all` : tous |
 
 ## Structure
 

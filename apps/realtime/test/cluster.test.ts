@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import {
+  INTERNAL_TOKEN_HEADER,
   parsePresenceState,
   parseProjectEventMessage,
   presenceUserFor,
   type ProjectEvent,
+  projectSnapshotSchema,
 } from '@kaxolax/contracts'
 import type pg from 'pg'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
@@ -15,7 +17,9 @@ import {
   closedFlag,
   connect,
   connectMeta,
+  connectUserChannel,
   eventually,
+  INTERNAL_TOKEN,
   internalPost,
   openPool,
   openStore,
@@ -25,6 +29,7 @@ import {
   startServer,
   statelessMessages,
   tokenFor,
+  userTokenFor,
 } from './helpers.js'
 
 /**
@@ -212,6 +217,34 @@ describe('two instances behind Redis', () => {
     }
   })
 
+  it('delivers a banner published on instance A to the user channels of instance B, once', async () => {
+    const seed = await seedProject(pool)
+    const onA = track(connectUserChannel(a.url, seed.owner, userTokenFor(seed.owner)))
+    const onB = track(connectUserChannel(b.url, seed.owner, userTokenFor(seed.owner)))
+    await Promise.all([onA.ready, onB.ready])
+    const received = [onA, onB].map(statelessMessages)
+    const event = { type: 'banner.changed' as const, banners: [] }
+
+    const response = await internalPost(a.httpUrl, '/internal/events', { event })
+    expect(response.status).toBe(200)
+    await eventually(() => received.every((messages) => messages.length > 0))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    for (const messages of received) {
+      expect(messages.map((payload) => parseProjectEventMessage(payload)?.event)).toEqual([event])
+    }
+  })
+
+  it('closes the user channel of a banned user on the other instance', async () => {
+    const seed = await seedProject(pool)
+    const onB = track(connectUserChannel(b.url, seed.owner, userTokenFor(seed.owner)))
+    await onB.ready
+    const closed = closedFlag(onB)
+    await pool.query('UPDATE users SET banned_at = now() WHERE id = $1', [seed.owner])
+    const response = await internalPost(a.httpUrl, `/internal/users/${seed.owner}/disconnect`)
+    expect(await response.json()).toEqual({ connections: 0 })
+    await eventually(closed, 2_000)
+  })
+
   it('disconnects a member removed through instance A from instance B in less than 2 seconds', async () => {
     const seed = await seedProject(pool)
     const editor = await seed.addMember('editor')
@@ -266,5 +299,65 @@ describe('two instances behind Redis', () => {
     const response = await internalPost(a.httpUrl, `/internal/documents/${seed.documentId}/close`)
     expect(await response.json()).toEqual({ closed: false })
     await eventually(closed, 2_000)
+  })
+})
+
+/**
+ * Instantané (compilation, recherche) demandé à une instance pour un document édité sur une
+ * autre : enregistrement en base très différé, pour que seul le relais Redis apporte le texte.
+ */
+describe('project snapshot across instances', () => {
+  let slowA: { server: RealtimeServer; url: string; httpUrl: string }
+  let slowB: { server: RealtimeServer; url: string; httpUrl: string }
+
+  beforeAll(async () => {
+    const redis = { REDIS_URL, REDIS_PREFIX: `kaxolax-realtime-test-${randomUUID()}` }
+    slowA = await startServer(store, 30_000, {}, redis)
+    slowB = await startServer(store, 30_000, {}, redis)
+  })
+
+  afterAll(async () => {
+    await Promise.all([slowA.server.destroy(), slowB.server.destroy()])
+  })
+
+  async function snapshotOn(httpUrl: string, projectId: string): Promise<string[]> {
+    const response = await fetch(`${httpUrl}/internal/projects/${projectId}/snapshot`, {
+      headers: { [INTERNAL_TOKEN_HEADER]: INTERNAL_TOKEN },
+    })
+    expect(response.status).toBe(200)
+    return projectSnapshotSchema.parse(await response.json()).documents.map((doc) => doc.content)
+  }
+
+  it('returns on instance B the text just edited on instance A (document not open on B)', async () => {
+    const seed = await seedProject(pool, 'Bonjour')
+    const onA = track(
+      connect(slowA.url, seed.projectId, seed.documentId, tokenFor(seed.owner, seed.projectId)),
+    )
+    await onA.ready
+    onA.text.insert(7, ' le monde')
+    onA.text.delete(0, 1)
+    await eventually(() => !onA.provider.hasUnsyncedChanges)
+
+    // La base a encore l'ancien texte : B l'obtient de A par Redis avant de répondre, sans
+    // attendre le déchargement du document (environ 2 s avec l'extension Redis).
+    const started = Date.now()
+    expect(await snapshotOn(slowB.httpUrl, seed.projectId)).toEqual(['onjour le monde'])
+    expect(Date.now() - started).toBeLessThan(1_500)
+  })
+
+  it('waits for a deletion made on A when the document is also open on B', async () => {
+    const seed = await seedProject(pool, 'Bonjour le monde')
+    const token = tokenFor(seed.owner, seed.projectId)
+    const onA = track(connect(slowA.url, seed.projectId, seed.documentId, token))
+    const onB = track(connect(slowB.url, seed.projectId, seed.documentId, token))
+    await Promise.all([onA.ready, onB.ready])
+
+    // Une suppression seule n'avance pas le vecteur d'état : l'attente porte aussi dessus.
+    for (let round = 0; round < 5; round++) {
+      onA.text.insert(onA.text.length, ` ${String(round)}`)
+      onA.text.delete(0, 1)
+      await eventually(() => !onA.provider.hasUnsyncedChanges)
+      expect(await snapshotOn(slowB.httpUrl, seed.projectId)).toEqual([onA.text.toJSON()])
+    }
   })
 })

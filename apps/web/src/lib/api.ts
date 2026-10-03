@@ -54,6 +54,7 @@ import type {
   TemplateSummary,
   TexlivePackagesQuery,
   UserPreferences,
+  UserRealtimeTokenResponse,
   Workspace,
   WorkspaceAiSettings,
 } from '@kaxolax/contracts'
@@ -233,6 +234,8 @@ export const api = {
   plan: () => request<MePlanResponse>('GET', '/me/plan'),
   /** Bannières système affichées maintenant (tout compte connecté). */
   activeBanners: () => request<{ banners: ActiveBanner[] }>('GET', '/banners/active'),
+  /** Jeton, URL et nom du canal temps réel du compte (bannière système en direct). */
+  userRealtimeToken: () => request<UserRealtimeTokenResponse>('POST', '/me/realtime-token'),
 
   /** Préférences complètes (valeurs par défaut appliquées par l'API). */
   preferences: () => request<PreferencesResponse>('GET', '/me/preferences'),

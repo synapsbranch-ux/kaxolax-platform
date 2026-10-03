@@ -56,6 +56,30 @@ export type RealtimeTokenResponse = z.infer<typeof realtimeTokenResponseSchema>
 export const REALTIME_TOKEN_TTL_SECONDS = 300
 
 /**
+ * Jeton du canal temps réel de l'utilisateur (`user:{id}`, `@kaxolax/collab`), signé par l'API
+ * comme le jeton d'un projet (même durée) : il n'ouvre que ce canal. `scope` le distingue d'un
+ * jeton de projet (ni `projectId` ni `role`) : aucun des deux n'est accepté à la place de l'autre.
+ */
+export const userRealtimeTokenClaimsSchema = z.object({
+  scope: z.literal('user'),
+  sub: z.uuid(),
+  iat: z.number().int().nonnegative(),
+  exp: z.number().int().positive(),
+})
+export type UserRealtimeTokenClaims = z.infer<typeof userRealtimeTokenClaimsSchema>
+
+/**
+ * POST /me/realtime-token de l'API : jeton et URL du service, plus le nom du canal de
+ * l'utilisateur. Le canal ne porte aucun contenu : seulement des messages sans état, les
+ * événements diffusés à tous (`broadcastEventSchema`, bannière système), au format des événements
+ * du document meta (`projectEventMessageSchema`).
+ */
+export const userRealtimeTokenResponseSchema = realtimeTokenResponseSchema.extend({
+  name: z.string().min(1),
+})
+export type UserRealtimeTokenResponse = z.infer<typeof userRealtimeTokenResponseSchema>
+
+/**
  * POST /internal/projects/:id/members/:userId/changed du service temps réel : le rôle du membre a
  * changé ou il a été retiré. Le service relit le rôle en base et l'applique aux connexions de
  * cette instance : fermées (`closed`) s'il n'est plus membre, sinon rôle et lecture seule mis à

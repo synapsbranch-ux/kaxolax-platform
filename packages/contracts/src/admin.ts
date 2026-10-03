@@ -283,8 +283,12 @@ const rate = z.number().min(0).max(1).nullable()
 /**
  * `GET /admin/stats?from=&to=` (30 derniers jours par défaut). Utilisateur actif sur N jours :
  * compte non supprimé qui a lancé une compilation, est auteur d'une version (historique) ou est
- * propriétaire d'un projet modifié pendant ces N jours. Échec de compilation : tout statut autre
- * que `success` (erreurs LaTeX, dépassement de durée, erreur du service).
+ * propriétaire d'un projet modifié pendant ces N jours. Compilations : seules les compilations
+ * terminées par le compilateur comptent (`success`, `failure`, `timeout`, `error`) ; celles encore
+ * en cours (`queued`, `preparing`, `running`, mode asynchrone) sont ignorées, et les annulations
+ * (`cancelled`, arrêtées par un membre) sont comptées à part, hors total, durée et taux d'échec.
+ * Échec de compilation : tout statut terminé autre que `success` (erreurs LaTeX, dépassement de
+ * durée, erreur du service).
  */
 export const adminStatsSchema = z.object({
   period: z.object({ from: isoDate, to: isoDate }),
@@ -303,6 +307,8 @@ export const adminStatsSchema = z.object({
   compiles: z.object({
     total: count,
     byStatus: z.record(compileStatusSchema, count),
+    /** Compilations annulées sur la période (hors `total`). */
+    cancelled: count,
     averageDurationMs: z.number().nonnegative().nullable(),
     failureRate: rate,
     byAgent: z.array(

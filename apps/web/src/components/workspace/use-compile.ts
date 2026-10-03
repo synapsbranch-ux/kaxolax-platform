@@ -63,8 +63,8 @@ export function useCompile({
   flush: () => Promise<void>
   options: CompileOptions
   /**
-   * Réveil anticipé voulu : seulement pour qui peut modifier le projet (un lecteur qui consulte
-   * ne doit pas consommer le plafond de compilateurs de l'utilisateur).
+   * Réveil anticipé voulu : pour tout rôle qui peut compiler (`warmsCompiler`). L'API plafonne les
+   * réveils par utilisateur en gardant un emplacement pour une vraie compilation.
    */
   warm: boolean
   onError: (message: string | null) => void
