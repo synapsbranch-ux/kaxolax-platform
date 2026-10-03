@@ -2,22 +2,39 @@
 
 import type { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import type { Extension } from '@codemirror/state'
-import type { ResolvedAnchor } from '@kaxolax/collab'
-import type { PresenceUser } from '@kaxolax/contracts'
-import type { CompletionSources, EditorSettings } from '@kaxolax/editor'
-import { Button, SimpleTooltip, Spinner, cn } from '@kaxolax/ui'
-import { EyeIcon, HistoryIcon, MessageSquareTextIcon, WrenchIcon } from 'lucide-react'
+import type { ResolvedAnchor, SuggestionResolution } from '@kaxolax/collab'
+import type { DecideSuggestionsInput, PresenceUser, ProjectRole } from '@kaxolax/contracts'
+import type { CompletionSources, EditorSettings, SuggestionAction } from '@kaxolax/editor'
+import { Button, SimpleTooltip, Spinner, ToggleGroup, ToggleGroupItem, cn } from '@kaxolax/ui'
+import {
+  EyeIcon,
+  GitPullRequestDraftIcon,
+  HistoryIcon,
+  MessageSquareTextIcon,
+  PencilIcon,
+  WrenchIcon,
+} from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ProjectTree, type TreeFile } from '@/lib/api'
 import { type ChatMember, chatMembers } from '@/lib/chat'
 import { commentErrorMessage, threadFromSearch } from '@/lib/comments'
+import {
+  canDecide as canDecideRole,
+  decisionNotice,
+  NO_SUGGESTION_FILTERS,
+  type SuggestionFilters,
+  suggestionErrorMessage,
+} from '@/lib/suggestions'
 import { AskSlot } from './ask-slot'
 import { CodeEditor, type EditorHandle, type SyncState } from './code-editor'
 import { EditorTabs, type OpenTab } from './editor-tabs'
 import { FilePreview } from './file-preview'
 import { HistoryDrawer } from '../panels/history-drawer'
-import { type CommentDraft, ReviewPanel } from '../panels/review-panel'
+import { type CommentDraft, ReviewPanel, type ReviewSection } from '../panels/review-panel'
+import { SuggestionsSection } from '../panels/suggestions-section'
+import { useEditMode } from '../use-edit-mode'
 import { useProjectComments } from '../use-project-comments'
+import { useProjectSuggestions } from '../use-project-suggestions'
 import { useEditorActions } from '../workspace-actions'
 import { ToolsBar } from './tools-bar'
 
@@ -30,6 +47,7 @@ const SYNC_LABELS: Record<SyncState, string> = {
 }
 
 const NO_POSITIONS: ReadonlyMap<string, ResolvedAnchor> = new Map()
+const NO_SUGGESTION_POSITIONS: ReadonlyMap<string, SuggestionResolution> = new Map()
 
 /**
  * Colonne centrale : onglets des fichiers ouverts, boutons Review et Historique (emplacement de
@@ -47,6 +65,7 @@ export function EditorColumn({
   loading,
   canEdit,
   canComment,
+  role,
   selfId,
   membersVersion,
   settings,
@@ -84,6 +103,8 @@ export function EditorColumn({
   canEdit: boolean
   /** Rôle qui commente (owner, editor, reviewer) ; le lecteur lit les commentaires. */
   canComment: boolean
+  /** Rôle dans le projet (mode Modifier / Suggérer, décision des suggestions). */
+  role: ProjectRole | null
   selfId: string | null
   /** Incrémenté à chaque événement de membre : les membres à mentionner sont relus. */
   membersVersion: number
@@ -121,18 +142,40 @@ export function EditorColumn({
 }) {
   const { registry, host } = useEditorActions()
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [reviewSection, setReviewSection] = useState<ReviewSection>('comments')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const activeDocumentId = activeTab?.kind === 'document' ? activeTab.id : null
   const review = useReview({
     projectId,
-    activeDocumentId: activeTab?.kind === 'document' ? activeTab.id : null,
+    activeDocumentId,
     reviewOpen,
     membersVersion,
     onOpenReview: () => {
       setReviewOpen(true)
+      setReviewSection('comments')
     },
     onActivate,
     tree,
   })
+  const editMode = useEditMode(projectId, selfId, role)
+  const canDecide = canDecideRole(role)
+  const tracked = useSuggestionReview({
+    projectId,
+    activeDocumentId,
+    canDecide,
+    onOpenReview: () => {
+      setReviewOpen(true)
+      setReviewSection('suggestions')
+    },
+    onActivate,
+    tree,
+  })
+  const toggleMode =
+    editMode.choice === 'choose'
+      ? () => {
+          editMode.setMode(editMode.mode === 'suggest' ? 'edit' : 'suggest')
+        }
+      : undefined
   const iconButton = 'text-editor-tab-foreground hover:bg-editor-tab-active'
   const documentOpen = activeTab?.kind === 'document'
   return (
@@ -157,6 +200,52 @@ export function EditorColumn({
               >
                 {SYNC_LABELS[syncState]}
               </span>
+            ) : null}
+            {documentOpen && editMode.choice === 'choose' ? (
+              <ToggleGroup
+                type="single"
+                size="sm"
+                variant="outline"
+                value={editMode.mode ?? 'edit'}
+                onValueChange={(value) => {
+                  if (value === 'edit' || value === 'suggest') editMode.setMode(value)
+                }}
+                aria-label="Mode d’édition (Ctrl+Alt+R)"
+                className="h-6"
+                data-testid="edit-mode-toggle"
+              >
+                <ToggleGroupItem
+                  value="edit"
+                  aria-label="Modifier : le texte change directement"
+                  title="Modifier : le texte change directement (Ctrl+Alt+R pour basculer)"
+                  className="h-6 px-2 text-xs"
+                  data-testid="edit-mode-edit"
+                >
+                  <PencilIcon /> <span className="hidden md:inline">Modifier</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="suggest"
+                  aria-label="Suggérer : les modifications sont proposées, à accepter ou refuser"
+                  title="Suggérer : les modifications sont proposées, à accepter ou refuser (Ctrl+Alt+R pour basculer)"
+                  className="h-6 px-2 text-xs"
+                  data-testid="edit-mode-suggest"
+                >
+                  <GitPullRequestDraftIcon /> <span className="hidden md:inline">Suggérer</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+            {documentOpen && editMode.choice === 'suggest-only' ? (
+              <SimpleTooltip label="Relecteur : vos modifications sont des suggestions, acceptées ou refusées par un éditeur.">
+                <span
+                  className="flex items-center gap-1 rounded-md border border-editor-border px-2 py-0.5 text-xs text-editor-tab-foreground"
+                  data-testid="edit-mode-suggest-only"
+                  tabIndex={0}
+                >
+                  <GitPullRequestDraftIcon className="size-3.5" aria-hidden />
+                  <span className="hidden md:inline">Suggestion</span>
+                  <span className="sr-only md:hidden">Mode Suggérer</span>
+                </span>
+              </SimpleTooltip>
             ) : null}
             <SimpleTooltip label="Review (commentaires)">
               <Button
@@ -227,6 +316,15 @@ export function EditorColumn({
         </div>
       ) : null}
       {notice}
+      {tracked.notice !== null ? (
+        <p
+          role="status"
+          className="shrink-0 border-b border-editor-border px-3 py-1 text-xs text-editor-tab-foreground"
+          data-testid="suggestion-notice-bar"
+        >
+          {tracked.notice}
+        </p>
+      ) : null}
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
           {activeTab?.kind === 'document' && connectionError !== null ? (
@@ -271,6 +369,22 @@ export function EditorColumn({
               onCommentSelect={review.selectFromEditor}
               onCommentShortcut={canComment ? review.startDraft : undefined}
               onCommentRevealed={review.revealed}
+              tracking={{
+                suggesting: editMode.mode === 'suggest',
+                selfId,
+                canDecide,
+                suggestions: tracked.documentSuggestions,
+                activeId: tracked.selectedId,
+                reveal: tracked.reveal,
+                onPositions: tracked.setPositions,
+                onSelect: tracked.selectFromEditor,
+                onAction: tracked.act,
+                onSaved: tracked.list.saved,
+                onRemoved: tracked.list.removed,
+                onNotice: tracked.setNotice,
+                onRevealed: tracked.revealed,
+                onToggleMode: toggleMode,
+              }}
             />
           ) : null}
           {file ? <FilePreview key={file.id} projectId={projectId} file={file} /> : null}
@@ -310,6 +424,30 @@ export function EditorColumn({
             onClose={() => {
               setReviewOpen(false)
             }}
+            section={reviewSection}
+            onSectionChange={setReviewSection}
+            suggestionCount={
+              tracked.list.suggestions.filter((suggestion) => suggestion.status === 'open').length
+            }
+            suggestions={
+              <SuggestionsSection
+                tree={tree}
+                suggestions={tracked.list.suggestions}
+                status={tracked.list.status}
+                error={tracked.list.error}
+                onRetry={tracked.list.retry}
+                positions={tracked.positions}
+                activeDocumentId={activeDocumentId}
+                selectedId={tracked.selectedId}
+                onSelect={tracked.select}
+                canDecide={canDecide}
+                selfId={selfId}
+                filters={tracked.filters}
+                onFiltersChange={tracked.setFilters}
+                onDecide={tracked.decide}
+                onWithdraw={tracked.withdraw}
+              />
+            }
           />
         ) : null}
       </div>
@@ -494,5 +632,136 @@ function useReview({
     remove: (threadId: string, commentId: string) => report(comments.remove(threadId, commentId)),
     resolve: (threadId: string, resolved: boolean) =>
       report(comments.setResolved(threadId, resolved)),
+  }
+}
+
+/**
+ * État de la section Suggestions partagé avec l'éditeur : suggestions du projet, suggestion
+ * sélectionnée et saut vers elle (ouverture du document au besoin), positions dans le document
+ * actif, filtres, décisions et message court (bilan, erreur).
+ */
+function useSuggestionReview({
+  projectId,
+  activeDocumentId,
+  canDecide,
+  onOpenReview,
+  onActivate,
+  tree,
+}: {
+  projectId: string
+  activeDocumentId: string | null
+  canDecide: boolean
+  onOpenReview: () => void
+  onActivate: (id: string) => void
+  tree: ProjectTree | null
+}) {
+  const list = useProjectSuggestions(projectId, tree)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [reveal, setReveal] = useState<{ id: string; serial: number } | null>(null)
+  const revealSerial = useRef(0)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [filters, setFilters] = useState<SuggestionFilters>(NO_SUGGESTION_FILTERS)
+  const [positionState, setPositionState] = useState<{
+    documentId: string | null
+    positions: ReadonlyMap<string, SuggestionResolution>
+  }>({ documentId: null, positions: NO_SUGGESTION_POSITIONS })
+
+  const documentSuggestions = useMemo(
+    () => list.suggestions.filter((suggestion) => suggestion.documentId === activeDocumentId),
+    [list.suggestions, activeDocumentId],
+  )
+  const positions =
+    positionState.documentId === activeDocumentId
+      ? positionState.positions
+      : NO_SUGGESTION_POSITIONS
+  const setPositions = useCallback(
+    (next: ReadonlyMap<string, SuggestionResolution>) => {
+      setPositionState({ documentId: activeDocumentId, positions: next })
+    },
+    [activeDocumentId],
+  )
+
+  // Message court, effacé après quelques secondes.
+  useEffect(() => {
+    if (notice === null) return
+    const timer = setTimeout(() => {
+      setNotice(null)
+    }, 6_000)
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [notice])
+
+  const select = useCallback(
+    (id: string) => {
+      const suggestion = list.suggestions.find((candidate) => candidate.id === id)
+      if (!suggestion) return
+      setSelectedId(id)
+      revealSerial.current += 1
+      setReveal({ id, serial: revealSerial.current })
+      if (suggestion.documentId !== activeDocumentId) onActivate(suggestion.documentId)
+    },
+    [list.suggestions, activeDocumentId, onActivate],
+  )
+
+  const selectFromEditor = useCallback(
+    (id: string) => {
+      setSelectedId(id)
+      onOpenReview()
+    },
+    [onOpenReview],
+  )
+
+  const decide = useCallback(
+    async (input: DecideSuggestionsInput) => {
+      try {
+        const response = await list.decide(input)
+        setNotice(decisionNotice(response))
+      } catch (caught) {
+        setNotice(suggestionErrorMessage(caught))
+      }
+    },
+    [list],
+  )
+
+  const withdraw = useCallback(
+    async (id: string) => {
+      try {
+        await list.withdraw(id)
+      } catch (caught) {
+        setNotice(suggestionErrorMessage(caught))
+      }
+    },
+    [list],
+  )
+
+  /** Info-bulle ou raccourci de l'éditeur. */
+  const act = useCallback(
+    (id: string, action: SuggestionAction) => {
+      if (action === 'withdraw') void withdraw(id)
+      else if (canDecide) void decide({ decision: action, ids: [id] })
+    },
+    [withdraw, decide, canDecide],
+  )
+
+  return {
+    list,
+    documentSuggestions,
+    selectedId,
+    reveal,
+    positions,
+    setPositions,
+    filters,
+    setFilters,
+    notice,
+    setNotice,
+    select,
+    selectFromEditor,
+    decide,
+    withdraw,
+    act,
+    revealed: () => {
+      setReveal(null)
+    },
   }
 }

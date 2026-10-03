@@ -6,8 +6,8 @@ import { type ProjectRole, projectRoleSchema } from './realtime.js'
  *
  * - owner : tout, y compris membres, liens de partage, transfert, renommage, archivage, suppression,
  *   activation de l'IA ;
- * - editor : lit, édite, compile, commente ;
- * - reviewer : lit, compile, commente ;
+ * - editor : lit, édite, compile, commente, suggère, accepte ou refuse les suggestions ;
+ * - reviewer : lit, compile, commente, suggère (mode Suggérer) sans modifier le texte ;
  * - viewer : lit et compile.
  */
 
@@ -20,6 +20,10 @@ export const PROJECT_PERMISSIONS = [
   'comment',
   /** Modifier le texte, l'arborescence, les fichiers et les réglages d'édition du projet. */
   'edit',
+  /** Proposer une modification du texte (suivi des modifications, mode Suggérer). */
+  'suggest',
+  /** Accepter ou refuser les suggestions (le texte ne change qu'à l'acceptation). */
+  'decideSuggestion',
   /** Inviter, changer un rôle, retirer un membre, relancer ou annuler une invitation. */
   'manageMembers',
   /** Activer, désactiver, régénérer les liens de partage. */
@@ -41,14 +45,24 @@ const MATRIX: Record<ProjectRole, ReadonlySet<ProjectPermission>> = {
     'compile',
     'comment',
     'edit',
+    'suggest',
+    'decideSuggestion',
     'manageMembers',
     'manageShareLinks',
     'transferOwnership',
     'manageProject',
     'manageAi',
   ]),
-  editor: new Set<ProjectPermission>(['read', 'compile', 'comment', 'edit', 'leave']),
-  reviewer: new Set<ProjectPermission>(['read', 'compile', 'comment', 'leave']),
+  editor: new Set<ProjectPermission>([
+    'read',
+    'compile',
+    'comment',
+    'edit',
+    'suggest',
+    'decideSuggestion',
+    'leave',
+  ]),
+  reviewer: new Set<ProjectPermission>(['read', 'compile', 'comment', 'suggest', 'leave']),
   viewer: new Set<ProjectPermission>(['read', 'compile', 'leave']),
 }
 
@@ -80,6 +94,11 @@ export const canCompile = (role: ProjectRole): boolean => hasPermission(role, 'c
 export const canComment = (role: ProjectRole): boolean => hasPermission(role, 'comment')
 /** Vrai si le rôle modifie le texte : sinon, connexion temps réel en lecture seule. */
 export const canEdit = (role: ProjectRole): boolean => hasPermission(role, 'edit')
+/** Vrai si le rôle propose des modifications (suggestions) : relecteur compris. */
+export const canSuggest = (role: ProjectRole): boolean => hasPermission(role, 'suggest')
+/** Vrai si le rôle accepte ou refuse les suggestions (éditeur, propriétaire). */
+export const canDecideSuggestion = (role: ProjectRole): boolean =>
+  hasPermission(role, 'decideSuggestion')
 export const canManageMembers = (role: ProjectRole): boolean => hasPermission(role, 'manageMembers')
 export const canManageShareLinks = (role: ProjectRole): boolean =>
   hasPermission(role, 'manageShareLinks')

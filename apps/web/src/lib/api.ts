@@ -4,6 +4,9 @@ import {
   chatUnreadResponseSchema,
   commentThreadResponseSchema,
   commentThreadsResponseSchema,
+  decideSuggestionsResponseSchema,
+  suggestionResponseSchema,
+  suggestionsResponseSchema,
   documentDiffResponseSchema,
   buildStateSchema,
   compileAcceptedSchema,
@@ -37,6 +40,9 @@ import type {
   Compiler,
   CompileResult,
   CreateCommentThreadInput,
+  CreateSuggestionInput,
+  DecideSuggestionsInput,
+  DecideSuggestionsResponse,
   MePlanResponse,
   PdfPosition,
   PlanLimitError,
@@ -49,10 +55,13 @@ import type {
   RestoreVersionInput,
   ShareLinkKind,
   SpellcheckLanguage,
+  Suggestion,
+  SuggestionStatusFilter,
   TemplateListQuery,
   TemplateListResponse,
   TemplateSummary,
   TexlivePackagesQuery,
+  UpdateSuggestionInput,
   UserPreferences,
   UserRealtimeTokenResponse,
   Workspace,
@@ -445,6 +454,53 @@ export const api = {
       'POST',
       `/projects/${id}/comment-threads/${threadId}/${resolved ? 'resolve' : 'reopen'}`,
     ).then((data) => commentThreadResponseSchema.parse(data).thread),
+  // Suivi des modifications (packages/contracts/src/suggestions.ts).
+  /** Suggestions du projet d'un statut, toutes pages lues (au plus `maxPages` pages). */
+  suggestions: async (
+    id: string,
+    status: SuggestionStatusFilter = 'open',
+    maxPages = 20,
+  ): Promise<Suggestion[]> => {
+    const all: Suggestion[] = []
+    let after: string | null = null
+    for (let page = 0; page < maxPages; page++) {
+      const query = new URLSearchParams({ status })
+      if (after !== null) query.set('after', after)
+      const data = suggestionsResponseSchema.parse(
+        await request<unknown>('GET', `/projects/${id}/suggestions?${query.toString()}`),
+      )
+      all.push(...data.suggestions)
+      after = data.nextCursor
+      if (after === null) break
+    }
+    return all
+  },
+  /** Une suggestion ; null si elle n'existe plus (404 : retirée par son auteur). */
+  suggestion: (id: string, suggestionId: string) =>
+    request<unknown>('GET', `/projects/${id}/suggestions/${suggestionId}`).then(
+      (data) => suggestionResponseSchema.parse(data).suggestion,
+      (caught: unknown) => {
+        if (caught instanceof ApiError && caught.status === 404) return null
+        throw caught
+      },
+    ),
+  createSuggestion: (id: string, input: CreateSuggestionInput) =>
+    request<unknown>('POST', `/projects/${id}/suggestions`, input).then(
+      (data) => suggestionResponseSchema.parse(data).suggestion,
+    ),
+  updateSuggestion: (id: string, suggestionId: string, input: UpdateSuggestionInput) =>
+    request<unknown>('PATCH', `/projects/${id}/suggestions/${suggestionId}`, input).then(
+      (data) => suggestionResponseSchema.parse(data).suggestion,
+    ),
+  deleteSuggestion: (id: string, suggestionId: string) =>
+    request<unknown>('DELETE', `/projects/${id}/suggestions/${suggestionId}`).then(() => undefined),
+  decideSuggestions: (
+    id: string,
+    input: DecideSuggestionsInput,
+  ): Promise<DecideSuggestionsResponse> =>
+    request<unknown>('POST', `/projects/${id}/suggestions/decide`, input).then((data) =>
+      decideSuggestionsResponseSchema.parse(data),
+    ),
   // Galerie de templates (publique) et création d'un projet depuis un template.
   templates: (query: TemplateListQuery = {}): Promise<TemplateListResponse> =>
     request<unknown>(

@@ -6,6 +6,11 @@ import { compileResultSchema } from './compile.js'
 import { versionKindSchema } from './history.js'
 import { spellcheckLanguageSchema } from './projects.js'
 import { projectRoleSchema } from './realtime.js'
+import {
+  suggestionCreatedEventSchema,
+  suggestionDecidedEventSchema,
+  suggestionUpdatedEventSchema,
+} from './suggestions.js'
 
 /**
  * Événements du projet, diffusés en messages sans état (stateless Hocuspocus) sur le document meta
@@ -187,6 +192,9 @@ export const projectEventSchema = z.discriminatedUnion('type', [
   compileUpdatedEventSchema,
   versionCreatedEventSchema,
   projectUpdatedEventSchema,
+  suggestionCreatedEventSchema,
+  suggestionUpdatedEventSchema,
+  suggestionDecidedEventSchema,
 ])
 export type ProjectEvent = z.infer<typeof projectEventSchema>
 export type ProjectEventType = ProjectEvent['type']

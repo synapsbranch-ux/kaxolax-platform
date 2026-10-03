@@ -29,6 +29,7 @@ const JoinController = () => import('#controllers/join_controller')
 const ChatController = () => import('#controllers/chat_controller')
 const CommentsController = () => import('#controllers/comments_controller')
 const HistoryController = () => import('#controllers/history_controller')
+const SuggestionsController = () => import('#controllers/suggestions_controller')
 const TexliveController = () => import('#controllers/texlive_controller')
 const WordCountsController = () => import('#controllers/word_counts_controller')
 const TemplatesController = () => import('#controllers/templates_controller')
@@ -157,6 +158,16 @@ router
           'resolve',
         ])
         router.post('projects/:id/comment-threads/:threadId/reopen', [CommentsController, 'reopen'])
+
+        // Suivi des modifications (packages/contracts/src/suggestions.ts) : lecture par tout
+        // membre, suggestion avec la permission `suggest` (modification et retrait par l'auteur
+        // tant qu'ouverte), décision avec `decideSuggestion`.
+        router.get('projects/:id/suggestions', [SuggestionsController, 'index'])
+        router.post('projects/:id/suggestions', [SuggestionsController, 'store'])
+        router.post('projects/:id/suggestions/decide', [SuggestionsController, 'decide'])
+        router.get('projects/:id/suggestions/:suggestionId', [SuggestionsController, 'show'])
+        router.patch('projects/:id/suggestions/:suggestionId', [SuggestionsController, 'update'])
+        router.delete('projects/:id/suggestions/:suggestionId', [SuggestionsController, 'destroy'])
 
         // Historique (packages/contracts/src/history.ts) : lecture par tout membre, label et
         // restauration avec la permission `edit`.

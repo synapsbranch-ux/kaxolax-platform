@@ -9,6 +9,7 @@ import {
   type LogEntry,
   type PdfPosition,
   presenceUserFor,
+  type ProjectRole,
   type ProjectSearchMatch,
   type SpellcheckLanguage,
 } from '@kaxolax/contracts'
@@ -50,6 +51,7 @@ import {
   eventEffect,
   historyFeed,
   type RealtimeMessage,
+  suggestionFeed,
 } from '@/lib/project-events'
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/sharing'
 import { documentByPath } from '@/lib/tree'
@@ -69,6 +71,7 @@ import { SpellcheckMenu } from './spellcheck/spellcheck-menu'
 import { useSpellcheck } from './spellcheck/use-spellcheck'
 import { useCompile } from './use-compile'
 import { useDocumentOutline } from './use-outline'
+import { useEditMode } from './use-edit-mode'
 import { useProjectIndex } from './use-project-index'
 import { useProjectMeta } from './use-project-meta'
 import { useRealtimeSocket } from './use-realtime'
@@ -89,6 +92,12 @@ const REMOVED_REDIRECT_MS = 6_000
 const FOLLOW_GRACE_MS = 3_000
 /** Attente maximale de l'ouverture d'un document à modifier (correction depuis les logs). */
 const EDIT_DOCUMENT_TIMEOUT_MS = 15_000
+
+/** Fin du message d'un changement de rôle : ce que devient l'éditeur. */
+function roleChangeDetail(role: ProjectRole, readOnly: boolean): string {
+  if (role === 'reviewer') return ' : vos modifications deviennent des suggestions.'
+  return readOnly ? ' : éditeur en lecture seule.' : '.'
+}
 
 /**
  * Page projet : charge le projet, l'arborescence et la dernière compilation, tient les onglets
@@ -160,6 +169,9 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
   )
 
   const canEdit = project !== null && canEditRole(project.role)
+  // Mode Modifier / Suggérer (même source que la colonne de l'éditeur) : en Suggérer, les outils
+  // qui modifient le texte restent disponibles, même pour un relecteur (suggestions).
+  const editMode = useEditMode(projectId, user?.id ?? null, project?.role ?? null)
   // Chat lu seulement s'il est affiché : sidebar visible, onglet Chats, sans recherche par-dessus.
   const chat = useProjectChat(
     project?.id ?? null,
@@ -330,7 +342,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
       if (message.kind === 'role') {
         setProject((current) => (current ? { ...current, role: message.message.role } : current))
         setNotice({
-          message: `Votre rôle est maintenant ${ROLE_LABELS[message.message.role].toLowerCase()} (${ROLE_DESCRIPTIONS[message.message.role]})${message.message.readOnly ? ' : éditeur en lecture seule.' : '.'}`,
+          message: `Votre rôle est maintenant ${ROLE_LABELS[message.message.role].toLowerCase()} (${ROLE_DESCRIPTIONS[message.message.role]})${roleChangeDetail(message.message.role, message.message.readOnly)}`,
           level: 'info',
         })
         return
@@ -363,6 +375,9 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
           break
         case 'history':
           historyFeed.publish(effect.event)
+          break
+        case 'suggestion':
+          suggestionFeed.publish(effect.event)
           break
         case 'project':
           setProject((current) => (current ? { ...current, ...effect.changes } : current))
@@ -891,6 +906,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     >
       <WorkspaceActionsProvider
         canEdit={canEdit}
+        editMode={editMode.mode}
         compile={runCompile}
         downloadZip={downloadZip}
         searchProject={searchProject}
@@ -955,6 +971,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
               loading={currentTabs === null}
               canEdit={canEdit}
               canComment={project !== null && canCommentRole(project.role)}
+              role={project?.role ?? null}
               selfId={user?.id ?? null}
               membersVersion={membersVersion}
               settings={editorConfig}

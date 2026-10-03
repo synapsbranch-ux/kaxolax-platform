@@ -121,3 +121,4 @@ export function createStateAnchor(state: Uint8Array | null, from: number, to: nu
 
 export * from './anchors.js'
 export * from './history.js'
+export * from './suggestions.js'

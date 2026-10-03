@@ -202,6 +202,36 @@ ouvre le fichier du log (sinon le document principal) et corrige le nom dans le
     texte ancré supprimé : citation barrée et « Texte commenté supprimé ». Réponses, modification
     et suppression de ses messages, résolution et réouverture ; `@` propose les membres (comme le
     chat). Lecteur : lecture seule. `?comment=<id>` (lien de l'email de mention) ouvre le fil.
+  - Suivi des modifications (`workspace/use-edit-mode.ts`, `workspace/use-project-suggestions.ts`,
+    `panels/suggestions-section.tsx`, logique dans `lib/suggestions.ts` et
+    `lib/suggestion-recorder.ts`, extension `suggestionTracking` de `@kaxolax/editor`) : bascule
+    « Modifier / Suggérer » dans la barre des onglets (Ctrl+Alt+R), mémorisée par utilisateur et
+    par projet dans le stockage local (`kaxolax:edit-mode:<user>:<projet>`) ; Suggérer imposé au
+    relecteur (pastille « Suggestion »), rien pour le lecteur. En mode Suggérer, l'éditeur reste
+    modifiable mais intercepte chaque modification locale (frappe, collage, autocomplétion, outil)
+    avant le texte Yjs : seules les mises à jour reçues (`ySyncAnnotation`) passent. Les outils de
+    la barre Tools qui modifient le texte restent donc disponibles en Suggérer, même pour un
+    relecteur (`actionsReadOnly`) ; fichiers et dossiers restent réservés aux éditeurs. Les frappes
+    sont fusionnées en une suggestion (`recordSuggestionEdit` de `@kaxolax/collab`, coordonnées
+    converties par `suggestionViewEdit`, suggestion élargie quand la frappe suit le curseur),
+    envoyées après 400 ms (`POST`, puis `PATCH`, `DELETE` si elles s'annulent) par une file
+    ordonnée ; Ctrl+Z retire la suggestion en cours, Rétablir (Ctrl+Y, Ctrl+Maj+Z) ne fait rien.
+    Une suggestion décidée ou retirée ailleurs (événement, panneau Review) fait oublier son
+    brouillon à l'éditeur (`suggestionsGone`, `SuggestionRecorder.discard`). Affichage en ligne : texte d'origine barré,
+    texte proposé en widget, à la couleur de présence de l'auteur (tirets pour un brouillon pas
+    encore enregistré), info-bulle (auteur, date, Accepter / Refuser pour l'éditeur et le
+    propriétaire, Retirer pour l'auteur), Ctrl+Alt+Entrée accepte et Ctrl+Alt+Maj+Entrée refuse
+    la suggestion sous le curseur. Suggestions ouvertes et obsolètes chargées à l'ouverture
+    (seule la dernière relecture compte ; une suggestion changée pendant la lecture garde son
+    état courant, `mergeReloaded`),
+    tenues à jour par `suggestion.created`, `suggestion.updated` et `suggestion.decided`
+    (relayés par `suggestionFeed`). Panneau Review, section Suggestions : filtres par auteur et
+    par document, ordre du texte du document actif, précédent / suivant, clic → saut à la
+    suggestion (document ouvert au besoin), accepter / refuser une suggestion, écarter (éditeur,
+    propriétaire) ou retirer (auteur) une suggestion obsolète, « Tout accepter » et « Tout
+    refuser » (obsolètes comprises ; filtres appliqués : un auteur, un document, après confirmation ;
+    relancés tant que l'API en signale d'autres), bilan (acceptées, refusées, obsolètes) ;
+    obsolète : badge et explication, aussi détectée dans le texte courant avant la décision.
   - Historique (`panels/history-drawer.tsx`, `workspace/use-project-history.ts`, logique dans
     `lib/history.ts`), bouton Historique de la colonne éditeur : versions groupées par jour
     (heure, nature, label, auteurs dans leur couleur de présence), relues à chaque
@@ -339,6 +369,11 @@ Clerk) :
   réponse, résolution, relecteur qui commente, lecteur qui ne peut pas ; modifier et supprimer
   son message, rouvrir un fil, commentaire précédent et suivant, texte ancré supprimé (citation
   barrée) ; email d'une @mention en commentaire (lien qui ouvre le fil) et dans le chat ;
+- `suggestions.spec.ts` : un relecteur suggère (mode Suggérer imposé, texte inchangé, ajout et
+  remplacement affichés en ligne chez tous), la propriétaire accepte depuis le panneau Review et
+  refuse depuis l'info-bulle, le texte accepté est attribué au relecteur dans l'historique ;
+  bascule mémorisée après rechargement, lecteur sans bascule, Ctrl+Z en mode Suggérer,
+  suggestion obsolète, « Tout accepter » d'un auteur ;
 - `history.spec.ts` : version d'une compilation, diff par auteur, label, restauration exacte du
   texte et d'une image, restauration d'un seul fichier, zip d'une version ;
 - `writing-tools.spec.ts` : formules (MathLive) insérées, remplacées et compilées, symboles,
@@ -375,7 +410,7 @@ Outils communs : `accounts.ts` (fixture `accounts` : comptes créés par l'API B
 chacun dans son propre contexte de navigateur, connectés par un jeton de connexion de
 `@clerk/testing`, ou par mot de passe et TOTP pour un compte avec MFA), `project.ts` (import d'un
 projet en zip depuis le tableau de bord, éditeur, compilation, outils, partage, chat,
-commentaires), `api.ts` (appels de l'API avec le jeton de la page, pour préparer et nettoyer),
+commentaires, suggestions), `api.ts` (appels de l'API avec le jeton de la page, pour préparer et nettoyer),
 `clerk.ts`, `admin.ts`, `mailpit.ts`, `demo.ts` (projet de démonstration), `files.ts` (zip et PNG
 sans dépendance, testés par Vitest). `compile()` suit les deux modes de l'API : réponse
 synchrone (`gateway`), ou 202 `{ buildId, status }` suivi par la pastille de compilation jusqu'à
@@ -400,7 +435,7 @@ dans la base de développement quand le webhook Clerk n'atteint pas l'API (pas d
 
 **Captures d'écran** (`e2e/screenshots.spec.ts`, projet `screenshots`) : un projet de
 démonstration est semé (fichiers, image, bibliographie, deux collaboratrices, commentaires,
-messages, versions, lien de partage, invitation, correcteur en français), puis chaque écran
+suggestions, messages, versions, lien de partage, invitation, correcteur en français), puis chaque écran
 (`SCREENS` de `e2e/screens.ts` : connexion et inscription, pages, nouveau projet depuis un
 template, bannière système active (créée puis supprimée par l'admin), menus de la pastille et
 du PDF, limite de collaborateurs atteinte, correcteur, pages pour rejoindre un projet, historique, compte et facturation, fiches de l'admin…) est capturé en

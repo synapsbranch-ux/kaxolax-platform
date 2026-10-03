@@ -9,6 +9,9 @@ import {
   type ProjectEvent,
   type RoleChangedMessage,
   roleChangedMessageSchema,
+  type SuggestionCreatedEvent,
+  type SuggestionDecidedEvent,
+  type SuggestionUpdatedEvent,
   type VersionCreatedEvent,
   type SpellcheckLanguage,
 } from '@kaxolax/contracts'
@@ -56,6 +59,8 @@ export type EventEffect =
   | { kind: 'chat'; event: ChatMessageCreatedEvent }
   /** Commentaire créé ou fil modifié : transmis aux commentaires (`commentFeed`). */
   | { kind: 'comment'; event: CommentFeedEvent }
+  /** Suggestion créée, modifiée, retirée ou décidée : transmise au suivi (`suggestionFeed`). */
+  | { kind: 'suggestion'; event: SuggestionFeedEvent }
   /** Nouvelle version de l'historique : transmise au tiroir Historique (`historyFeed`). */
   | { kind: 'history'; event: VersionCreatedEvent }
   /** Réglages communs du projet à recopier (langue du correcteur). */
@@ -82,6 +87,10 @@ export function eventEffect(event: ProjectEvent, selfId: string | null): EventEf
     case 'comment.created':
     case 'comment.thread-updated':
       return { kind: 'comment', event }
+    case 'suggestion.created':
+    case 'suggestion.updated':
+    case 'suggestion.decided':
+      return { kind: 'suggestion', event }
     case 'version.created':
       return { kind: 'history', event }
     case 'project.updated':
@@ -169,6 +178,29 @@ export const historyFeed = {
     historyListeners.add(listener)
     return () => {
       historyListeners.delete(listener)
+    }
+  },
+}
+
+/** Événements du suivi des modifications. */
+export type SuggestionFeedEvent =
+  SuggestionCreatedEvent | SuggestionUpdatedEvent | SuggestionDecidedEvent
+
+type SuggestionListener = (event: SuggestionFeedEvent) => void
+const suggestionListeners = new Set<SuggestionListener>()
+
+/**
+ * Suggestions créées, modifiées, retirées ou décidées (document meta) : la page projet les
+ * publie, les suggestions du projet (`useProjectSuggestions`) s'y abonnent.
+ */
+export const suggestionFeed = {
+  publish(event: SuggestionFeedEvent): void {
+    for (const listener of [...suggestionListeners]) listener(event)
+  },
+  subscribe(listener: SuggestionListener): () => void {
+    suggestionListeners.add(listener)
+    return () => {
+      suggestionListeners.delete(listener)
     }
   },
 }

@@ -18,10 +18,13 @@ import {
   openInTree,
   openProject,
   openReview,
+  openSuggestions,
   placeCursorAfter,
   placeCursorOn,
   runTool,
   selectText,
+  setEditMode,
+  suggestedText,
 } from './project'
 import {
   clearScreenshots,
@@ -100,7 +103,8 @@ function contextFor(viewport: ScreenViewport, theme: ScreenTheme): BrowserContex
 /**
  * Projet de démonstration : importé par Ada (correcteur en français), Grace éditrice, trois
  * compilations (versions), modifications des deux autrices (dont un mot mal orthographié pour le
- * menu du correcteur), un label, trois fils de commentaires (dont un résolu), une conversation
+ * menu du correcteur), un label, trois fils de commentaires (dont un résolu), deux suggestions
+ * de Grace (suivi des modifications), une conversation
  * dans le chat, un lien de partage en lecture seule et une invitation en attente. Grace reste
  * connectée sur main.tex (présence) ; la barre Tools d'Ada est refermée.
  */
@@ -159,6 +163,16 @@ async function seedDemo(accounts: Accounts): Promise<Demo> {
   await title.getByTestId('comment-resolve').click()
   await owner.page.getByTestId('review-toggle').click()
   await collaborator.page.getByTestId('review-toggle').click()
+
+  // Suivi des modifications : deux suggestions de Grace (mode Suggérer), un ajout et un
+  // remplacement, affichées en ligne et dans le panneau Review ; Grace repasse en Modifier.
+  await setEditMode(collaborator.page, 'suggest')
+  await placeCursorAfter(collaborator.page, 'montre la température')
+  await collaborator.page.keyboard.type(' moyenne')
+  await selectText(collaborator.page, 'homogène')
+  await collaborator.page.keyboard.type('d’acier')
+  await expect.poll(() => suggestedText(owner.page)).toBe('d’acier moyenne')
+  await setEditMode(collaborator.page, 'edit')
 
   // Chat : conversation avec une mention et une référence de fichier.
   const say = (account: Account, body: string) =>
@@ -573,9 +587,21 @@ async function capturePanels(shots: Shots, page: Page, viewport: ScreenViewport)
   await tidy(() => hideSidebar(page))
   await shots.take('13-review', async () => {
     await onProject(page, projectId)
-    await openReview(page)
+    const panel = await openReview(page)
+    await panel.getByTestId('review-comments-tab').click()
     await expect(page.getByTestId('comment-thread')).toHaveCount(2)
     await page.getByTestId('comment-thread').first().click()
+  })
+  await tidy(async () => {
+    if (await page.getByTestId('review-panel').isVisible()) {
+      await page.getByTestId('review-toggle').click()
+    }
+  })
+  await shots.take('13-suggestions', async () => {
+    await onProject(page, projectId)
+    await openSuggestions(page)
+    await expect(page.getByTestId('suggestion-card')).toHaveCount(2)
+    await page.getByTestId('suggestion-card').first().click()
   })
   await tidy(async () => {
     if (await page.getByTestId('review-panel').isVisible()) {

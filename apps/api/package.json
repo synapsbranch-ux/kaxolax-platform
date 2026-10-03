@@ -62,7 +62,8 @@
     "eslint": "catalog:",
     "hot-hook": "catalog:",
     "pino-pretty": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "yjs": "catalog:"
   },
   "hotHook": {
     "boundaries": [

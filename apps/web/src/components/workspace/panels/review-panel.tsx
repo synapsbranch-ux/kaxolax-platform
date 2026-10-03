@@ -26,7 +26,7 @@ import {
   Trash2Icon,
   XIcon,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectTree } from '@/lib/api'
 import { type ChatMember, chatMember, displaySegments } from '@/lib/chat'
 import {
@@ -40,6 +40,9 @@ import {
   threadCounts,
 } from '@/lib/comments'
 import { CommentComposer } from './comment-composer'
+
+/** Section du panneau : commentaires ou suggestions (suivi des modifications). */
+export type ReviewSection = 'comments' | 'suggestions'
 
 /** Brouillon d'un nouveau fil : sélection ancrée dans le document actif. */
 export interface CommentDraft {
@@ -58,7 +61,10 @@ function dateLabel(iso: string): string {
 }
 
 /**
- * Panneau Review, à droite de l'éditeur : fils de commentaires du projet, ouverts ou résolus,
+ * Panneau Review, à droite de l'éditeur, en deux sections : Commentaires et Suggestions (suivi
+ * des modifications, `suggestions-section.tsx`, fourni par `suggestions`).
+ *
+ * Commentaires : fils de commentaires du projet, ouverts ou résolus,
  * dans l'ordre du texte du document actif puis par document. Un clic sur un fil (ou la navigation
  * au suivant, au précédent) saute au texte commenté dans l'éditeur. Les rôles qui commentent
  * (owner, editor, reviewer) ouvrent un fil sur la sélection, répondent, résolvent et rouvrent ;
@@ -87,6 +93,10 @@ export function ReviewPanel({
   onDelete,
   onResolve,
   onClose,
+  section,
+  onSectionChange,
+  suggestionCount,
+  suggestions,
 }: {
   tree: ProjectTree | null
   threads: readonly CommentThread[]
@@ -113,6 +123,12 @@ export function ReviewPanel({
   onDelete: (threadId: string, commentId: string) => Promise<void>
   onResolve: (threadId: string, resolved: boolean) => Promise<void>
   onClose: () => void
+  section: ReviewSection
+  onSectionChange: (section: ReviewSection) => void
+  /** Suggestions ouvertes du projet (onglet de la section). */
+  suggestionCount: number
+  /** Contenu de la section Suggestions. */
+  suggestions: ReactNode
 }) {
   const [filter, setFilter] = useState<ReviewFilter>('open')
   // Fil sélectionné de l'autre onglet (lien d'email, clic dans l'éditeur) : l'onglet suit.
@@ -152,36 +168,40 @@ export function ReviewPanel({
     >
       <div className="flex h-tab shrink-0 items-center gap-1 border-b border-editor-border px-3 text-sm font-medium">
         <span className="mr-auto">Review</span>
-        <SimpleTooltip label="Commentaire précédent">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="hover:bg-editor-tab-active"
-            aria-label="Commentaire précédent"
-            disabled={ordered.length === 0}
-            onClick={() => {
-              navigate(-1)
-            }}
-            data-testid="review-previous"
-          >
-            <ChevronUpIcon />
-          </Button>
-        </SimpleTooltip>
-        <SimpleTooltip label="Commentaire suivant">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="hover:bg-editor-tab-active"
-            aria-label="Commentaire suivant"
-            disabled={ordered.length === 0}
-            onClick={() => {
-              navigate(1)
-            }}
-            data-testid="review-next"
-          >
-            <ChevronDownIcon />
-          </Button>
-        </SimpleTooltip>
+        {section === 'comments' ? (
+          <>
+            <SimpleTooltip label="Commentaire précédent">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="hover:bg-editor-tab-active"
+                aria-label="Commentaire précédent"
+                disabled={ordered.length === 0}
+                onClick={() => {
+                  navigate(-1)
+                }}
+                data-testid="review-previous"
+              >
+                <ChevronUpIcon />
+              </Button>
+            </SimpleTooltip>
+            <SimpleTooltip label="Commentaire suivant">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="hover:bg-editor-tab-active"
+                aria-label="Commentaire suivant"
+                disabled={ordered.length === 0}
+                onClick={() => {
+                  navigate(1)
+                }}
+                data-testid="review-next"
+              >
+                <ChevronDownIcon />
+              </Button>
+            </SimpleTooltip>
+          </>
+        ) : null}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -193,118 +213,142 @@ export function ReviewPanel({
         </Button>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 border-b border-editor-border px-3 py-2">
+      <div className="shrink-0 border-b border-editor-border px-3 py-2">
         <Tabs
-          value={filter}
+          value={section}
           onValueChange={(value) => {
-            setFilter(value === 'resolved' ? 'resolved' : 'open')
+            onSectionChange(value === 'suggestions' ? 'suggestions' : 'comments')
           }}
         >
-          <TabsList>
-            <TabsTrigger value="open" data-testid="review-open-tab">
-              Ouverts ({counts.open})
+          <TabsList className="w-full">
+            <TabsTrigger value="comments" data-testid="review-comments-tab">
+              Commentaires ({counts.open})
             </TabsTrigger>
-            <TabsTrigger value="resolved" data-testid="review-resolved-tab">
-              Résolus ({counts.resolved})
+            <TabsTrigger value="suggestions" data-testid="review-suggestions-tab">
+              Suggestions ({suggestionCount})
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        {canComment ? (
-          <SimpleTooltip label="Commenter la sélection (Ctrl+Alt+M)">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="ml-auto hover:bg-editor-tab-active"
-              aria-label="Commenter la sélection"
-              disabled={activeDocumentId === null || draft !== null}
-              onClick={onStartDraft}
-              data-testid="comment-selection"
+      </div>
+
+      {section === 'suggestions' ? (
+        suggestions
+      ) : (
+        <>
+          <div className="flex shrink-0 items-center gap-2 border-b border-editor-border px-3 py-2">
+            <Tabs
+              value={filter}
+              onValueChange={(value) => {
+                setFilter(value === 'resolved' ? 'resolved' : 'open')
+              }}
             >
-              <MessageSquarePlusIcon />
-            </Button>
-          </SimpleTooltip>
-        ) : null}
-      </div>
-
-      {notice !== null ? (
-        <p className="shrink-0 px-3 pt-2 text-xs text-editor-gutter-foreground" role="status">
-          {notice}
-        </p>
-      ) : null}
-
-      {draft !== null ? (
-        <div className="shrink-0 border-b border-editor-border p-3" data-testid="comment-draft">
-          <Quote text={draft.quotedText} />
-          <CommentComposer
-            selfId={selfId}
-            members={members}
-            placeholder="Votre commentaire… (@ pour mentionner)"
-            submitLabel="Commenter"
-            autoFocus
-            onSubmit={onCreate}
-            onCancel={onCancelDraft}
-          />
-        </div>
-      ) : null}
-
-      <div ref={list} className="min-h-0 flex-1 overflow-y-auto p-2">
-        {status === 'loading' ? (
-          <p className="flex items-center justify-center gap-2 p-6 text-sm text-editor-gutter-foreground">
-            <Spinner label="" /> Chargement des commentaires…
-          </p>
-        ) : status === 'error' ? (
-          <div className="flex flex-col items-center gap-2 p-6 text-center text-sm">
-            <p role="alert" className="text-destructive">
-              {error ?? 'Impossible de charger les commentaires.'}
-            </p>
-            <Button variant="outline" size="xs" onClick={onRetry}>
-              Réessayer
-            </Button>
+              <TabsList>
+                <TabsTrigger value="open" data-testid="review-open-tab">
+                  Ouverts ({counts.open})
+                </TabsTrigger>
+                <TabsTrigger value="resolved" data-testid="review-resolved-tab">
+                  Résolus ({counts.resolved})
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {canComment ? (
+              <SimpleTooltip label="Commenter la sélection (Ctrl+Alt+M)">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="ml-auto hover:bg-editor-tab-active"
+                  aria-label="Commenter la sélection"
+                  disabled={activeDocumentId === null || draft !== null}
+                  onClick={onStartDraft}
+                  data-testid="comment-selection"
+                >
+                  <MessageSquarePlusIcon />
+                </Button>
+              </SimpleTooltip>
+            ) : null}
           </div>
-        ) : ordered.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-6 py-10 text-center text-editor-gutter-foreground">
-            <MessageSquareTextIcon className="size-6" />
-            <p className="text-sm">
-              {filter === 'open'
-                ? canComment
-                  ? 'Aucun commentaire ouvert. Sélectionnez du texte, puis commentez-le.'
-                  : 'Aucun commentaire ouvert.'
-                : 'Aucun commentaire résolu.'}
+
+          {notice !== null ? (
+            <p className="shrink-0 px-3 pt-2 text-xs text-editor-gutter-foreground" role="status">
+              {notice}
             </p>
-          </div>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {ordered.map((thread) => (
-              <ThreadCard
-                key={thread.id}
-                thread={thread}
-                documentName={
-                  thread.documentId === activeDocumentId
-                    ? null
-                    : (tree?.documents.find((document) => document.id === thread.documentId)
-                        ?.path ?? 'Document')
-                }
-                position={
-                  thread.documentId === activeDocumentId ? positions.get(thread.id) : undefined
-                }
-                selected={thread.id === selectedId}
-                tree={tree}
-                members={members}
-                memberMap={memberMap}
+          ) : null}
+
+          {draft !== null ? (
+            <div className="shrink-0 border-b border-editor-border p-3" data-testid="comment-draft">
+              <Quote text={draft.quotedText} />
+              <CommentComposer
                 selfId={selfId}
-                canComment={canComment}
-                onSelect={() => {
-                  onSelect(thread.id)
-                }}
-                onReply={(body) => onReply(thread.id, body)}
-                onEdit={(commentId, body) => onEdit(thread.id, commentId, body)}
-                onDelete={(commentId) => onDelete(thread.id, commentId)}
-                onResolve={(resolved) => onResolve(thread.id, resolved)}
+                members={members}
+                placeholder="Votre commentaire… (@ pour mentionner)"
+                submitLabel="Commenter"
+                autoFocus
+                onSubmit={onCreate}
+                onCancel={onCancelDraft}
               />
-            ))}
-          </ul>
-        )}
-      </div>
+            </div>
+          ) : null}
+
+          <div ref={list} className="min-h-0 flex-1 overflow-y-auto p-2">
+            {status === 'loading' ? (
+              <p className="flex items-center justify-center gap-2 p-6 text-sm text-editor-gutter-foreground">
+                <Spinner label="" /> Chargement des commentaires…
+              </p>
+            ) : status === 'error' ? (
+              <div className="flex flex-col items-center gap-2 p-6 text-center text-sm">
+                <p role="alert" className="text-destructive">
+                  {error ?? 'Impossible de charger les commentaires.'}
+                </p>
+                <Button variant="outline" size="xs" onClick={onRetry}>
+                  Réessayer
+                </Button>
+              </div>
+            ) : ordered.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-6 py-10 text-center text-editor-gutter-foreground">
+                <MessageSquareTextIcon className="size-6" />
+                <p className="text-sm">
+                  {filter === 'open'
+                    ? canComment
+                      ? 'Aucun commentaire ouvert. Sélectionnez du texte, puis commentez-le.'
+                      : 'Aucun commentaire ouvert.'
+                    : 'Aucun commentaire résolu.'}
+                </p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {ordered.map((thread) => (
+                  <ThreadCard
+                    key={thread.id}
+                    thread={thread}
+                    documentName={
+                      thread.documentId === activeDocumentId
+                        ? null
+                        : (tree?.documents.find((document) => document.id === thread.documentId)
+                            ?.path ?? 'Document')
+                    }
+                    position={
+                      thread.documentId === activeDocumentId ? positions.get(thread.id) : undefined
+                    }
+                    selected={thread.id === selectedId}
+                    tree={tree}
+                    members={members}
+                    memberMap={memberMap}
+                    selfId={selfId}
+                    canComment={canComment}
+                    onSelect={() => {
+                      onSelect(thread.id)
+                    }}
+                    onReply={(body) => onReply(thread.id, body)}
+                    onEdit={(commentId, body) => onEdit(thread.id, commentId, body)}
+                    onDelete={(commentId) => onDelete(thread.id, commentId)}
+                    onResolve={(resolved) => onResolve(thread.id, resolved)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
     </aside>
   )
 }

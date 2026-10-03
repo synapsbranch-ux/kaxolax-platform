@@ -360,3 +360,34 @@ export async function commentSelection(page: Page, body: string): Promise<Locato
 export async function commentedText(page: Page): Promise<string> {
   return (await page.locator('.cm-content .cm-comment-highlight').allTextContents()).join('')
 }
+
+// --- Suivi des modifications ------------------------------------------------------------------
+
+/** Ouvre le panneau Review sur la section Suggestions. */
+export async function openSuggestions(page: Page): Promise<Locator> {
+  const panel = await openReview(page)
+  await panel.getByTestId('review-suggestions-tab').click()
+  return panel
+}
+
+/** Carte de la section Suggestions qui contient `text` (texte d'origine ou proposé). */
+export function suggestionCard(page: Page, text: string): Locator {
+  return page.getByTestId('suggestion-card').filter({ hasText: text })
+}
+
+/** Bascule Modifier / Suggérer de la barre de l'éditeur (éditeur ou propriétaire). */
+export async function setEditMode(page: Page, mode: 'edit' | 'suggest'): Promise<void> {
+  const item = page.getByTestId(mode === 'edit' ? 'edit-mode-edit' : 'edit-mode-suggest')
+  if ((await item.getAttribute('data-state')) !== 'on') await item.click()
+  await expect(item).toHaveAttribute('data-state', 'on')
+}
+
+/** Texte ajouté affiché en ligne par les suggestions (widgets), dans l'ordre du document. */
+export async function suggestedText(page: Page): Promise<string> {
+  return (await page.locator('.cm-content .cm-suggestion-insert').allTextContents()).join('')
+}
+
+/** Texte barré par les suggestions (suppressions et remplacements). */
+export async function struckText(page: Page): Promise<string> {
+  return (await page.locator('.cm-content .cm-suggestion-delete').allTextContents()).join('')
+}

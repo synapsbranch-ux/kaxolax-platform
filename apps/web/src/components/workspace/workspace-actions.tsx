@@ -20,6 +20,7 @@ import {
 } from 'react'
 import { NameDialog } from '@/components/name-dialog'
 import { useSettings } from '@/components/preferences/settings-provider'
+import { actionsReadOnly, type EditMode } from '@/lib/suggestions'
 import type { WordCountPayload } from '@/lib/word-count'
 import { ACTION_DIALOGS, WORD_COUNT_DIALOG } from './action-dialogs'
 import type { EditorHandle } from './editor/code-editor'
@@ -55,11 +56,12 @@ interface PendingPrompt {
 
 /**
  * Fournit le registre d'actions (actions de base de @kaxolax/editor) et les callbacks de
- * l'application : création et upload de fichiers (désactivés en lecture seule), compilation, zip,
+ * l'application : création et upload de fichiers (désactivés sans droit d'édition), compilation, zip,
  * recherche dans le projet, saisie d'un texte, boîtes de dialogue des outils et messages.
  */
 export function WorkspaceActionsProvider({
   canEdit,
+  editMode,
   compile,
   downloadZip,
   searchProject,
@@ -69,6 +71,12 @@ export function WorkspaceActionsProvider({
   children,
 }: {
   canEdit: boolean
+  /**
+   * Mode effectif de l'éditeur (`useEditMode`) : en Suggérer, les actions qui modifient le texte
+   * restent disponibles même sans droit d'édition (relecteur), leurs modifications devenant des
+   * suggestions. Fichiers et dossiers restent réservés à `canEdit`.
+   */
+  editMode: EditMode | null
   compile: () => void
   downloadZip: () => void
   searchProject: (query: string) => void
@@ -130,7 +138,7 @@ export function WorkspaceActionsProvider({
 
   const host = useMemo<ActionHost>(
     () => ({
-      readOnly: !canEdit,
+      readOnly: actionsReadOnly(canEdit, editMode),
       compile,
       downloadZip,
       searchProject,
@@ -157,7 +165,7 @@ export function WorkspaceActionsProvider({
           }
         : {}),
     }),
-    [canEdit, compile, downloadZip, searchProject, notify, files],
+    [canEdit, editMode, compile, downloadZip, searchProject, notify, files],
   )
   const context = useMemo(() => contextGetter(editor, host), [editor, host])
 

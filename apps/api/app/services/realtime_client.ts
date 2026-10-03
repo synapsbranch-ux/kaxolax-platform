@@ -2,6 +2,11 @@ import { userChannelName } from '@kaxolax/collab'
 import { signRealtimeToken, signUserRealtimeToken } from '@kaxolax/collab/token'
 import {
   type ActiveBanner,
+  type AppliedSuggestionsResponse,
+  appliedSuggestionsResponseSchema,
+  type ApplySuggestionsRequest,
+  type ApplySuggestionsResponse,
+  applySuggestionsResponseSchema,
   type BroadcastEvent,
   closeDocumentResponseSchema,
   disconnectUserResponseSchema,
@@ -236,6 +241,70 @@ export default class RealtimeClient {
       return replaceDocumentResponseSchema.parse(await response.json())
     } catch (error) {
       logger.warn({ err: error, projectId, documentId }, 'could not replace realtime document')
+      return null
+    }
+  }
+
+  /**
+   * Suivi des modifications : applique des suggestions acceptées au document en cours d'édition
+   * (chacune au nom de son auteur dans l'historique, idempotent par identifiant). Null si le
+   * service n'a pas répondu, refuse le décideur ou ne connaît pas le document : l'appelant ne
+   * marque alors rien comme accepté (un nouvel essai n'applique pas deux fois).
+   */
+  async applySuggestions(
+    projectId: string,
+    documentId: string,
+    request: ApplySuggestionsRequest,
+  ): Promise<ApplySuggestionsResponse | null> {
+    try {
+      const response = await fetch(
+        `${realtimeConfig.internalUrl}/internal/projects/${projectId}/documents/${documentId}/suggestions/apply`,
+        {
+          method: 'POST',
+          headers: {
+            [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release(),
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(request),
+          // Rattrapage des autres instances compris (comme l'instantané).
+          signal: AbortSignal.timeout(realtimeConfig.snapshotTimeoutMs),
+        },
+      )
+      if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+      return applySuggestionsResponseSchema.parse(await response.json())
+    } catch (error) {
+      logger.warn({ err: error, projectId, documentId }, 'could not apply suggestions')
+      return null
+    }
+  }
+
+  /**
+   * Suggestions déjà appliquées au document parmi `ids` (acceptation interrompue après
+   * l'application), avec le membre qui les a acceptées. Null si le service n'a pas répondu ou
+   * n'a pas pu rattraper les autres instances : l'appelant ne refuse ni ne retire rien.
+   */
+  async appliedSuggestions(
+    projectId: string,
+    documentId: string,
+    ids: string[],
+  ): Promise<AppliedSuggestionsResponse | null> {
+    try {
+      const response = await fetch(
+        `${realtimeConfig.internalUrl}/internal/projects/${projectId}/documents/${documentId}/suggestions/applied`,
+        {
+          method: 'POST',
+          headers: {
+            [INTERNAL_TOKEN_HEADER]: realtimeConfig.internalToken.release(),
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ ids }),
+          signal: AbortSignal.timeout(realtimeConfig.snapshotTimeoutMs),
+        },
+      )
+      if (!response.ok) throw new Error(`realtime service answered ${String(response.status)}`)
+      return appliedSuggestionsResponseSchema.parse(await response.json())
+    } catch (error) {
+      logger.warn({ err: error, projectId, documentId }, 'could not read applied suggestions')
       return null
     }
   }

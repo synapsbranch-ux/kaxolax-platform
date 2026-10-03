@@ -29,7 +29,10 @@ export interface PromptRequest {
  * tableaux, gestionnaire de packages…) passent par `openDialog`.
  */
 export interface ActionHost {
-  /** Droits de l'utilisateur en lecture seule (viewer, reviewer), même sans fichier ouvert. */
+  /**
+   * Droits de l'utilisateur en lecture seule (lecteur ; relecteur hors du mode Suggérer), même sans
+   * fichier ouvert.
+   */
   readOnly?: boolean
   compile?: () => void
   newFile?: () => void

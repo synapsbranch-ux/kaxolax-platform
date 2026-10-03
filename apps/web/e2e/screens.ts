@@ -59,6 +59,11 @@ export const SCREENS = [
   { id: '11-presence', title: 'Présence : curseur, nom et avatars du collaborateur' },
   { id: '12-chat', title: 'Chat du projet' },
   { id: '13-review', title: 'Panneau Review (commentaires)' },
+  {
+    id: '13-suggestions',
+    title:
+      'Suivi des modifications : suggestions en ligne et section Suggestions du panneau Review',
+  },
   { id: '14-history-list', title: 'Historique : versions groupées par jour' },
   { id: '14-history-diff', title: 'Historique : diff par auteur' },
   { id: '15-formula', title: 'Éditeur de formules' },

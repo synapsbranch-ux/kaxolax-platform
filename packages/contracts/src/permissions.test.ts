@@ -3,6 +3,7 @@ import {
   assignableRoleSchema,
   canComment,
   canCompile,
+  canDecideSuggestion,
   canEdit,
   canLeave,
   canManageAi,
@@ -10,6 +11,7 @@ import {
   canManageProject,
   canManageShareLinks,
   canRead,
+  canSuggest,
   canTransferOwnership,
   hasPermission,
   higherRole,
@@ -26,14 +28,24 @@ describe('project permissions', () => {
       'compile',
       'comment',
       'edit',
+      'suggest',
+      'decideSuggestion',
       'manageMembers',
       'manageShareLinks',
       'transferOwnership',
       'manageProject',
       'manageAi',
     ])
-    expect(permissionsOf('editor')).toEqual(['read', 'compile', 'comment', 'edit', 'leave'])
-    expect(permissionsOf('reviewer')).toEqual(['read', 'compile', 'comment', 'leave'])
+    expect(permissionsOf('editor')).toEqual([
+      'read',
+      'compile',
+      'comment',
+      'edit',
+      'suggest',
+      'decideSuggestion',
+      'leave',
+    ])
+    expect(permissionsOf('reviewer')).toEqual(['read', 'compile', 'comment', 'suggest', 'leave'])
     expect(permissionsOf('viewer')).toEqual(['read', 'compile', 'leave'])
   })
 
@@ -45,6 +57,8 @@ describe('project permissions', () => {
         canCompile(role),
         canComment(role),
         canEdit(role),
+        canSuggest(role),
+        canDecideSuggestion(role),
         canManageMembers(role),
         canManageShareLinks(role),
         canTransferOwnership(role),
@@ -54,10 +68,10 @@ describe('project permissions', () => {
       ],
     ])
     expect(Object.fromEntries(table)).toEqual({
-      owner: [true, true, true, true, true, true, true, true, true, false],
-      editor: [true, true, true, true, false, false, false, false, false, true],
-      reviewer: [true, true, true, false, false, false, false, false, false, true],
-      viewer: [true, true, false, false, false, false, false, false, false, true],
+      owner: [true, true, true, true, true, true, true, true, true, true, true, false],
+      editor: [true, true, true, true, true, true, false, false, false, false, false, true],
+      reviewer: [true, true, true, false, true, false, false, false, false, false, false, true],
+      viewer: [true, true, false, false, false, false, false, false, false, false, false, true],
     })
   })
 

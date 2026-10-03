@@ -158,19 +158,51 @@ par lots (au plus tard `HISTORY_FLUSH_MS`, 100 ms par défaut), dans l'ordre d'a
 rejoue ce journal pour créer les versions et attribuer chaque changement à son auteur. Une
 écriture perdue est rattrapée à la version suivante depuis l'état enregistré (sans auteur).
 
+## Suggestions acceptées
+
+`POST /internal/projects/:id/documents/:docId/suggestions/apply` (appelée par l'API après
+`decideSuggestion`) : le rôle du décideur est relu en base (owner ou editor, sinon 403). Avec
+plusieurs instances, la copie locale rattrape d'abord celles des autres (comme l'instantané).
+Chaque suggestion est appliquée par une connexion directe au nom de son auteur (origine dédiée :
+`context.suggestion` = identifiant et décideur) : le journal de l'historique attribue le texte à
+l'auteur, le décideur est journalisé (`suggestion applied`). `applySuggestion`
+(`@kaxolax/collab`) note l'identifiant dans la map Yjs `appliedSuggestions` dans la même
+transaction : un appel répété répond `already-applied`. Texte d'origine changé ou ancre
+introuvable : `stale`, rien n'est appliqué. Les connexions des clients gardent leur lecture seule
+(relecteur, lecteur) : seule l'API applique une suggestion.
+
+Contrairement à l'instantané, un rattrapage incomplet (une instance n'a pas décrit ses documents
+dans le délai, état illisible, copie locale pas à jour après 3 s) est un échec : 503
+`E_NOT_CAUGHT_UP`, rien n'est appliqué. Sinon une ancre posée sur un texte tapé ailleurs serait
+déclarée obsolète à tort (définitif côté API), ou une suggestion appliquée sur une autre instance
+le serait une seconde fois.
+
+`POST /internal/projects/:id/documents/:docId/suggestions/applied` (`{ ids }`) : lesquelles sont
+déjà dans la map `appliedSuggestions` (et qui les a acceptées), après le même rattrapage strict.
+L'API la consulte avant de refuser, de modifier ou de retirer une suggestion ouverte : une
+acceptation dont la réponse s'est perdue a pu l'appliquer.
+
+La map `appliedSuggestions` fait foi pour l'API : seul le service y écrit. Une modification de
+cette map venue d'un client WebSocket (clé ajoutée, valeur changée ou supprimée) est annulée
+aussitôt par une transaction du serveur (`src/applied-guard.ts`, journalisée
+`client change to applied suggestions reverted`) ; une mise à jour relayée par Redis est annulée
+par l'instance qui l'a reçue.
+
 ## Routes HTTP
 
-| Route                                                  | Rôle                                                                                                                        |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`                                          | État du service et nombre de documents ouverts                                                                              |
-| `GET /internal/projects/:id/snapshot`                  | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe), à jour des autres instances              |
-| `POST /internal/documents/:id/close`                   | Ferme les connexions d'un document supprimé                                                                                 |
-| `POST /internal/users/:id/disconnect`                  | Ferme toutes les connexions d'un compte, son canal compris (banni, supprimé, sessions révoquées)                            |
-| `POST /internal/projects/:id/members/:userId/changed`  | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`)                                      |
-| `POST /internal/projects/:id/events`                   | Publie `{ event }` (`publishProjectEventRequestSchema`) sur le document meta du projet                                      |
-| `POST /internal/events`                                | Publie `{ event }` (`banner.changed`) sur tous les documents meta et tous les canaux des utilisateurs                       |
-| `POST /internal/projects/:id/updates/flush`            | Historique : écrit tout de suite le journal en attente du projet, sur toutes les instances (réponses attendues 2 s au plus) |
-| `POST /internal/projects/:id/documents/:docId/replace` | Restauration : remplace le texte (`{ content, userId }`) par une modification minimale                                      |
+| Route                                                              | Rôle                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                                      | État du service et nombre de documents ouverts                                                                                                                                                                                    |
+| `GET /internal/projects/:id/snapshot`                              | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe), à jour des autres instances                                                                                                                    |
+| `POST /internal/documents/:id/close`                               | Ferme les connexions d'un document supprimé                                                                                                                                                                                       |
+| `POST /internal/users/:id/disconnect`                              | Ferme toutes les connexions d'un compte, son canal compris (banni, supprimé, sessions révoquées)                                                                                                                                  |
+| `POST /internal/projects/:id/members/:userId/changed`              | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`)                                                                                                                                            |
+| `POST /internal/projects/:id/events`                               | Publie `{ event }` (`publishProjectEventRequestSchema`) sur le document meta du projet                                                                                                                                            |
+| `POST /internal/events`                                            | Publie `{ event }` (`banner.changed`) sur tous les documents meta et tous les canaux des utilisateurs                                                                                                                             |
+| `POST /internal/projects/:id/updates/flush`                        | Historique : écrit tout de suite le journal en attente du projet, sur toutes les instances (réponses attendues 2 s au plus)                                                                                                       |
+| `POST /internal/projects/:id/documents/:docId/replace`             | Restauration : remplace le texte (`{ content, userId }`) par une modification minimale                                                                                                                                            |
+| `POST /internal/projects/:id/documents/:docId/suggestions/apply`   | Suggestions acceptées (`applySuggestionsRequestSchema`) appliquées au nom de leur auteur ; `applied`, `already-applied` ou `stale` ; 403 si `decidedBy` ne peut plus décider ; 503 si les autres instances ne sont pas rattrapées |
+| `POST /internal/projects/:id/documents/:docId/suggestions/applied` | Suggestions déjà appliquées parmi `ids` (`appliedSuggestionsRequestSchema`) et leur décideur ; 503 si les autres instances ne sont pas rattrapées                                                                                 |
 
 Les routes `/internal` exigent l'en-tête `X-Internal-Token`. Leurs réponses suivent les schémas
 de `@kaxolax/contracts` (`projectSnapshotSchema`, `closeDocumentResponseSchema`,

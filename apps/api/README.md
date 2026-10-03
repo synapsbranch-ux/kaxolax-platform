@@ -72,6 +72,8 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
   | `compile`           |   ✓   |   ✓    |    ✓     |   ✓    |
   | `comment`           |   ✓   |   ✓    |    ✓     |        |
   | `edit`              |   ✓   |   ✓    |          |        |
+  | `suggest`           |   ✓   |   ✓    |    ✓     |        |
+  | `decideSuggestion`  |   ✓   |   ✓    |          |        |
   | `manageMembers`     |   ✓   |        |          |        |
   | `manageShareLinks`  |   ✓   |        |          |        |
   | `transferOwnership` |   ✓   |        |          |        |
@@ -169,6 +171,51 @@ column, length, preview, previewStart }` (ligne à partir de 1, colonne en unit�
     `/project/<id>?panel=chat`) aux membres actifs mentionnés, sauf l'auteur, seulement pour la
     première mention non lue depuis leur dernière lecture (au plus un email par visite manquée).
     Envoi après la validation, au mieux : un échec est journalisé, le message reste envoyé.
+
+- **Suivi des modifications** (contrats zod : `packages/contracts/src/suggestions.ts` ;
+  `app/services/suggestion_service.ts`) : lecture par tout membre (`read`) ; suggérer, modifier
+  sa suggestion ouverte, retirer sa suggestion ouverte ou obsolète avec `suggest` (owner, editor,
+  reviewer) ; accepter, refuser ou écarter (obsolète) avec `decideSuggestion` (owner, editor). Le
+  texte du document ne change qu'à l'acceptation.
+  - `GET /projects/:id/suggestions` (`documentId?`, `authorId?`, `status` `open` (défaut) |
+    `accepted` | `rejected` | `stale` | `decided` | `all`, `limit` ≤ 1000, `after` = `nextCursor`, curseur
+    `<date de création en µs>_<id>` qui ne dépend pas de l'existence de la suggestion)
+    et `GET …/:suggestionId`.
+  - `POST /projects/:id/suggestions` (`{ documentId, kind, anchor, originalText, proposedText }`) : 201. Ancre au format des commentaires : un point pour une insertion (`createPointAnchor`), la
+    plage du texte d'origine sinon (422 `E_SUGGESTION_INVALID_ANCHOR`) ; textes ≤ 20 000
+    caractères, cohérents avec le type ; document du projet (404 `E_DOCUMENT_NOT_FOUND`) ; 120
+    créations par membre et par projet sur 60 s (429 `E_SUGGESTION_RATE_LIMITED`) ; au plus
+    1 000 suggestions en attente (ouvertes ou obsolètes) par auteur et 5 000 par projet (409
+    `E_SUGGESTION_OPEN_LIMIT`) ; texte proposé soumis au stockage du plan du propriétaire (403
+    `E_PLAN_LIMIT`).
+  - `PATCH` et `DELETE …/:suggestionId` : l'auteur seul (403 `E_SUGGESTION_NOT_AUTHOR`) ; `PATCH`
+    tant qu'elle est ouverte, `DELETE` aussi obsolète (409 `E_SUGGESTION_ALREADY_DECIDED`) ; le
+    `PATCH` reçoit les frappes fusionnées par l'éditeur. 240 modifications et retraits par membre
+    et par projet par fenêtre de 60 s (table `suggestion_edit_rates`, 429
+    `E_SUGGESTION_RATE_LIMITED`). Modification ou retrait d'une suggestion ouverte : l'API demande
+    d'abord au service temps réel si elle est déjà dans le document (route
+    `…/suggestions/applied`) ; si oui, elle est enregistrée acceptée telle qu'appliquée et
+    annoncée, réponse 409 ; service injoignable : 503. Le décideur lu dans le document n'est
+    gardé que s'il est encore membre avec `decideSuggestion` (sinon : le membre qui refuse, ou
+    l'auteur s'il peut décider, ou le propriétaire).
+  - `POST /projects/:id/suggestions/decide` (`{ decision: accept | reject, ids | all: true |
+authorId, documentId? }`) : au plus 500 par requête (`remaining`), résultat par suggestion
+    (`accepted`, `rejected`, `stale`, `unchanged`, `missing`). Un refus vise aussi les
+    suggestions obsolètes (« Écarter » : `rejected`, décideur noté). Les suggestions visées sont
+    verrouillées (`FOR UPDATE`, ordre de création) pendant toute la décision : un double clic ou
+    deux décideurs simultanés n'appliquent le texte qu'une fois. L'acceptation passe par la route
+    interne `…/suggestions/apply` du service temps réel (`RealtimeClient.applySuggestions`),
+    qui applique le texte au document en cours d'édition au nom de l'auteur (historique) ou
+    répond `stale` (texte d'origine changé : statut `stale`, sans décideur), par lots de 50 :
+    les lots confirmés sont enregistrés et annoncés même si un lot suivant échoue ; les autres
+    restent ouverts, réponse 503 `E_SUGGESTION_REALTIME_UNAVAILABLE` (un nouvel essai n'applique
+    pas deux fois). Un lot appliqué sans réponse (délai dépassé) reste ouvert en base : un refus
+    demande donc d'abord au service lesquelles sont déjà dans le document et les enregistre
+    acceptées (au nom de celui qui les avait acceptées) ; service injoignable : 503, rien ne
+    change. Croissance du texte soumise au stockage du plan du propriétaire.
+  - Événements après la validation : `suggestion.created`, `suggestion.updated` (`edited`,
+    `deleted`), `suggestion.decided` (lot de décisions) ; décision journalisée
+    (`suggestions decided`).
 
 - **Commentaires ancrés** (contrats zod : `packages/contracts/src/comments.ts` ;
   `app/services/comment_service.ts`) : lecture par tout membre (`read`) ; nouveau fil, réponse,
@@ -573,6 +620,10 @@ nouvelles tables seulement) : `projects.ai_enabled`, `workspaces.ai_enabled` (d�
 (contenu jsonb des blocs de l'API, gardé tel quel) ; `ai_usage`, `ai_credit_periods`,
 `ai_credit_reservations` ; `suggestions` (ancre au format des commentaires, contraintes sur le
 type, les textes et la décision) ; `personal_access_tokens` ; `git_links`, `zotero_links`.
+Suivi des modifications (migration `…0160`) : index `suggestions (project_id, author_id,
+created_at)` (décision par auteur, limite de débit). Migration `…0161` : table
+`suggestion_edit_rates` (fenêtre fixe des modifications et retraits par membre et projet) et index
+partiel des suggestions en attente par auteur (plafond).
 
 Déploiement de l'étape 2 : les migrations peuvent passer pendant que l'API de l'étape 1 sert
 encore. Ses créations de projet (sans `workspace_id`) sont rattachées au workspace personnel du
