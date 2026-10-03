@@ -1,48 +1,69 @@
 import { MIN_INTERNAL_TOKEN_LENGTH } from '@kaxolax/contracts'
 import { z } from 'zod'
 
-/** Configuration du service temps réel, lue dans l'environnement et validée au démarrage. */
-export const configSchema = z.object({
-  HOST: z.string().default('0.0.0.0'),
-  PORT: z.coerce.number().int().min(0).max(65_535).default(1234),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  /** Secret partagé avec l'API, qui signe les jetons de connexion. */
-  REALTIME_TOKEN_SECRET: z.string().min(32),
-  /** Secret partagé entre services internes (routes /internal). */
-  INTERNAL_TOKEN: z.string().min(MIN_INTERNAL_TOKEN_LENGTH),
-  DATABASE_URL: z.string().min(1),
-  DB_SSL: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((value) => value === 'true'),
-  /** Écriture en base regroupée : au plus tard STORE_MAX_DEBOUNCE_MS après la première modification. */
-  STORE_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(2_000),
-  STORE_MAX_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(10_000),
-  /** Une mise à jour d'un rédacteur fait relire son rôle en base si la dernière lecture est plus ancienne. */
-  ROLE_RECHECK_MS: z.coerce.number().int().nonnegative().default(5_000),
-  /**
-   * Journal de l'historique : les mises à jour Yjs reçues sont écrites par lots, au plus tard
-   * après ce délai (voir `updates.ts`).
-   */
-  HISTORY_FLUSH_MS: z.coerce.number().int().positive().default(100),
-  /** Relecture périodique du rôle de toutes les connexions (0 : désactivée). */
-  ROLE_SWEEP_MS: z.coerce.number().int().nonnegative().default(30_000),
-  /** État du stockage du propriétaire d'un projet réutilisé pendant cette durée (limite du plan). */
-  STORAGE_CHECK_MS: z.coerce.number().int().nonnegative().default(10_000),
-  /**
-   * Redis partagé par les instances (`redis://` ou `rediss://`) : absent, une seule instance.
-   * Active l'extension Redis de Hocuspocus et le bus entre instances.
-   */
-  REDIS_URL: z.preprocess(
-    (value) => (value === '' ? undefined : value),
-    z
-      .string()
-      .regex(/^rediss?:\/\//, { message: 'Expected a redis:// or rediss:// URL' })
-      .optional(),
-  ),
-  /** Préfixe des clés et canaux Redis (plusieurs environnements sur le même Redis). */
-  REDIS_PREFIX: z.string().min(1).default('kaxolax-realtime'),
-})
+/**
+ * Configuration du service temps réel, lue dans l'environnement et validée au démarrage. En
+ * production (`NODE_ENV=production`), `REDIS_URL` est obligatoire : les instances (deux sur
+ * Railway) partagent documents, présence et événements par Redis ; sans lui, chacune garderait
+ * sa propre copie des documents ouverts et les éditions divergeraient. En développement et en
+ * test, une instance seule sans Redis reste possible.
+ */
+export const configSchema = z
+  .object({
+    /** Environnement d'exécution (l'image Docker fixe `production`). */
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    HOST: z.string().default('0.0.0.0'),
+    PORT: z.coerce.number().int().min(0).max(65_535).default(1234),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
+    /** Secret partagé avec l'API, qui signe les jetons de connexion. */
+    REALTIME_TOKEN_SECRET: z.string().min(32),
+    /** Secret partagé entre services internes (routes /internal). */
+    INTERNAL_TOKEN: z.string().min(MIN_INTERNAL_TOKEN_LENGTH),
+    DATABASE_URL: z.string().min(1),
+    DB_SSL: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
+    /** Écriture en base regroupée : au plus tard STORE_MAX_DEBOUNCE_MS après la première modification. */
+    STORE_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(2_000),
+    STORE_MAX_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(10_000),
+    /** Une mise à jour d'un rédacteur fait relire son rôle en base si la dernière lecture est plus ancienne. */
+    ROLE_RECHECK_MS: z.coerce.number().int().nonnegative().default(5_000),
+    /**
+     * Journal de l'historique : les mises à jour Yjs reçues sont écrites par lots, au plus tard
+     * après ce délai (voir `updates.ts`).
+     */
+    HISTORY_FLUSH_MS: z.coerce.number().int().positive().default(100),
+    /** Relecture périodique du rôle de toutes les connexions (0 : désactivée). */
+    ROLE_SWEEP_MS: z.coerce.number().int().nonnegative().default(30_000),
+    /** État du stockage du propriétaire d'un projet réutilisé pendant cette durée (limite du plan). */
+    STORAGE_CHECK_MS: z.coerce.number().int().nonnegative().default(10_000),
+    /**
+     * Redis partagé par les instances (`redis://` ou `rediss://`) : absent, une seule instance.
+     * Active l'extension Redis de Hocuspocus et le bus entre instances.
+     */
+    REDIS_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z
+        .string()
+        .regex(/^rediss?:\/\//, { message: 'Expected a redis:// or rediss:// URL' })
+        .optional(),
+    ),
+    /** Préfixe des clés et canaux Redis (plusieurs environnements sur le même Redis). */
+    REDIS_PREFIX: z.string().min(1).default('kaxolax-realtime'),
+  })
+  .superRefine((config, context) => {
+    if (config.NODE_ENV === 'production' && config.REDIS_URL === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['REDIS_URL'],
+        message:
+          'Required in production: realtime instances share documents, presence and events through Redis (redis:// or rediss:// URL)',
+      })
+    }
+  })
 
 export type RealtimeConfig = z.infer<typeof configSchema>
 

@@ -37,6 +37,21 @@ export class DocumentStore {
   }
 
   /**
+   * Vrai si le compte peut garder son canal temps réel (`user:{id}`) : ni banni, ni supprimé, et
+   * sessions non révoquées après l'émission du jeton (`issuedAt`, en secondes, comme
+   * `memberRole`).
+   */
+  async accountActive(userId: string, issuedAt: number): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1 FROM users u
+       WHERE u.id = $1 AND u.banned_at IS NULL AND u.deleted_at IS NULL
+         AND (u.sessions_revoked_at IS NULL OR u.sessions_revoked_at <= to_timestamp($2))`,
+      [userId, issuedAt],
+    )
+    return result.rowCount === 1
+  }
+
+  /**
    * Identité affichée d'un compte dans la présence : nom complet et photo de profil (miroir
    * Clerk), jamais l'email (la présence est visible de tous les membres) ; null s'il n'existe pas.
    */

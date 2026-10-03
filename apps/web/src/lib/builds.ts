@@ -5,7 +5,13 @@
  * sondage (`GET /projects/:id/builds/:buildId`). Événements et réponse peuvent arriver dans le
  * désordre : un état n'est jamais ramené en arrière.
  */
-import { type BuildStatus, type CompileResult, type CompileUpdatedEvent } from '@kaxolax/contracts'
+import {
+  type BuildStatus,
+  canCompile,
+  type CompileResult,
+  type CompileUpdatedEvent,
+  type ProjectRole,
+} from '@kaxolax/contracts'
 
 /** Étape affichée par la pastille pendant une compilation. */
 export type CompilePhase = 'requesting' | 'queued' | 'preparing' | 'running'
@@ -127,6 +133,15 @@ export const MAX_BUILD_WAIT_MS = 15 * 60_000
 /** Période minimale entre deux réveils anticipés du compilateur d'un projet (sa mise en sommeil
  * intervient ~15 min après la dernière activité). */
 export const WARM_PERIOD_MS = 10 * 60_000
+
+/**
+ * Réveil anticipé du compilateur à l'ouverture de l'éditeur : pour tout rôle qui peut compiler
+ * (permission `compile` de la matrice, comme l'API), donc aussi lecteur et relecteur ; jamais tant
+ * que le rôle n'est pas connu. L'API plafonne les réveils par utilisateur sans jamais refuser.
+ */
+export function warmsCompiler(role: ProjectRole | null | undefined): boolean {
+  return role !== null && role !== undefined && canCompile(role)
+}
 
 /**
  * Réveils anticipés (`POST /projects/:id/compiler/warm`) : au plus un par projet et par période,

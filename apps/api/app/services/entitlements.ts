@@ -27,9 +27,15 @@ export interface Entitlements {
   readonly source: EntitlementSource
 }
 
-/** Limites effectives d'un compte, avec le plan et les droits dont elles viennent. */
+/**
+ * Limites effectives d'un compte, avec le plan et les droits dont elles viennent. `aiCredits` et
+ * `imageCredits` : crédits du mois (1 crédit IA = 0,01 $ de coût d'API ; 1 crédit image = une
+ * image), levés au-delà de ceux de Free par la feature `ai`.
+ */
 export interface EffectiveLimits extends PlanLimits {
   readonly entitlements: Entitlements
+  readonly aiCredits: number
+  readonly imageCredits: number
 }
 
 /** Ligne de plan_limits (null = illimité, historique complet). */
@@ -39,6 +45,8 @@ export interface PlanLimitRow {
   maxCollaborators: number | null
   historyRetentionDays: number | null
   storageBytes: number
+  aiMonthlyCredits: number
+  imageMonthlyCredits: number
 }
 
 /** Statuts Clerk d'un élément d'abonnement qui donne accès à son plan. */
@@ -48,7 +56,7 @@ export const CANCELED_STATUS = 'canceled'
 
 /**
  * Valeurs du plan Free si plan_limits n'a pas de ligne `free` (base incomplète) : jamais
- * « illimité » par accident. Mêmes valeurs que la migration 0020.
+ * « illimité » par accident. Mêmes valeurs que les migrations 0020 et 0131.
  */
 const FREE_FALLBACK: PlanLimitRow = {
   planSlug: FREE_PLAN,
@@ -56,6 +64,8 @@ const FREE_FALLBACK: PlanLimitRow = {
   maxCollaborators: 1,
   historyRetentionDays: 1,
   storageBytes: 500 * 1024 * 1024,
+  aiMonthlyCredits: 100,
+  imageMonthlyCredits: 5,
 }
 
 // --- Claims du jeton (has() côté serveur) ---------------------------------------------------
@@ -165,6 +175,8 @@ interface PlanLimitDbRow {
   max_collaborators: number | null
   history_retention_days: number | null
   storage_bytes: string | number
+  ai_monthly_credits: number
+  image_monthly_credits: number
 }
 
 async function loadPlanLimits(slug: string): Promise<PlanLimitRow | null> {
@@ -180,6 +192,8 @@ async function loadPlanLimits(slug: string): Promise<PlanLimitRow | null> {
     historyRetentionDays: row.history_retention_days,
     // bigint : renvoyé en texte par pg.
     storageBytes: Number(row.storage_bytes),
+    aiMonthlyCredits: row.ai_monthly_credits,
+    imageMonthlyCredits: row.image_monthly_credits,
   }
 }
 
@@ -219,6 +233,12 @@ export function featuresFromLimits(plan: PlanLimitRow, free: PlanLimitRow): Set<
     features.add('full_history')
   }
   if (plan.storageBytes > free.storageBytes) features.add('extra_storage')
+  if (
+    plan.aiMonthlyCredits > free.aiMonthlyCredits ||
+    plan.imageMonthlyCredits > free.imageMonthlyCredits
+  ) {
+    features.add('ai')
+  }
   return features
 }
 
@@ -248,6 +268,12 @@ export function effectiveLimits(
     storageBytes: granted('storage')
       ? plan.storageBytes
       : Math.min(plan.storageBytes, free.storageBytes),
+    aiCredits: granted('ai_credits')
+      ? plan.aiMonthlyCredits
+      : Math.min(plan.aiMonthlyCredits, free.aiMonthlyCredits),
+    imageCredits: granted('image_credits')
+      ? plan.imageMonthlyCredits
+      : Math.min(plan.imageMonthlyCredits, free.imageMonthlyCredits),
   }
 }
 

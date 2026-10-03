@@ -1,8 +1,10 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Parcours de la « Définition de terminé ». Il suppose la pile lancée (voir README) : en local,
- * `pnpm dev` et un agent de compilation ; sur staging, E2E_BASE_URL pointe vers l'environnement.
+ * Parcours e2e de la « Définition de terminé » (projet `chromium`) et captures d'écran (projet
+ * `screenshots`). Ils supposent la pile lancée (voir README) : en local, `pnpm dev` et un agent de
+ * compilation ; E2E_BASE_URL vise une autre instance déjà déployée. Les comptes de test sont ceux
+ * de l'instance Clerk de développement (adresses +clerk_test), créés et supprimés par les parcours.
  */
 export default defineConfig({
   testDir: 'e2e',
@@ -28,7 +30,15 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: '**/screenshots.spec.ts',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 1000 } },
+    },
+    {
+      // `pnpm --filter @kaxolax/web screenshots` : PNG et index dans e2e/screenshots/.
+      name: 'screenshots',
+      testMatch: '**/screenshots.spec.ts',
+      timeout: 600_000,
+      use: { ...devices['Desktop Chrome'], locale: 'fr-FR', timezoneId: 'Europe/Paris' },
     },
   ],
 })

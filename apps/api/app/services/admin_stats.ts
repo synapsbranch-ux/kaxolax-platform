@@ -3,6 +3,7 @@ import {
   ADMIN_STATS_MAX_DAYS,
   type AdminStats,
   type CompileStatus,
+  compileStatusSchema,
 } from '@kaxolax/contracts'
 import { Exception } from '@adonisjs/core/exceptions'
 import db from '@adonisjs/lucid/services/db'
@@ -88,7 +89,8 @@ async function subscriptionsByPlan() {
 
 interface CompileGroup {
   agent_id: string | null
-  status: CompileStatus
+  /** Tous les statuts de `compiles`, compilations asynchrones en cours et annulées comprises. */
+  status: string
   count: number
   duration_ms: string | number
 }
@@ -106,7 +108,15 @@ function rateOf(totals: CompileTotals) {
   }
 }
 
-/** Compilations de la période : volume, statuts, durée moyenne et taux d'échec, par agent. */
+/** Statut d'une compilation annulée (mode asynchrone), compté à part. */
+const CANCELLED = 'cancelled'
+
+/**
+ * Compilations de la période : volume, statuts, durée moyenne et taux d'échec, par agent. Seules
+ * les compilations terminées par le compilateur comptent (mêmes statuts que `lastCompile`) : une
+ * compilation encore en cours (`queued`, `preparing`, `running`) n'a ni résultat ni durée, et une
+ * annulation (`cancelled`) n'est ni une réussite ni un échec du compilateur (comptée à part).
+ */
 async function compileStats(from: Date, to: Date): Promise<AdminStats['compiles']> {
   const groups = await rows<CompileGroup>(
     `SELECT agent_id, status, COUNT(*)::int AS count, COALESCE(SUM(duration_ms), 0) AS duration_ms
@@ -115,10 +125,18 @@ async function compileStats(from: Date, to: Date): Promise<AdminStats['compiles'
     [from, to],
   )
   const byStatus: Record<CompileStatus, number> = { success: 0, failure: 0, timeout: 0, error: 0 }
+  let cancelled = 0
   const overall: CompileTotals = { total: 0, failures: 0, durationMs: 0 }
   const agents = new Map<string | null, CompileTotals>()
   for (const group of groups) {
-    byStatus[group.status] += group.count
+    if (group.status === CANCELLED) {
+      cancelled += group.count
+      continue
+    }
+    const status = compileStatusSchema.safeParse(group.status)
+    // En cours (`queued`, `preparing`, `running`) : pas encore de résultat.
+    if (!status.success) continue
+    byStatus[status.data] += group.count
     let agent = agents.get(group.agent_id)
     if (!agent) {
       agent = { total: 0, failures: 0, durationMs: 0 }
@@ -126,13 +144,14 @@ async function compileStats(from: Date, to: Date): Promise<AdminStats['compiles'
     }
     for (const totals of [overall, agent]) {
       totals.total += group.count
-      totals.failures += group.status === 'success' ? 0 : group.count
+      totals.failures += status.data === 'success' ? 0 : group.count
       totals.durationMs += Number(group.duration_ms)
     }
   }
   return {
     total: overall.total,
     byStatus,
+    cancelled,
     ...rateOf(overall),
     byAgent: [...agents.entries()]
       .map(([agentId, totals]) => ({ agentId, total: totals.total, ...rateOf(totals) }))

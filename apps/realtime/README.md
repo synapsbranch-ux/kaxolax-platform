@@ -3,7 +3,9 @@
 Service d'édition collaborative (Hocuspocus + Yjs). Chaque document texte est un `Y.Doc` qui
 contient un seul `Y.Text` nommé `content`, sous le nom `project:{projectId}:doc:{documentId}`
 (voir `@kaxolax/collab`). Chaque projet a aussi un document meta, `project:{projectId}:meta`
-(`metaDocumentName`), sans contenu : présence globale et événements du projet.
+(`metaDocumentName`), sans contenu : présence globale et événements du projet. Chaque compte
+connecté a enfin son canal, `user:{userId}` (`userChannelName`), sans contenu ni présence :
+événements diffusés à tous (bannière système), sur toutes les pages de l'application.
 
 ## Connexion
 
@@ -61,6 +63,24 @@ Toute la logique est dans `src/access.ts` :
   `parsePresenceState` (`presenceStateSchema` : `user`, `documentId` sur le meta, `cursor` sur
   un document texte, au format de y-codemirror.next).
 
+## Canal de l'utilisateur
+
+`src/user-channel.ts` : document `user:{userId}` ouvert par la bannière système du web sur toutes
+les pages connectées.
+
+- Jeton `POST /api/v1/me/realtime-token` de l'API (`scope: 'user'`, 5 minutes,
+  `signUserRealtimeToken` de `@kaxolax/collab/token`) : il n'ouvre que le canal de son titulaire,
+  et un jeton de projet n'ouvre jamais un canal (charges utiles disjointes). Compte banni,
+  supprimé ou dont les sessions ont été révoquées après l'émission du jeton
+  (`DocumentStore.accountActive`) : refusé à l'authentification, revérifié à l'attache et à
+  chaque balayage (`ROLE_SWEEP_MS`), fermé (4403) par `POST /internal/users/:id/disconnect`
+  (compté dans `connections`).
+- Lecture seule, rien n'est enregistré ni journalisé ; toute mise à jour Yjs est refusée et la
+  connexion fermée au 5e refus ; l'awareness reçue est ignorée.
+- Les événements diffusés à tous (`POST /internal/events`, `banner.changed`) sont envoyés à chaque
+  canal ouvert, au format des événements du document meta (`projectEventMessageSchema`), sur
+  chaque instance (bus Redis, comme pour les documents meta).
+
 ## Plusieurs instances
 
 Avec `REDIS_URL` (`redis://` ou `rediss://`), deux mécanismes, sous le préfixe `REDIS_PREFIX` :
@@ -79,6 +99,22 @@ Avec `REDIS_URL` (`redis://` ou `rediss://`), deux mécanismes, sous le préfixe
 
 Sans `REDIS_URL`, une seule instance : rien n'est relayé. Le nom affiché, la photo et la couleur
 restent imposés par l'instance qui reçoit l'awareness ; un état relayé par Redis n'est pas revérifié.
+En production (`NODE_ENV=production`, fixé par l'image Docker), le service refuse de démarrer
+sans `REDIS_URL` (message `REDIS_URL: Required in production…`) : deux instances sans Redis
+garderaient chacune leur copie des documents ouverts. En développement et en test, une instance
+seule sans Redis reste possible.
+
+Instantané (`GET /internal/projects/:id/snapshot`, compilation et recherche) : un document ouvert
+sur une autre instance peut avoir des modifications que la copie de l'instance appelée (ou la
+base, s'il n'est pas chargé ici) n'a pas encore. L'instance appelée demande aux autres l'état Yjs
+de leurs documents du projet (`document-states-request` sur le bus : vecteur d'état et
+suppressions, `Y.encodeSnapshot`), charge les documents au besoin, puis attend que sa copie
+contienne chacun de ces états, apportés par l'extension Redis (`src/catch-up.ts` ; le vecteur
+d'état seul ne voit pas une suppression). Attente bornée : 1 s pour les réponses (envoi sur le
+bus compris : Redis indisponible, la demande est abandonnée), 3 s pour tout l'instantané, puis
+texte connu (journalisé). Un document chargé pour l'instantané est déchargé
+après l'enregistrement différé habituel, sans l'attendre (avec Redis, un déchargement immédiat
+coûte environ 2 s par document).
 
 ## Limite de stockage du plan
 
@@ -98,9 +134,10 @@ transferts au-delà. Ici :
 - L'état est relu au plus toutes les `STORAGE_CHECK_MS` (10 s) par projet, et après chaque
   enregistrement d'un de ses documents. Base indisponible : l'édition reste permise (journalisé).
 - Dépassement possible, borné : ce qui arrive entre deux enregistrements (10 s au plus) et deux
-  lectures de l'usage. L'affichage du message `plan.storage` dans l'éditeur reste à brancher avec
-  la connexion du web (tâche 5) ; en attendant, l'éditeur voit ses modifications non
-  synchronisées et les autres actions affichent le refus `E_PLAN_LIMIT` avec le lien des tarifs.
+  lectures de l'usage.
+- Côté web, l'éditeur traite ce message (`apps/web/src/lib/plan-limits.ts`, branché dans
+  `code-editor.tsx`) : stockage plein, il affiche le refus `E_PLAN_LIMIT` (boîte des limites,
+  lien des tarifs) ; place libérée, il se resynchronise pour renvoyer les éditions refusées.
 
 ## Persistance
 
@@ -126,12 +163,12 @@ rejoue ce journal pour créer les versions et attribuer chaque changement à son
 | Route                                                  | Rôle                                                                                                                        |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
 | `GET /health`                                          | État du service et nombre de documents ouverts                                                                              |
-| `GET /internal/projects/:id/snapshot`                  | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe)                                           |
+| `GET /internal/projects/:id/snapshot`                  | Texte courant de chaque document (ouverts : mémoire ; autres : connexion directe), à jour des autres instances              |
 | `POST /internal/documents/:id/close`                   | Ferme les connexions d'un document supprimé                                                                                 |
-| `POST /internal/users/:id/disconnect`                  | Ferme toutes les connexions d'un compte (banni, supprimé, sessions révoquées)                                               |
+| `POST /internal/users/:id/disconnect`                  | Ferme toutes les connexions d'un compte, son canal compris (banni, supprimé, sessions révoquées)                            |
 | `POST /internal/projects/:id/members/:userId/changed`  | Applique le rôle relu en base aux connexions du membre (`memberChangedResponseSchema`)                                      |
 | `POST /internal/projects/:id/events`                   | Publie `{ event }` (`publishProjectEventRequestSchema`) sur le document meta du projet                                      |
-| `POST /internal/events`                                | Publie `{ event }` (`banner.changed`) sur tous les documents meta                                                           |
+| `POST /internal/events`                                | Publie `{ event }` (`banner.changed`) sur tous les documents meta et tous les canaux des utilisateurs                       |
 | `POST /internal/projects/:id/updates/flush`            | Historique : écrit tout de suite le journal en attente du projet, sur toutes les instances (réponses attendues 2 s au plus) |
 | `POST /internal/projects/:id/documents/:docId/replace` | Restauration : remplace le texte (`{ content, userId }`) par une modification minimale                                      |
 
@@ -156,8 +193,12 @@ pnpm --filter @kaxolax/realtime test    # recrée la base kaxolax_realtime_test,
 
 `test/cluster.test.ts` lance deux instances derrière le Redis local (`REALTIME_TEST_REDIS_URL`,
 par défaut `redis://127.0.0.1:6379`, préfixe aléatoire) : une édition, l'awareness et un
-événement passent de l'une à l'autre ; un membre retiré par l'instance A est déconnecté de
-l'instance B en moins de 2 s. `test/meta.test.ts` couvre le document meta (autorisation, rejet
-des écritures, événements, identité imposée dans l'awareness).
+événement (documents meta et canaux des utilisateurs) passent de l'une à l'autre ; un membre
+retiré par l'instance A est déconnecté de l'instance B en moins de 2 s ; un instantané demandé à
+B contient les modifications faites sur A (document ouvert ou non sur B, suppression comprise).
+`test/meta.test.ts` couvre le document meta (autorisation, rejet des écritures, événements,
+identité imposée dans l'awareness), `test/user-channel.test.ts` le canal de l'utilisateur,
+`test/catch-up.test.ts` l'attente des états Yjs et `test/config.test.ts` la configuration
+(Redis obligatoire en production).
 
 `REALTIME_TOKEN_SECRET` et `INTERNAL_TOKEN` doivent être identiques dans `apps/api`.

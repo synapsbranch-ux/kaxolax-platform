@@ -402,10 +402,11 @@ test.group('admin: statistics', (group) => {
       status: string,
       agentId: string | null,
       ms: number,
+      onProject = projectId,
     ) =>
       Compile.create({
         id: randomUUID(),
-        projectId,
+        projectId: onProject,
         userId,
         compiler: 'pdflatex',
         status: status as 'success',
@@ -420,6 +421,14 @@ test.group('admin: statistics', (group) => {
     await compile(bob.id, '2026-03-11T10:00:00', 'error', null, 0)
     // Hors période.
     await compile(carol.id, '2026-04-02T10:00:00', 'success', 'agent-a', 500)
+    // Compilations asynchrones en cours (une seule par projet) ou annulées : hors total, durée
+    // et taux d'échec ; les annulations sont comptées à part.
+    const running = await newProject(client, alice)
+    const queued = await newProject(client, bob)
+    await compile(alice.id, '2026-03-29T11:00:00', 'running', 'agent-a', 0, running)
+    await compile(bob.id, '2026-03-12T10:00:00', 'queued', null, 0, queued)
+    await compile(alice.id, '2026-03-28T11:00:00', 'cancelled', 'agent-a', 2500)
+    await compile(bob.id, '2026-03-12T11:00:00', 'cancelled', null, 0)
 
     await Subscription.createMany([
       {
@@ -457,6 +466,7 @@ test.group('admin: statistics', (group) => {
     assert.deepEqual(stats.subscriptions.byPlan, [{ planSlug: 'pro', active: 1, pastDue: 1 }])
     assert.equal(stats.compiles.total, 4)
     assert.deepEqual(stats.compiles.byStatus, { success: 1, failure: 1, timeout: 1, error: 1 })
+    assert.equal(stats.compiles.cancelled, 2)
     assert.equal(stats.compiles.averageDurationMs, 6000)
     assert.equal(stats.compiles.failureRate, 0.75)
     assert.deepEqual(stats.compiles.byAgent, [

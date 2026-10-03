@@ -4,10 +4,17 @@
 #   docker build -f docker/Dockerfile --target api .
 # Cibles : web, admin, api, realtime, compile-gateway, compile-agent.
 # Railway ne choisit pas de cible : sans --target, la dernière étape (« service ») reprend celle
-# désignée par l'argument KAXOLAX_SERVICE (variable du service Railway, voir deploy/railway/).
+# désignée par l'argument KAXOLAX_SERVICE (variable du service Railway, voir deploy/railway/) :
+#   docker build -f docker/Dockerfile --build-arg KAXOLAX_SERVICE=api .
+# Sans cet argument, le build échoue (étape missing-kaxolax-service) au lieu de construire en
+# silence une autre image que celle du service.
+# Pas de cache mount (--mount=type=cache) : Railway n'accepte que des identifiants propres à
+# chaque service (s/<service-id>-…), inconnus ici ; l'installation reste reproductible
+# (--frozen-lockfile, image Node épinglée par empreinte).
 
 ARG NODE_IMAGE=node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe
-ARG KAXOLAX_SERVICE=api
+# Étape finale : web, admin, api ou realtime. Pas de valeur par défaut (voir plus haut).
+ARG KAXOLAX_SERVICE
 
 FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME=/pnpm \
@@ -27,14 +34,12 @@ FROM base AS builder
 ARG API_INTERNAL_URL=http://127.0.0.1:3333
 COPY . .
 RUN --mount=type=secret,id=ca,required=false \
-    --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     NODE_EXTRA_CA_CERTS=/run/secrets/ca pnpm install --frozen-lockfile
 RUN pnpm turbo run build \
       --filter=@kaxolax/web --filter=@kaxolax/admin --filter=@kaxolax/api --filter=@kaxolax/realtime \
       --filter=@kaxolax/compile-gateway --filter=@kaxolax/compile-agent
 # Un dossier autonome par service : code compilé et dépendances de production seulement.
 RUN --mount=type=secret,id=ca,required=false \
-    --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     export NODE_EXTRA_CA_CERTS=/run/secrets/ca \
  && for app in realtime compile-gateway compile-agent; do \
       pnpm --filter "@kaxolax/$app" deploy --prod "/out/$app"; \
@@ -80,7 +85,8 @@ ENV HOSTNAME=0.0.0.0 PORT=3000
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
 
-# Admin (apps/admin), même principe que web.
+# Admin (apps/admin), même principe que web, sur le port 3001 (celui de `next dev` en local) :
+# le domaine admin.<domaine> de Railway vise ce port (PORT=3001, kaxolax-infra/railway/provision.sh).
 FROM runtime AS admin
 COPY --from=builder --chown=node:node /repo/apps/admin/.next/standalone /app
 COPY --from=builder --chown=node:node /repo/apps/admin/.next/static /app/apps/admin/.next/static
@@ -88,5 +94,12 @@ ENV HOSTNAME=0.0.0.0 PORT=3001
 EXPOSE 3001
 CMD ["node", "apps/admin/server.js"]
 
+# Build sans KAXOLAX_SERVICE : échec explicite. Seule l'étape « service » y mène ; les builds par
+# --target ne la construisent jamais.
+FROM runtime AS missing-kaxolax-service
+RUN echo "ERREUR : argument de build KAXOLAX_SERVICE absent. Le poser (web, admin, api ou realtime) : variable du service Railway, ou --build-arg KAXOLAX_SERVICE=<service> (sinon --target <service>)." >&2 \
+ && exit 1
+
 # Étape par défaut (Railway) : l'image du service KAXOLAX_SERVICE (web, admin, api ou realtime).
-FROM ${KAXOLAX_SERVICE} AS service
+# Une autre valeur désigne une image inexistante : le build échoue en la nommant.
+FROM ${KAXOLAX_SERVICE:-missing-kaxolax-service} AS service

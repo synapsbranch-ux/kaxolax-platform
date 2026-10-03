@@ -44,7 +44,7 @@ Réglages du Dashboard Clerk :
 | Webhooks                                   | Endpoint `https://<domaine>/api/v1/webhooks/clerk`, événements `user.created`, `user.updated`, `user.deleted`, et Billing : tous les `subscription.*` (`created`, `updated`, `active`, `pastDue`) et `subscriptionItem.*` (`created`, `updated`, `active`, `canceled`, `upcoming`, `ended`, `abandoned`, `incomplete`, `pastDue`, `freeTrialEnding`) |
 | Billing → Settings                         | Billing activé pour les utilisateurs (« User plans ») ; passerelle de paiement Stripe (compte de test en développement)                                                                                                                                                                                                                              |
 | Billing → Plans (User plans)               | Plan **Free**, slug `free`, plan par défaut (le slug proposé par Clerk, `free_user`, est à renommer) ; plan **Pro**, slug `pro`, payant, visible publiquement                                                                                                                                                                                        |
-| Billing → Features                         | Slugs `long_compile`, `unlimited_collaborators`, `full_history`, `extra_storage`, toutes rattachées à Pro, aucune à Free                                                                                                                                                                                                                             |
+| Billing → Features                         | Slugs `long_compile`, `unlimited_collaborators`, `full_history`, `extra_storage`, `ai` (crédits IA et images au-delà de Free), toutes rattachées à Pro, aucune à Free                                                                                                                                                                                |
 | Sessions (jeton de session)                | Version 2 du jeton (par défaut) : claims `pla` (`u:pro`) et `fea` (`u:long_compile,…`) ajoutés par Clerk, rien à personnaliser ; ne pas les écraser dans le jeton personnalisé                                                                                                                                                                       |
 | API keys                                   | Clé publishable, clé secrète, et « PEM Public Key » (JWT public key)                                                                                                                                                                                                                                                                                 |
 
@@ -90,19 +90,19 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 
 ## Commandes
 
-| Commande                         | Effet                                                         |
-| -------------------------------- | ------------------------------------------------------------- |
-| `pnpm dev`                       | Lance tous les paquets et apps en mode développement          |
-| `pnpm build`                     | Compile tout                                                  |
-| `pnpm lint`                      | ESLint (règles typées strictes)                               |
-| `pnpm typecheck`                 | Vérification des types                                        |
-| `pnpm test`                      | Tests (Vitest, Japa) ; la stack locale doit tourner           |
-| `pnpm check`                     | lint + typecheck + tests + build, comme la CI                 |
-| `pnpm format`                    | Formate avec Prettier (`format:check` pour vérifier)          |
-| `pnpm stack:up`                  | `docker compose up -d --wait`                                 |
-| `pnpm stack:check`               | Vérifie que la stack locale répond                            |
-| `pnpm stack:down`                | Arrête la stack (`docker compose down -v` efface les données) |
-| `pnpm --filter @kaxolax/web e2e` | Parcours Playwright de la « Définition de terminé »           |
+| Commande                         | Effet                                                              |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `pnpm dev`                       | Lance tous les paquets et apps en mode développement               |
+| `pnpm build`                     | Compile tout                                                       |
+| `pnpm lint`                      | ESLint (règles typées strictes)                                    |
+| `pnpm typecheck`                 | Vérification des types                                             |
+| `pnpm test`                      | Tests (Vitest, Japa) ; la stack locale doit tourner                |
+| `pnpm check`                     | lint + typecheck + tests + build, comme la CI                      |
+| `pnpm format`                    | Formate avec Prettier (`format:check` pour vérifier)               |
+| `pnpm stack:up`                  | `docker compose up -d --wait`                                      |
+| `pnpm stack:check`               | Vérifie que la stack locale répond                                 |
+| `pnpm stack:down`                | Arrête la stack (`docker compose down -v` efface les données)      |
+| `pnpm --filter @kaxolax/web e2e` | Parcours Playwright de la DoD et de la MFA (CI) ; `e2e:all` : tous |
 
 ## Structure
 
@@ -119,7 +119,7 @@ functions/
   upload-processor/   vérification et classement d'un fichier uploadé
   zip-importer/       extraction et validation d'un projet zip
 packages/
-  collab/             conventions Yjs (nom des documents, champ texte)
+  collab/             conventions Yjs (noms des documents, ancres, historique, jeton temps réel)
   config/             tsconfig, ESLint, Prettier
   contracts/          schémas zod partagés entre services
   editor/             CodeMirror : langage LaTeX, thèmes, registre d'actions, outline, auto-compilation
@@ -151,7 +151,7 @@ Guide pas à pas : [docs/deploy.md](docs/deploy.md). En résumé :
   (Railway et CI, voir `images.yml`) ou `--target <service>` (local ; compile-gateway et
   compile-agent en CI).
 - **Cloudflare** : DNS, CDN, WAF, R2 (SDK S3 existant, `S3_REGION=auto`), Worker de compilation
-  `apps/compile-worker` avec un conteneur par projet (`pnpm --filter @kaxolax/compile-worker deploy`).
+  `apps/compile-worker` avec un conteneur par projet (`pnpm --filter @kaxolax/compile-worker run deploy`).
 - **Compilation** : `COMPILE_BACKEND=gateway` (défaut local et CI : synchrone, compile-gateway et
   agents Docker + gVisor) ou `cloudflare` (production : asynchrone, `buildId` puis résultat par
   le service temps réel).
@@ -199,15 +199,8 @@ node scripts/ci/container-compile-test.mjs --image kaxolax/compile-container:loc
 La base doit être l'image durcie de `kaxolax-texlive-images` : une image sans son étape de
 durcissement (`chmod 0600 /etc/passwd /etc/group`) donne quatre fausses fuites.
 
-**Échec connu de `compile-container`** (le job reste rouge jusqu'à ces deux changements, hors des
-workflows ; avec eux, essayés en local, la suite passe entièrement) :
-
-- `apps/compile-worker/container/Dockerfile` lance Node en PID 1, qui ne réclame pas les orphelins
-  d'une compilation tuée : ils restent zombies et comptent dans `RLIMIT_NPROC` tant que la VM vit.
-  Le test l'exige (vérification 1 et vérification finale) ; correction attendue :
-  `ENTRYPOINT ["tini", "--"]` (ou un autre init qui réclame les orphelins) ;
-- l'image TeX Live publiée sur GHCR n'a pas encore l'étape de durcissement : republication en
-  attente.
+Le conteneur lance l'agent sous `tini` (PID 1 qui réclame les orphelins d'une compilation tuée) ;
+la base est l'image publiée et durcie, épinglée par son empreinte dans `TEXLIVE_IMAGE`.
 
 ## Conventions
 

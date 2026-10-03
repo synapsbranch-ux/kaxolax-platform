@@ -52,10 +52,10 @@ export const configSchema = z.object({
     .default(20 * GIB),
 
   S3_REGION: z.string().default('us-east-1'),
-  /** Vide sur AWS (point de terminaison par défaut) ; http://localhost:8333 en local. */
+  /** http://localhost:8333 en local (SeaweedFS) ; vide : point de terminaison AWS par défaut. */
   S3_ENDPOINT: z.url().optional(),
   S3_FORCE_PATH_STYLE: booleanString.default(false),
-  /** Vides sur AWS : l'agent utilise alors le rôle de l'instance. */
+  /** Vides : identifiants par défaut du SDK (variables AWS_*, rôle d'une instance). */
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_BUCKET_PROJECT_FILES: z.string().min(3),

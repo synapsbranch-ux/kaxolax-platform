@@ -12,7 +12,7 @@ import {
   TEXT_FIELD,
   textOf,
 } from '@kaxolax/collab'
-import { verifyRealtimeToken } from '@kaxolax/collab/token'
+import { verifyRealtimeToken, verifyUserRealtimeToken } from '@kaxolax/collab/token'
 import {
   canEdit,
   type CloseDocumentResponse,
@@ -31,9 +31,12 @@ import {
   type ReplaceDocumentResponse,
 } from '@kaxolax/contracts'
 import type { Logger } from 'pino'
+import type * as Y from 'yjs'
 import { type ConnectionContext, createAccessControl, FORBIDDEN } from './access.js'
+import { decodeDocumentState, encodeDocumentState, waitForStates } from './catch-up.js'
 import {
   type ClusterBus,
+  type ClusterMessage,
   memberChangeFanout,
   RedisClusterBus,
   redisConnectionOptions,
@@ -44,8 +47,14 @@ import { departedClients, enforcePresenceIdentity, removeRemoteClients } from '.
 import { createStorageGuard } from './storage.js'
 import type { DocumentStore } from './store.js'
 import { UpdateRecorder } from './updates.js'
+import {
+  createUserChannels,
+  type UserChannelContext,
+  userChannelContextOf,
+} from './user-channel.js'
 
 export type { ConnectionContext } from './access.js'
+export type { UserChannelContext } from './user-channel.js'
 
 type ServerOptions = Pick<
   RealtimeConfig,
@@ -89,6 +98,14 @@ const REPLACE_SETTLE_MS = 150
 const REPLACE_ATTEMPTS = 3
 /** Attente maximale des réponses des autres instances à une demande d'écriture du journal. */
 const FLUSH_ACK_TIMEOUT_MS = 2_000
+
+/**
+ * Instantané avec plusieurs instances : attente des états des documents ouverts ailleurs, puis
+ * de leur arrivée par l'extension Redis (même principe que la restauration, avec une condition
+ * exacte : l'état de chaque autre instance est contenu dans la copie locale).
+ */
+const SNAPSHOT_PEERS_TIMEOUT_MS = 1_000
+const SNAPSHOT_SYNC_TIMEOUT_MS = 3_000
 
 /** Taille maximale du corps d'une restauration de texte (document de 2 Mio, échappé en JSON). */
 const MAX_REPLACE_BYTES = 8 * 1024 * 1024
@@ -145,6 +162,13 @@ async function readJson(
   }
 }
 
+/** Demande en attente des réponses des autres instances (`askPeers`). */
+interface PeerRequest {
+  replies: ClusterMessage[]
+  expected: number
+  done: () => void
+}
+
 /** Refus d'authentification : le client reçoit un motif générique, le journal garde le détail. */
 class AccessDenied extends Error {
   constructor(readonly detail: string) {
@@ -152,16 +176,28 @@ class AccessDenied extends Error {
   }
 }
 
+/** Dépendances remplaçables (tests) : bus entre instances, par défaut tiré de `REDIS_URL`. */
+export interface RealtimeDependencies {
+  bus?: ClusterBus
+}
+
 /**
  * Service temps réel. Avec `REDIS_URL`, plusieurs instances partagent les documents, l'awareness
  * et les messages sans état (extension Redis de Hocuspocus) ; un bus Redis pub/sub (`cluster.ts`)
  * relaie les changements de membres, les fermetures de connexions et les événements du projet.
  */
-export function createRealtimeServer(options: ServerOptions, store: DocumentStore, logger: Logger) {
+export function createRealtimeServer(
+  options: ServerOptions,
+  store: DocumentStore,
+  logger: Logger,
+  dependencies: RealtimeDependencies = {},
+) {
   const redisPrefix = options.REDIS_PREFIX ?? 'kaxolax-realtime'
-  const bus: ClusterBus = options.REDIS_URL
-    ? new RedisClusterBus(options.REDIS_URL, `${redisPrefix}:cluster`, logger)
-    : singleInstanceBus
+  const bus: ClusterBus =
+    dependencies.bus ??
+    (options.REDIS_URL
+      ? new RedisClusterBus(options.REDIS_URL, `${redisPrefix}:cluster`, logger)
+      : singleInstanceBus)
   const fanout = memberChangeFanout(bus)
   const redisExtensions: Extension[] = options.REDIS_URL
     ? [
@@ -181,12 +217,70 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     logger,
     checkMs: options.STORAGE_CHECK_MS ?? 10_000,
   })
+  const userChannels = createUserChannels({ store, logger })
   const sweepMs = options.ROLE_SWEEP_MS ?? 30_000
   let sweepTimer: NodeJS.Timeout | undefined
   const recorder = new UpdateRecorder(store, logger, options.HISTORY_FLUSH_MS ?? 100)
 
-  /** Demandes d'écriture du journal envoyées aux autres instances : réponses attendues. */
-  const flushRequests = new Map<string, { received: number; expected: number; done: () => void }>()
+  /** Demandes envoyées aux autres instances : réponses reçues, nombre attendu. */
+  const peerRequests = new Map<string, PeerRequest>()
+
+  /**
+   * Envoie une demande aux autres instances et attend leurs réponses (même `requestId`), au plus
+   * `timeoutMs` en tout, envoi compris : un Redis indisponible (commande en file d'attente hors
+   * ligne, puis rejetée) ne bloque ni ne fait échouer l'appelant. Renvoie les réponses reçues et
+   * le nombre d'instances qui devaient répondre, null s'il est inconnu (envoi échoué ou trop lent).
+   */
+  const askPeers = async (
+    request: (requestId: string) => ClusterMessage,
+    timeoutMs: number,
+  ): Promise<{ replies: ClusterMessage[]; peers: number | null }> => {
+    const requestId = randomUUID()
+    const message = request(requestId)
+    let timer: NodeJS.Timeout | undefined
+    let peers: number | null = null
+    // Inscrite avant l'envoi : une réponse peut arriver avant le nombre de destinataires.
+    const pending: PeerRequest = {
+      replies: [],
+      expected: Number.POSITIVE_INFINITY,
+      done: () => undefined,
+    }
+    const answered = new Promise<void>((resolve) => {
+      pending.done = resolve
+      timer = setTimeout(resolve, timeoutMs)
+    })
+    peerRequests.set(requestId, pending)
+    // Envoi non attendu directement : le délai borne aussi la publication.
+    bus.publishCounted(message).then(
+      (count) => {
+        peers = count
+        pending.expected = count
+        if (pending.replies.length >= count) pending.done()
+      },
+      (error: unknown) => {
+        logger.warn(
+          { err: error, kind: message.kind },
+          'cluster: request to other instances failed',
+        )
+        pending.done()
+      },
+    )
+    try {
+      await answered
+      return { replies: [...pending.replies], peers }
+    } finally {
+      clearTimeout(timer)
+      peerRequests.delete(requestId)
+    }
+  }
+
+  /** Réponse d'une autre instance à une demande de `askPeers` (ignorée si elle n'est pas d'ici). */
+  const receivePeerReply = (requestId: string, reply: ClusterMessage): void => {
+    const pending = peerRequests.get(requestId)
+    if (!pending) return
+    pending.replies.push(reply)
+    if (pending.replies.length >= pending.expected) pending.done()
+  }
 
   /**
    * Journal de l'historique : écrit ce qui attend pour le projet sur cette instance, le demande
@@ -195,36 +289,54 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
    * auteur. Après le délai, l'API continue ; l'état enregistré rattrape le texte, sans auteur.
    */
   const flushUpdates = async (projectId: string): Promise<FlushUpdatesResponse> => {
-    const requestId = randomUUID()
-    let timer: NodeJS.Timeout | undefined
-    const acknowledged = new Promise<void>((resolve) => {
-      // Inscrite avant l'envoi : une réponse peut arriver avant le nombre de destinataires.
-      flushRequests.set(requestId, {
-        received: 0,
-        expected: Number.POSITIVE_INFINITY,
-        done: resolve,
-      })
-      timer = setTimeout(resolve, FLUSH_ACK_TIMEOUT_MS)
-    })
-    try {
-      const [flushed, peers] = await Promise.all([
-        recorder.flush(projectId),
-        bus.publishCounted({ kind: 'flush-updates', projectId, requestId }),
-      ])
-      const pending = flushRequests.get(requestId)
-      if (pending) {
-        pending.expected = peers
-        if (pending.received >= peers) pending.done()
-      }
-      await acknowledged
-      if ((flushRequests.get(requestId)?.received ?? 0) < peers) {
-        logger.warn({ projectId, peers }, 'history flush not acknowledged by every instance')
-      }
-      return { flushed }
-    } finally {
-      clearTimeout(timer)
-      flushRequests.delete(requestId)
+    const [flushed, { replies, peers }] = await Promise.all([
+      recorder.flush(projectId),
+      askPeers(
+        (requestId) => ({ kind: 'flush-updates', projectId, requestId }),
+        FLUSH_ACK_TIMEOUT_MS,
+      ),
+    ])
+    if (peers === null || replies.length < peers) {
+      logger.warn({ projectId, peers }, 'history flush not acknowledged by every instance')
     }
+    return { flushed }
+  }
+
+  /** États Yjs des documents du projet chargés sur cette instance (réponse `document-states`). */
+  const loadedStates = (instance: Hocuspocus, projectId: string) => {
+    const documents: { documentId: string; snapshot: string }[] = []
+    for (const [name, document] of instance.documents) {
+      const target = parseDocumentName(name)
+      if (target?.projectId !== projectId) continue
+      documents.push({ documentId: target.documentId, snapshot: encodeDocumentState(document) })
+    }
+    return documents
+  }
+
+  /**
+   * États des documents du projet ouverts sur les autres instances (vide sans Redis), par
+   * document : ce que l'instantané doit contenir.
+   */
+  const peerStates = async (projectId: string): Promise<Map<string, Y.Snapshot[]>> => {
+    const states = new Map<string, Y.Snapshot[]>()
+    if (bus === singleInstanceBus) return states
+    // Attente bornée, envoi compris (`askPeers`) : sans bus, le texte connu ici fait foi.
+    const { replies, peers } = await askPeers(
+      (requestId) => ({ kind: 'document-states-request', projectId, requestId }),
+      SNAPSHOT_PEERS_TIMEOUT_MS,
+    )
+    if (peers === null || replies.length < peers) {
+      logger.warn({ projectId, peers }, 'snapshot: some instances did not describe their documents')
+    }
+    for (const reply of replies) {
+      if (reply.kind !== 'document-states') continue
+      for (const { documentId, snapshot } of reply.documents) {
+        const state = decodeDocumentState(snapshot)
+        if (!state) continue
+        states.set(documentId, [...(states.get(documentId) ?? []), state])
+      }
+    }
+    return states
   }
 
   /**
@@ -274,25 +386,46 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     return { changed }
   }
 
+  /**
+   * Texte courant de chaque document du projet. Un document ouvert fait foi : il contient les
+   * modifications pas encore enregistrées. Avec plusieurs instances, un document ouvert sur une
+   * autre instance peut avoir des modifications que la copie d'ici n'a pas encore reçues (ou, s'il
+   * n'est pas chargé ici, que la base n'a pas encore) : chaque autre instance décrit l'état de
+   * ses documents du projet, et le texte n'est lu qu'une fois cet état reçu par l'extension Redis
+   * (attente bornée par `SNAPSHOT_SYNC_TIMEOUT_MS` pour tout l'instantané, puis texte connu).
+   */
   const snapshot = async (instance: Hocuspocus, projectId: string): Promise<ProjectSnapshot> => {
     // Le journal de l'historique est à jour pour ce projet avant toute version (compilation).
     await recorder.flush(projectId)
+    const ids = await store.documentIds(projectId)
+    const remote = await peerStates(projectId)
+    const deadline = Date.now() + SNAPSHOT_SYNC_TIMEOUT_MS
+    const caughtUp = async (name: string, document: Y.Doc, id: string) => {
+      const states = remote.get(id) ?? []
+      if (states.length > 0 && !(await waitForStates(document, states, deadline))) {
+        logger.warn({ documentName: name }, 'snapshot: document not caught up with other instances')
+      }
+    }
     const documents = []
-    for (const id of await store.documentIds(projectId)) {
+    for (const id of ids) {
       const name = documentName(projectId, id)
-      // Un document ouvert fait foi : il contient les modifications pas encore enregistrées.
       const loaded = instance.documents.get(name)
       let content: string
       if (loaded) {
+        await caughtUp(name, loaded, id)
         content = textOf(loaded)
       } else {
         // Chargé par Hocuspocus (et partagé avec un client qui l'ouvrirait au même moment), puis
-        // déchargé : rien n'est écrit si le texte n'a pas changé.
+        // déchargé après l'enregistrement différé habituel, sans attendre : avec Redis, un
+        // déchargement immédiat coûte environ 2 s par document (verrou et délais de l'extension),
+        // assez pour dépasser le délai de l'API sur un projet de quelques fichiers. Rien n'est
+        // écrit si le texte n'a pas changé.
         const connection = await instance.openDirectConnection(name)
         try {
+          if (connection.document) await caughtUp(name, connection.document, id)
           content = connection.document ? textOf(connection.document) : ''
         } finally {
-          await connection.disconnect()
+          await connection.disconnect({ unloadImmediately: false })
         }
       }
       documents.push({ id, content, sha256: sha256(content) })
@@ -317,7 +450,8 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
 
   /**
    * Envoie un événement aux connexions des documents meta de cette instance : ceux du projet, ou
-   * tous si `projectId` est null (bannière). Message sans état adressé à chaque connexion, et non
+   * tous si `projectId` est null (bannière), avec alors les canaux des utilisateurs (toutes les
+   * pages connectées, `user-channel.ts`). Message sans état adressé à chaque connexion, et non
    * `broadcastStateless` du document, que l'extension Redis relaierait en double : les autres
    * instances reçoivent l'événement par le bus, même sans document meta chargé ici.
    */
@@ -327,7 +461,7 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     message: ProjectEventMessage,
   ): number => {
     const payload = JSON.stringify(message)
-    let delivered = 0
+    let delivered = projectId === null ? userChannels.deliverToAll(instance, payload) : 0
     for (const [name, document] of instance.documents) {
       const meta = parseMetaDocumentName(name)
       if (!meta || (projectId !== null && meta.projectId !== projectId)) continue
@@ -353,10 +487,11 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
 
   /**
    * Ferme toutes les connexions d'un utilisateur, sur tous les documents ouverts de cette
-   * instance. Sa reconnexion est refusée par onAuthenticate (compte banni ou supprimé).
+   * instance et son canal. Sa reconnexion est refusée par onAuthenticate (compte banni ou
+   * supprimé).
    */
   const disconnectUser = (instance: Hocuspocus, userId: string): DisconnectUserResponse => {
-    let connections = 0
+    let connections = userChannels.disconnectUser(instance, userId)
     for (const { connection, context } of [...access.connectionsOf(instance)]) {
       if (context.userId === userId) {
         connection.readOnly = true
@@ -460,7 +595,21 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
     sendJson(response, 404, { code: 'E_NOT_FOUND' })
   }
 
-  return new Server<ConnectionContext>({
+  /** Canal d'un utilisateur : jeton `scope: 'user'` de son titulaire, compte actif. */
+  const authenticateUserChannel = async (
+    token: string,
+    userId: string,
+  ): Promise<UserChannelContext> => {
+    const claims = verifyUserRealtimeToken(token, options.REALTIME_TOKEN_SECRET)
+    if (!claims) throw new AccessDenied('invalid or expired token')
+    if (claims.sub !== userId) throw new AccessDenied('token is for another user')
+    if (!(await store.accountActive(claims.sub, claims.iat))) {
+      throw new AccessDenied('account banned, deleted or signed out')
+    }
+    return { channel: 'user', userId: claims.sub, issuedAt: claims.iat, rejectedUpdates: 0 }
+  }
+
+  return new Server<ConnectionContext | UserChannelContext>({
     name: 'kaxolax-realtime',
     address: options.HOST,
     port: options.PORT,
@@ -472,10 +621,17 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
 
     async onAuthenticate({ token, documentName: name, connectionConfig, socketId }) {
       try {
-        const claims = verifyRealtimeToken(token, options.REALTIME_TOKEN_SECRET)
-        if (!claims) throw new AccessDenied('invalid or expired token')
         const target = parseRealtimeDocumentName(name)
         if (!target) throw new AccessDenied('malformed document name')
+        if (target.kind === 'user') {
+          const context = await authenticateUserChannel(token, target.userId)
+          // Sans contenu : lecture seule, les événements arrivent en messages sans état.
+          connectionConfig.readOnly = true
+          logger.debug({ socketId, userId: context.userId }, 'user channel authenticated')
+          return context
+        }
+        const claims = verifyRealtimeToken(token, options.REALTIME_TOKEN_SECRET)
+        if (!claims) throw new AccessDenied('invalid or expired token')
         if (target.projectId !== claims.projectId)
           throw new AccessDenied('token is for another project')
         // Le rôle est relu en base : un membre retiré, un compte banni ou supprimé, ou dont les
@@ -527,6 +683,7 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
      */
     async connected({ connection }) {
       await access.recheck(connection)
+      await userChannels.recheck(connection)
     },
 
     /**
@@ -534,6 +691,7 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
      * propriétaire (voir `createStorageGuard`).
      */
     async beforeSync({ connection, document, type, payload }) {
+      userChannels.beforeSync(connection, document, type, payload)
       await access.beforeSync(connection, document, type, payload)
       await storage.beforeSync(connection, type)
     },
@@ -557,9 +715,13 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
       return Promise.resolve()
     },
 
-    /** Identité de la présence imposée par le serveur (voir `presence.ts`). */
+    /**
+     * Identité de la présence imposée par le serveur (voir `presence.ts`) ; aucune présence sur le
+     * canal d'un utilisateur.
+     */
     beforeHandleAwareness({ connection, document, states }) {
-      enforcePresenceIdentity({ connection, document, states }, logger)
+      if (connection && userChannelContextOf(connection)) states.clear()
+      else enforcePresenceIdentity({ connection, document, states }, logger)
       return Promise.resolve()
     },
 
@@ -591,12 +753,14 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
           return recorder
             .flush(message.projectId)
             .then(() => bus.publish({ kind: 'flush-updates-done', requestId: message.requestId }))
-        } else if (message.kind === 'flush-updates-done') {
-          const pending = flushRequests.get(message.requestId)
-          if (pending) {
-            pending.received++
-            if (pending.received >= pending.expected) pending.done()
-          }
+        } else if (message.kind === 'document-states-request') {
+          return bus.publish({
+            kind: 'document-states',
+            requestId: message.requestId,
+            documents: loadedStates(instance, message.projectId),
+          })
+        } else if (message.kind === 'flush-updates-done' || message.kind === 'document-states') {
+          receivePeerReply(message.requestId, message)
         }
         return Promise.resolve()
       })
@@ -605,6 +769,9 @@ export function createRealtimeServer(options: ServerOptions, store: DocumentStor
         sweepTimer = setInterval(() => {
           access.sweep(instance).catch((error: unknown) => {
             logger.error({ err: error }, 'role sweep failed')
+          })
+          userChannels.sweep(instance).catch((error: unknown) => {
+            logger.error({ err: error }, 'user channel sweep failed')
           })
         }, sweepMs)
         sweepTimer.unref()

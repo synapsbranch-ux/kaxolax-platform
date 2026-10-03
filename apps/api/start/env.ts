@@ -53,7 +53,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   APP_URL: Env.schema.string({ format: 'url', tld: false }),
   /** Origine de l'admin (apps/admin, domaine séparé) : ses jetons Clerk sont aussi acceptés. */
   ADMIN_URL: Env.schema.string.optional({ format: 'url', tld: false }),
-  /** Nombre de proxys de confiance devant l'API (Next.js en local, CDN en production). */
+  /**
+   * Intermédiaires de confiance devant l'API, le pair de la connexion compris (X-Forwarded-For,
+   * -Proto, -Host). Défaut 1 : Next.js en local. Production : 2, le proxy de Railway (ou le
+   * serveur Next.js qui relaie /api sans ajouter d'adresse) puis Cloudflare. Ces en-têtes restent
+   * forgeables en contournant Cloudflare (origine non authentifiée) : rien ne doit s'y fier.
+   */
   TRUSTED_PROXY_HOPS: Env.schema.number.optional(),
 
   /** Clé publique PEM de l'instance Clerk : vérification des jetons de session sans réseau. */
@@ -78,7 +83,10 @@ export default await Env.create(new URL('../', import.meta.url), {
   MAIL_FROM_ADDRESS: Env.schema.string({ format: 'email' }),
   MAIL_FROM_NAME: Env.schema.string(),
 
-  /** S3 : SeaweedFS en local, AWS en staging (sans endpoint ni clés : rôle de l'instance). */
+  /**
+   * Stockage objet compatible S3 : SeaweedFS en local, Cloudflare R2 en production (`auto`,
+   * endpoint `https://<compte>.eu.r2.cloudflarestorage.com`, jeton R2 `app`).
+   */
   S3_REGION: Env.schema.string(),
   S3_ENDPOINT: Env.schema.string.optional({ format: 'url', tld: false }),
   /** Endpoint vu par le navigateur pour les URL présignées (localhost:8333 en local). */
@@ -102,7 +110,7 @@ export default await Env.create(new URL('../', import.meta.url), {
   REALTIME_TOKEN_SECRET: sharedSecret,
   /** En-tête X-Internal-Token des appels entre services (même valeur partout). */
   INTERNAL_TOKEN: sharedSecret,
-  /** URL WebSocket donnée au navigateur : ws:// en local, wss://…/realtime en staging. */
+  /** URL WebSocket donnée au navigateur : ws://localhost:1234 en local, wss://realtime.<domaine>. */
   REALTIME_PUBLIC_URL: urlWith('ws', 'wss'),
   /** URL HTTP du service temps réel pour les routes /internal. */
   REALTIME_INTERNAL_URL: urlWith('http', 'https'),
@@ -128,4 +136,10 @@ export default await Env.create(new URL('../', import.meta.url), {
   TEMPLATES_CATALOG_URL: optional(urlWith('http', 'https')),
   /** Base des fichiers du catalogue (PDF, miniatures, zip) ; défaut : dossier du catalogue. */
   TEMPLATES_PUBLIC_URL: optional(urlWith('http', 'https')),
+
+  /**
+   * Clé de l'API Anthropic (Claude), côté API seulement. Facultative : sans elle, les routes de
+   * l'IA répondent 503 `E_AI_UNAVAILABLE` et le reste de l'application fonctionne.
+   */
+  ANTHROPIC_API_KEY: Env.schema.secret.optional(),
 })

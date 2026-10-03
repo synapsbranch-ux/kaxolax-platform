@@ -1,4 +1,5 @@
-import { signRealtimeToken } from '@kaxolax/collab/token'
+import { userChannelName } from '@kaxolax/collab'
+import { signRealtimeToken, signUserRealtimeToken } from '@kaxolax/collab/token'
 import {
   type ActiveBanner,
   type BroadcastEvent,
@@ -18,6 +19,7 @@ import {
   type ReplaceDocumentRequest,
   type ReplaceDocumentResponse,
   replaceDocumentResponseSchema,
+  type UserRealtimeTokenResponse,
 } from '@kaxolax/contracts'
 import logger from '@adonisjs/core/services/logger'
 import realtimeConfig from '#config/realtime'
@@ -35,6 +37,24 @@ export default class RealtimeClient {
       ),
       url: realtimeConfig.publicUrl,
       expiresAt: new Date(exp * 1000).toISOString(),
+    }
+  }
+
+  /**
+   * Jeton court (5 minutes) du canal temps réel de l'utilisateur (`user:{id}`), ouvert par toutes
+   * les pages connectées : bannière système en direct. Il n'ouvre aucun document de projet.
+   */
+  issueUserToken(userId: string): UserRealtimeTokenResponse {
+    const iat = Math.floor(Date.now() / 1000)
+    const exp = iat + REALTIME_TOKEN_TTL_SECONDS
+    return {
+      token: signUserRealtimeToken(
+        { scope: 'user', sub: userId, iat, exp },
+        realtimeConfig.tokenSecret.release(),
+      ),
+      url: realtimeConfig.publicUrl,
+      expiresAt: new Date(exp * 1000).toISOString(),
+      name: userChannelName(userId),
     }
   }
 
@@ -116,8 +136,9 @@ export default class RealtimeClient {
 
   /**
    * Une bannière système a été créée, modifiée ou supprimée ; `active` : les bannières actives
-   * maintenant. Diffusée en direct à tous les clients connectés à un document meta ; les
-   * navigateurs relisent aussi `GET /banners/active` (toutes les 60 s et au retour sur l'onglet).
+   * maintenant. Diffusée en direct à toutes les pages connectées (canal de l'utilisateur, et
+   * document meta d'un projet ouvert) ; les navigateurs relisent aussi `GET /banners/active`
+   * (toutes les 60 s, au retour sur l'onglet et à chaque reconnexion du canal).
    */
   async notifyBannerChanged(active: readonly ActiveBanner[]): Promise<void> {
     await this.broadcastEvent({ type: 'banner.changed', banners: [...active] })

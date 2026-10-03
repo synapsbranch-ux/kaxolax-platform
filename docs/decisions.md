@@ -169,11 +169,12 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 ## 2026-09-30 · Images Docker des services
 
 - Un seul `docker/Dockerfile` à cibles multiples (web, api, realtime, compile-gateway, compile-agent) : un étage construit tout le monorepo, puis `pnpm deploy --prod` isole chaque service avec ses seules dépendances de production. Next.js tourne en mode `standalone`.
-- Les images sont en arm64, comme les instances Graviton du staging, et construites sur des runners arm. Elles vont dans ECR depuis `main` quand le rôle OIDC est configuré.
+- ~~Les images sont en arm64, comme les instances Graviton du staging, et construites sur des runners arm. Elles vont dans ECR depuis `main` quand le rôle OIDC est configuré.~~ Périmé depuis l'étape 2 (Railway et Cloudflare, plus d'AWS) : images linux/amd64, construites par Railway au déploiement depuis `docker/Dockerfile` (étape `service`) ; la CI les construit en amd64 pour vérification, sans les pousser nulle part.
 - L'agent tourne dans un conteneur qui pilote Docker par le socket de l'hôte. Son répertoire de travail est monté au même chemin des deux côtés : les montages des compilations désignent des chemins de l'hôte. Les compilations restent des conteneurs neufs, sans réseau et sans le socket.
 
 ## 2026-09-30 · Déploiement du staging par SSM, parcours Playwright ensuite
 
+- Périmé depuis l'étape 2 : plus de staging AWS ni de SSM ; Railway déploie la production depuis `main` (`deploy/railway/`, `docs/deploy.md`). Entrée gardée pour l'historique.
 - Décision : après le push des images dans ECR, la CI lance `kaxolax-deploy` sur les deux instances par SSM Run Command (rôle OIDC `kaxolax-github-deploy`, instances étiquetées `Project=kaxolax`), attend le résultat, puis lance le parcours de la « Définition de terminé » contre l'URL CloudFront.
 - Emails de test sur staging : adresses en `@e2e-mail.<domaine>`, reçues par SES et lues dans S3 par `e2e/mail.ts` (Mailpit en local).
 - Écartés : SSH (aucun port ouvert, instances sans IP publique) ; CodeDeploy, une pièce de plus pour deux instances.
@@ -455,9 +456,9 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 
 ## 2026-10-01 · Railway : config as code et étape finale par argument de build
 
-- `deploy/railway/<service>.json` (web, api, realtime, pg-backup, pg-restore-test) : Dockerfile, healthchecks, `preDeployCommand` des migrations (api), réplicas (2 pour web et api, 1 pour realtime), cron. Chemin à déclarer dans les réglages de chaque service ; `kaxolax-infra/railway/provision.sh` pose les mêmes valeurs.
+- `deploy/railway/<service>.json` (web, admin, api, realtime, pg-backup, pg-restore-test) : Dockerfile, healthchecks, `preDeployCommand` des migrations (api), réplicas (2 pour web, api et realtime, 1 pour admin), cron. Chemin à déclarer dans les réglages de chaque service ; `kaxolax-infra/railway/provision.sh` le déclare et applique ces fichiers (voir l'entrée du 2026-10-03).
 - Railway ne choisit pas de cible de build : dernière étape `service` de `docker/Dockerfile` = `FROM ${KAXOLAX_SERVICE}` (variable du service, passée en argument de build). `--target` reste valable pour la CI.
-- realtime à plusieurs réplicas suppose l'extension Redis de Hocuspocus (tâche 5) : 1 réplica jusque-là, 2 avec elle.
+- realtime à plusieurs réplicas suppose l'extension Redis de Hocuspocus : elle existe (`apps/realtime/src/cluster.ts`), realtime tourne donc à 2 réplicas avec `REDIS_URL` (décision C.5 de l'étape 3).
 - `API_INTERNAL_URL` (cible des réécritures `/api` du web) est figée par `next build` : `ARG` de l'étape `builder`, remplie par Railway depuis la variable du service.
 
 ## 2026-10-01 · Sauvegardes PostgreSQL chiffrées vers R2
@@ -722,7 +723,7 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - `\input` hors du projet (fichier réservé à root par chemin absolu et relatif, `/proc/1/environ` qui contient le jeton) : échec sans fuite. Suite malveillante de kaxolax-texlive-images avec les attentes de `malicious.test.ts` ; l'« hôte » est la VM (fichier témoin réservé à root) et le jeton interne ne doit apparaître dans aucune sortie. `outputContains` (sortie de latexmk) n'est pas exposé par l'API : ignoré, comme dans l'agent.
 - Image de base paramétrable (`--build-arg TEXLIVE_IMAGE`), cas lus dans l'image ou passés par `--cases` : en local, base `kaxolax-texlive:2026-medium` construite par kaxolax-texlive-images (ou tirée de GHCR). Une image d'émulation (`kaxolax-texlive-emul:2026-medium`) n'a pas l'étape de durcissement : sans `chmod 0600 /etc/passwd /etc/group` (`openin_any` n'a plus d'effet depuis TeX Live 2026), quatre cas donnent de fausses fuites.
 - Aucun processus de l'UID du sandbox ne doit rester, zombies compris : PID 1 doit réclamer les orphelins d'une compilation tuée (sinon ils comptent dans RLIMIT_NPROC tant que la VM vit). Le test exige un init en PID 1 (tini, docker-init, dumb-init, catatonit) et l'agent pour fils direct ; la cible `/proc/<pid>/environ` est celle du processus de l'agent.
-- Échec connu : `apps/compile-worker/container/Dockerfile` lance Node en PID 1 (défaut réel, pas seulement du test) et l'image TeX Live publiée n'est pas encore durcie (republication en attente) ; le job `compile-container` reste rouge jusqu'à `ENTRYPOINT ["tini", "--"]` dans ce Dockerfile (hors de la tâche CI) et la republication. Essayé en local avec les deux : suite entière verte.
+- Le conteneur lance l'agent sous `tini` 0.19.0 (binaire statique officiel, `ADD --checksum` avec l'empreinte publiée par la release) en `ENTRYPOINT` ; l'image TeX Live publiée (2026-medium-19a0238) est durcie et épinglée par son empreinte.
 - Cas malveillants `command` (hors API de compilation) signalés `# SKIP`, jamais comptés comme réussis ; un cas exigé au format `command` fait échouer la suite.
 - Recherche de fuites : seules les ressources envoyées et intactes sont exclues ; tout fichier écrit par la compilation est inspecté, `.tex` compris (plus strict que `malicious.test.ts`, qui exclut tous les `.tex`).
 
@@ -733,3 +734,125 @@ Chaque décision non triviale : contexte, décision, alternatives écartées (ci
 - Empreintes arm64 : rclone vérifiée contre `SHA256SUMS` de la release ; age ne publie pas de sommes (preuves Sigsum seulement) : empreinte du fichier de la release GitHub.
 - `test-local.sh` vérifie les téléchargements de chaque architecture sans émulation (`--target downloads-<arch>`, sortie `cacheonly`), puis construit et teste l'image de la plateforme locale.
 - Boucle de santé du parcours e2e : l'admin (`:3001/healthz`) et le gateway (`/health` avec le jeton de développement, agent disponible) sont aussi attendus.
+
+## 2026-10-03 · Production : configuration remise en état (tâche 0b)
+
+- `docker/Dockerfile` : plus de cache mount `--mount=type=cache,id=pnpm-store` (Railway n'accepte que des identifiants `s/<service-id>-…`, propres à chaque service) ; installation reproductible par `--frozen-lockfile` et l'image Node épinglée. `KAXOLAX_SERVICE` n'a plus de valeur par défaut : sans lui, l'étape `service` mène à `missing-kaxolax-service`, qui échoue avec un message clair (au lieu de construire l'api en silence) ; les builds par `--target` ne sont pas touchés.
+- Admin sur le port 3001 (celui de son image et de `next dev`), `PORT=3001` et domaine sur 3001 dans `provision.sh` ; `ADMIN_URL=https://admin.<domaine>` posée sur l'api (sinon ses jetons sont refusés par le claim `azp`). `REDIS_URL` retirée de l'api, qui n'utilise plus Redis.
+- `kaxolax-infra/railway/provision.sh` ne recopie plus la configuration des services : il lit `deploy/railway/*.json` (seule source) et les déclare comme « Railway Config File ». Galerie et index TeX Live : `TEMPLATES_CATALOG_URL`, `TEMPLATES_PUBLIC_URL`, `TEXLIVE_INDEX_BUCKET=kaxolax-texlive-index`, `TEXLIVE_INDEX_KEY` sortis par Terraform. L'index a son bucket privé : R2 ne limite pas un jeton à un préfixe, et le jeton `texlive_publish` de la CI de kaxolax-texlive-images aurait sinon pu réécrire le catalogue, les zip des templates (et leur sha256) et le contenu de `templates.<domaine>` ; `templates_publish` reste le seul rédacteur de la galerie, `app` lit l'index.
+- `TRUSTED_PROXY_HOPS=2` documenté : le proxy de Railway (ou Next.js, qui relaie `/api` sans ajouter d'adresse à `X-Forwarded-For`) puis Cloudflare ; à vérifier au premier déploiement. IP et `X-Forwarded-*` restent forgeables : Railway n'authentifie pas Cloudflare, une connexion directe à son edge contourne aussi le WAF et la limitation de débit. Aucune règle ne repose sur l'IP ; il faudrait d'abord un en-tête secret posé par une Transform Rule de Cloudflare, vérifié par l'API, puis `CF-Connecting-IP` seul.
+- SMTP de production en TLS implicite : `SMTP_PORT=465` **et** `SMTP_SECURE=true` (nodemailer parle sinon en clair et chaque envoi attend le délai d'attente) ; `provision.sh` avertit si 465 est posé sans `SMTP_SECURE=true`.
+
+## 2026-10-03 · Données des projets supprimés et durée de vie des sorties
+
+- La suppression définitive d'un projet (propriétaire, admin, compte supprimé par Clerk ou par l'admin) efface aussi `outputs/<projectId>/` du bucket des sorties (`releaseDeletedProject`, `CompileOutputStorage` injecté) : les demandes de compilation y gardent toutes les sources, et les PDF leur contenu. Au mieux, comme pour `projects/<id>/` : un échec est journalisé, l'expiration du bucket fait le reste.
+- Cycle de vie R2 (kaxolax-infra) aligné sur le local : sorties expirées à 7 jours, téléversements en attente (`uploads/`) à 1 jour.
+
+## 2026-10-03 · Empreinte de l'image TeX Live : un point par dépôt, build refusé sans elle
+
+- `apps/compile-worker/container/Dockerfile` : une seule référence épinglée, `ARG TEXLIVE_IMAGE=ghcr.io/…/kaxolax-texlive:2026-medium@sha256:…` ; kaxolax-templates : `texlive_reference` et `texlive_digest` en tête de `scripts/build.sh`, seule référence de sa CI. L'empreinte `sha256:` se pose après la republication de `2026-medium`, jamais inventée.
+- Sans empreinte, la production refuse l'image : une étiquette republiée (compte GHCR ou CI de texlive-images compromis) passerait sinon en production sans commit. Dans la plateforme, `wrangler deploy` passe `TEXLIVE_REQUIRE_PINNED=1` (`image_vars` de `wrangler.jsonc`) et l'étape `builder` du Dockerfile échoue sans `@sha256:` ; la CI (`images.yml`) et le poste local construisent sans cet argument, donc restent verts tant que l'empreinte n'est pas posée. Dans kaxolax-templates, `build.sh` refuse l'image par défaut sans empreinte, sauf `TEXLIVE_ALLOW_UNPINNED=1` (CI hors publication, poste local).
+- Écartée : un refus par défaut levé par `--build-arg TEXLIVE_ALLOW_UNPINNED=1` dans le Dockerfile. Le job `compile-container` de la CI ne passe aucun argument : il échouait à chaque exécution tant que l'empreinte n'était pas posée.
+- Écartée : une empreinte à part (`TEXLIVE_DIGEST`) ajoutée à `TEXLIVE_IMAGE`. Un `--build-arg TEXLIVE_IMAGE=…` gardait l'ancienne empreinte : l'image épinglée était construite à la place de la variante demandée sans avertissement (même dépôt), ou le build échouait (autre dépôt). Remplacer toute la référence perd l'empreinte, et le build sans empreinte est refusé : c'est le comportement sûr.
+
+## 2026-10-03 · IA : Claude Opus 5.5 par le SDK officiel, effort fixé par usage
+
+- Dépendance `@anthropic-ai/sdk` 0.131.0 (MIT, SDK officiel d'Anthropic, publié le 2026-09-30) dans l'API seulement : streaming, nouvelles tentatives (429, 5xx, réseau) et classes d'erreurs typées sans code maison ; jamais d'appel HTTP brut ni de shim OpenAI. Un seul client (`ClaudeClient`), créé depuis `ANTHROPIC_API_KEY` (facultative : sans elle, 503 `E_AI_UNAVAILABLE`), résolu par le conteneur ; les tests branchent le vrai SDK sur une fausse API par son option `fetch`, ce qui exerce aussi ses nouvelles tentatives.
+- Modèle `claude-opus-5-5`, réflexion adaptative (jamais désactivée ni budgétée), `output_config.effort` toujours explicite par opération (`assistant` medium, `quick_action` low, `figure` high, `markdown_cleanup` low), dans `app/services/claude/operations.ts` seulement.
+- Repli serveur en cas de refus activé par défaut (beta `server-side-fallback-2026-07-01`, `fallbacks: "default"`, routage par catégorie) ; chaque itération de `usage.iterations` est facturée au prix de son modèle (table unique `pricing.ts` ; un modèle inconnu prend le prix le plus élevé).
+- Cache du prompt : outils puis système figés en tête avec `cache_control` éphémère, plus le cache automatique de la fin de conversation ; rien de variable avant le point de cache. `cache_read_input_tokens` enregistré dans `ai_usage` et journalisé à chaque appel.
+- Limite de débit par utilisateur en mémoire, par instance (20 appels par minute glissante, 3 simultanés), comme les autres bornes de l'API : elle arrête une boucle de requêtes ; la limite de coût reste les crédits, vérifiés en base.
+
+## 2026-10-03 · Crédits IA mensuels par plan
+
+- 1 crédit IA = 0,01 $ de coût d'API (10 000 micro-dollars) ; crédits images à l'unité. Colonnes `ai_monthly_credits` et `image_monthly_credits` de `plan_limits`, levées au-delà de Free par une seule feature Clerk `ai` (à rattacher à Pro dans le Dashboard). Valeurs de départ proposées, à confirmer par l'utilisateur : Free 100 crédits et 5 images, Pro 2000 crédits et 100 images.
+- Consommation imputée à l'utilisateur qui lance l'action, sur son propre plan, et non au propriétaire du projet : le coût suit la personne qui sollicite l'IA, et un propriétaire ne voit pas ses crédits vidés par ses collaborateurs.
+- Réservation du coût maximal avant l'appel (entrée : un token pour 3 caractères ; `max_tokens` entier ; prix les plus élevés de la table, car le repli serveur peut servir un modèle plus cher), règlement au coût réel après, dans la transaction qui écrit `ai_usage`. Solde insuffisant pour le pire cas mais suffisant pour la sortie attendue : réservation ramenée au solde et `max_tokens` réduit, plutôt qu'un refus. Ainsi des appels simultanés (3 par utilisateur) ne dépassent pas le plan ; seule l'erreur d'estimation de l'entrée peut le faire. Écarté : réserver la sortie attendue seulement (un appel peut produire `max_tokens`, jusqu'à 160 crédits pour `markdown_cleanup`).
+- Réponse interrompue (erreur en cours de flux, client parti) : le flux ne donne la sortie qu'à la fin, donc facturation de la sortie visible estimée et au moins du coût attendu de l'opération (la réflexion n'est pas visible), dans la limite de la réservation.
+- Réservation prolongée toutes les 5 min pendant l'appel (le délai du SDK ne borne pas le corps du flux) ; jamais réglée (processus arrêté), elle expire après 40 min, plus que 10 min × 3 tentatives. Écriture de `ai_usage` en échec : réponse rendue, usage journalisé en erreur, crédits réglés à part.
+- Mois civil UTC (agrégat `ai_credit_periods` par compte et par mois) plutôt que la période de facturation Clerk : identique pour Free et Pro, sans dépendre d'un webhook ; remise à zéro implicite le 1er.
+
+## 2026-10-03 · Jetons des intégrations chiffrés au repos
+
+- Jetons OAuth de GitHub et clé d'API Zotero chiffrés par l'encryption d'AdonisJS (AES-256-GCM, clé `APP_KEY`, `config/encryption.ts`), dans des colonnes `*_encrypted` ; l'instance Lucid les porte en clair, la base et les sérialisations jamais.
+- Chiffrement lié à sa colonne (`purpose`) : un texte chiffré recopié ailleurs ne se déchiffre pas. Un texte illisible (clé changée) se lit `null` : jeton à redemander, aucune erreur. Pour changer `APP_KEY` sans perdre les jetons, garder l'ancienne clé en second dans `keys`.
+- Pas de dépendance ni de clé supplémentaires : `APP_KEY` est déjà un secret obligatoire des déploiements.
+
+## 2026-10-03 · Jetons d'accès personnels
+
+- Secret `kxp_<identifiant public de 12 caractères>_<32 octets aléatoires en base64url>` : le préfixe `kxp_` le rend repérable par les scanners de secrets ; l'identifiant public sert de clé de recherche et d'affichage.
+- Stockage du seul SHA-256 du secret (pas de bcrypt : 256 bits d'entropie rendent une attaque par dictionnaire inutile, et la vérification reste rapide à chaque requête MCP) ; comparaison à temps constant (`timingSafeEqual`), aussi pour un préfixe inconnu.
+- Expiration obligatoire (1 à 365 jours, 90 par défaut), portées `read`/`write`, projets nommés ou tous, 20 jetons actifs au plus, révocation douce ; l'appartenance au projet et le rôle restent vérifiés à chaque utilisation.
+- Table bornée sans pagination : 50 créations par compte sur 30 jours glissants, révoqués compris (429 `E_TOKEN_RATE_LIMIT`, arrête la boucle « créer, révoquer ») ; un jeton révoqué ou expiré depuis plus de 30 jours est supprimé à la création suivante et n'est plus listé. La liste compte donc au plus 70 jetons. Écarté : la pagination, inutile à cette taille.
+- Compte supprimé (`deleteClerkUser`, ligne anonymisée et jamais supprimée, donc sans CASCADE) : ses jetons d'accès sont révoqués, ses conversations IA (messages compris) et ses liens Git et Zotero (jetons chiffrés compris) supprimés, aussi dans les projets des autres, dans la même transaction.
+
+## 2026-10-03 · IA désactivable par projet et par workspace
+
+- `ai_enabled` sur `projects` et `workspaces` (vrai par défaut) ; l'IA ne sert un projet que si les deux sont vrais (403 `E_AI_DISABLED` avec `scope`). Le refus du workspace l'emporte.
+- Nouvelle permission `manageAi` (propriétaire) dans la matrice des projets, et première matrice des workspaces (`WORKSPACE_PERMISSIONS` : `read` pour tous, `manageAi` pour le propriétaire), que les rôles d'équipe (tâche 10) compléteront.
+- Interrupteur dans l'onglet Projet des paramètres (web) : lu à l'ouverture, modifiable par le propriétaire, raison affichée aux autres membres.
+
+## 2026-10-03 · Parcours e2e de l'étape 2 et captures d'écran
+
+- Comptes des parcours créés et supprimés par l'API Backend de Clerk (`@clerk/backend` 3.21.0, déjà au catalogue pour l'API, ajouté en devDependency de `apps/web`) : plusieurs personnes par parcours, chacune dans son contexte de navigateur, connectées par un jeton de connexion de `@clerk/testing`, ou par mot de passe et TOTP (`totpSecret` à la création) pour l'admin ; les projets possédés sont supprimés à la fin.
+- Projets semés par l'import zip du tableau de bord, avec un zip « stocké » écrit dans `e2e/files.ts` (`zlib.crc32`, testé par Vitest) plutôt qu'une dépendance (`yazl`) ; les zips téléchargés (stocké ou deflate) sont lus de même. Préparation et nettoyage par l'API avec le jeton de la page quand l'écran n'est pas ce qui est testé.
+- `compile()` suit les deux modes de l'API : réponse synchrone, ou 202 suivi par l'état visible de la pastille puis relu par `GET …/builds/:buildId` ; après un 409 `E_COMPILE_IN_PROGRESS`, la relance mise en attente par l'interface est suivie à son tour.
+- Un parcours que l'environnement ne permet pas est sauté avec sa raison plutôt qu'en échec : invitation et emails de mention sans Mailpit, template du catalogue de démonstration (sans fichiers), limite absente du plan du compte de test (ou trop haute pour un parcours), onglet Billing sans Clerk Billing.
+- Captures dans un projet Playwright séparé (`screenshots`, hors de `pnpm e2e`) : noms stables `<écran>--<thème>--<taille>.png`, index Markdown régénéré (format stable pour Prettier), dossier ignoré par git et vidé au début de chaque passage (aucune image périmée dans l'index). Toutes les variantes sont les étapes d'un seul test, sans mode `serial` (qui sauterait les variantes suivantes au premier échec) : un écran ou une variante en échec n'arrête pas les suivants, la liste des échecs fait échouer le parcours à la fin.
+
+## 2026-10-03 · Parcours e2e : portée de la CI et mesures
+
+- Script `e2e` limité à la DoD et à la MFA (ce que lance le job `integration` de la CI, déjà chargé par l'agent de compilation sous runc et gVisor, délai de 45 min, admin non démarré) ; `e2e:all` lance tous les parcours de l'étape 2 (une à deux heures), à la main sur la pile locale ou staging.
+- Autocomplétion des citations : le budget de 100 ms est mesuré dans la page (de la touche à l'affichage de la liste) en plus du délai de frappe de CodeMirror (`activateOnTypingDelay`, 100 ms par défaut), qui précède toute demande de propositions.
+- Bannissement vérifié côté application par l'état de synchronisation (documents fermés par le service temps réel, sans recharger), puis par le retour à la connexion et le refus de Clerk à la reconnexion ; la limite de stockage est remplie par l'API (uploads présignés) avant un upload refusé dans l'interface.
+
+## 2026-10-03 · Statistiques de l'admin : compilations terminées seulement
+
+- `compileStats` ne compte que les statuts finaux du compilateur (`success`, `failure`, `timeout`, `error`, comme `lastCompile`) : les compilations asynchrones en cours (`queued`, `preparing`, `running`) n'ont ni résultat ni durée et faisaient planter la page (`NaN` refusé par `adminStatsSchema`).
+- Les annulations (`cancelled`) ne sont ni une réussite ni un échec du compilateur : compteur à part `compiles.cancelled` dans le contrat, hors total, durée moyenne et taux d'échec ; l'admin l'affiche sous la répartition par résultat.
+
+## 2026-10-03 · Bannière en direct sur toutes les pages : canal temps réel par utilisateur
+
+- Document Hocuspocus `user:{userId}` plutôt qu'une route WebSocket dédiée : même service, mêmes reconnexions et même relais multi-instance (événements diffusés à tous livrés aux canaux par `deliverEvent`, relayés par le bus Redis existant) ; sans contenu, sans présence, rien d'enregistré.
+- Jeton distinct (`POST /me/realtime-token`, `scope: 'user'`) dont la charge utile ne valide pas le schéma d'un jeton de projet, et inversement : un jeton ne sert jamais à l'autre usage. Compte revérifié comme pour les projets (authentification, attache, balayage, `…/users/:id/disconnect`).
+- Côté web, WebSocket dédié ouvert par `SystemBanner` (layout `(app)`) : une connexion de plus par onglet, la page projet garde la sienne. Sondage de 60 s gardé en filet, et relecture à chaque (re)connexion du canal.
+
+## 2026-10-03 · Plan et usage visibles
+
+- `GET /me/plan` affiché sur une page « Plan et usage » ajoutée à `<UserProfile />` (`/account/plan`) et dans l'onglet Plan des paramètres ; menu du compte : « Plan … et usage », « Facturation » (`/account/billing`, onglet Billing de Clerk) et « Tarifs ».
+- `has({ plan })` / `has({ feature })` de Clerk ne servent qu'à l'affichage immédiat (libellé du menu, badge et features avant la réponse de l'API) ; les chiffres viennent de l'API, qui applique les limites.
+
+## 2026-10-03 · Compilation : matrice des permissions et pré-réveil pour tous
+
+- Les routes de compilation demandent la permission `compile` (lancer, arrêter, vider le cache, SyncTeX, réveil) ou `read` (dernière compilation, état d'une compilation, recherche) ; la forme « rôle minimal » de `projectFor` est supprimée.
+- Le web réveille le compilateur pour tout rôle qui peut compiler (`warmsCompiler`, lecteur et relecteur compris) : l'API plafonne déjà les réveils par utilisateur sans jamais refuser et garde un emplacement pour une vraie compilation.
+
+## 2026-10-03 · Version de l'état restauré
+
+- Nouveau type de version `restored` (migration `…0150`, contrainte élargie sans toucher aux lignes existantes ; retour arrière : `restored` redevient `auto`), créée juste après une restauration réussie ; `restore` reste la sauvegarde d'avant.
+- Auteurs : la personne qui restaure, toujours (option `authorIds` de `createVersion`), plus les éventuels auteurs du journal ; création au mieux (`restoredVersionId` null en cas d'échec ou si rien n'a changé), le balayage des versions automatiques rattrape.
+
+## 2026-10-03 · Instantané cohérent avec plusieurs instances temps réel
+
+- Condition exacte plutôt qu'un délai : l'instance appelée demande aux autres l'état Yjs (vecteur d'état et suppressions, `Y.encodeSnapshot`) de leurs documents du projet, puis attend que sa copie les contienne (une suppression seule n'avance pas le vecteur d'état). Attente bornée (1 s de réponses, 3 s pour l'instantané), puis texte connu, journalisé.
+- Un document chargé pour l'instantané est déchargé après l'enregistrement différé habituel, sans l'attendre : avec l'extension Redis, `disconnect()` immédiat coûtait environ 2 s par document (verrou et délais de l'extension), assez pour dépasser le délai de 15 s de l'API sur quelques fichiers fermés.
+- Demandes aux autres instances factorisées (`askPeers`), écriture du journal de l'historique comprise.
+- Délai de `askPeers` appliqué à l'envoi aussi : Redis indisponible (commande en file d'attente hors ligne, puis rejetée), l'instantané et l'écriture du journal continuent avec ce qui est connu ici, journalisé, au lieu d'attendre puis d'échouer.
+
+## 2026-10-03 · Temps réel : Redis obligatoire en production
+
+- `NODE_ENV=production` sans `REDIS_URL` : refus de démarrer avec un message clair ; deux instances sans Redis garderaient des copies divergentes des documents. Développement et tests : instance seule sans Redis toujours possible.
+
+## 2026-10-03 · CSP et en-têtes de sécurité (web et admin)
+
+- CSP posée par l'option `contentSecurityPolicy` de `clerkMiddleware` (mode `strict` : nonce par requête et `'strict-dynamic'`), qui tient à jour les origines de Clerk (Frontend API de l'instance, `img.clerk.com`, Turnstile, Stripe pour Billing) ; nos directives s'y ajoutent (`src/lib/security-headers.ts`, testées en appelant le proxy). Nonce transmis à `ClerkProvider` et au script du thème ; Next.js l'applique à ses scripts.
+- Pas d'`'unsafe-eval'` en production (Clerk ne l'ajoute qu'en développement, pour le rechargement à chaud). `'wasm-unsafe-eval'` sur le web seulement (WebAssembly, jamais d'eval JavaScript) : Hunspell et décodeurs pdf.js tournent dans des workers que certains navigateurs soumettent à la politique de la page. zod réglé sans compilation (`jitless`) dans le navigateur (`instrumentation-client.ts`), sinon sa détection de `Function` déclenche une violation à chaque page.
+- `style-src 'unsafe-inline'` : Clerk, CodeMirror, MathLive et les attributs `style` de React l'exigent (un nonce de style bloquerait les attributs). `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'` ; en-têtes fixes `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy` (paiement réservé à Stripe sur le web). HSTS laissé à Cloudflare.
+- Origines du web lues à l'exécution, mêmes noms que l'API : `REALTIME_PUBLIC_URL`, `S3_PUBLIC_ENDPOINT` (et ses sous-domaines en https), `TEMPLATES_PUBLIC_URL`, `TEMPLATES_CATALOG_URL` ; défauts de la pile locale hors production seulement. En production, celles qui manquent sur le service web sont lues sur l'API (voir l'entrée suivante).
+
+## 2026-10-03 · Origines de la CSP du web lues sur l'API
+
+- Le service web ne s'arrête plus faute de `REALTIME_PUBLIC_URL` ou d'origine de stockage : la configuration de déploiement (Railway, `.env.example`, test de fumée des images) ne les lui donnait pas, et le premier déploiement aurait tourné en boucle de redémarrages.
+- Nouvelle route publique `GET /api/v1/client-config` (`clientConfigSchema`, packages/contracts) : temps réel, origine des URL présignées (public, sinon serveur, sinon point d'accès régional AWS), fichiers des templates. Rien de secret : le navigateur reçoit déjà ces URL.
+- Le proxy du web complète ses variables avec cette réponse (`src/lib/csp-sources.ts`) : variables d'abord, réponse gardée 5 min puis relue en arrière-plan, API injoignable → dernière réponse ou variables seules, nouvel essai après 30 s ; la page n'attend jamais plus de 2 s. Une seule source de vérité (l'API), les variables du web restent possibles.
+- Démarrage : avertissement si des origines manquent, arrêt seulement sur une valeur invalide.

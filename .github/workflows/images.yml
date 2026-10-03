@@ -76,15 +76,8 @@ jobs:
 
   # Conteneur de compilation Cloudflare (linux/amd64, imposé par Cloudflare Containers) sur l'image
   # TeX Live publiée par kaxolax-texlive-images (argument TEXLIVE_IMAGE du Dockerfile).
-  # ÉCHEC CONNU tant que deux changements hors de ce workflow ne sont pas faits :
-  # - apps/compile-worker/container/Dockerfile lance Node en PID 1 (CMD sans init) : il ne réclame
-  #   pas les orphelins d'une compilation tuée, zombies comptés dans RLIMIT_NPROC tant que la VM
-  #   vit. Vérifications 1 (init en PID 1) et finale (aucun zombie) en échec ; correction attendue :
-  #   init en ENTRYPOINT (tini --), avec la tâche propriétaire du Dockerfile ;
-  # - l'image ghcr.io/…/kaxolax-texlive:2026-medium publiée n'a pas encore l'étape de durcissement
-  #   (chmod 0600 /etc/passwd /etc/group ; republication en attente, tâche 0b point 11) : quatre
-  #   cas malveillants donnent de fausses fuites jusque-là.
-  # Avec ces deux changements (essayés en local hors dépôt), la suite passe entièrement.
+  # L'agent tourne sous tini (PID 1 qui réclame les orphelins) ; la base est l'image durcie,
+  # épinglée par son empreinte.
   compile-container:
     name: compile container (amd64, real compiles and malicious suite)
     runs-on: ubuntu-24.04

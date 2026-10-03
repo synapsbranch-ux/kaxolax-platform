@@ -6,3 +6,5 @@ test-results/
 AGENTS.md
 CLAUDE.md
 *.tsbuildinfo
+# Captures d’écran générées par `pnpm screenshots` (e2e/screenshots.spec.ts).
+e2e/screenshots/

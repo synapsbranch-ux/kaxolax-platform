@@ -2,6 +2,7 @@ import type { MePlanResponse } from '@kaxolax/contracts'
 import type { HttpContext } from '@adonisjs/core/http'
 import { pricingUrl } from '#exceptions/plan_limit'
 import Subscription from '#models/subscription'
+import { creditsSummary } from '#services/ai_credits'
 import { isoString } from '#services/dates'
 import { limitsOf } from '#services/entitlements'
 import { maxCollaboratorsInOwnedProjects, storageUsage } from '#services/plan_enforcement'
@@ -34,6 +35,8 @@ export default class PlanController {
         storageBytes: await storageUsage(user.id),
         maxCollaboratorsInProject: await maxCollaboratorsInOwnedProjects(user.id),
       },
+      // Crédits du mois : imputés au compte qui lance l'action, sur son propre plan.
+      credits: await creditsSummary(user, { limits }),
       subscription: subscription
         ? {
             status: subscription.status,

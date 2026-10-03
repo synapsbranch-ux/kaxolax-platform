@@ -4,7 +4,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import Document from '#models/document'
 import { projectFor } from '#services/project_access'
-import ObjectStorage from '#services/object_storage'
+import ObjectStorage, { CompileOutputStorage } from '#services/object_storage'
 import RealtimeClient from '#services/realtime_client'
 import {
   createProject,
@@ -36,6 +36,7 @@ export default class ProjectsController {
   constructor(
     private readonly realtime: RealtimeClient,
     private readonly storage: ObjectStorage,
+    private readonly outputs: CompileOutputStorage,
   ) {}
 
   /** Un projet avec le rôle de l'utilisateur (en-tête de l'éditeur). */
@@ -143,7 +144,11 @@ export default class ProjectsController {
     const { project } = await projectFor(auth.getUserOrFail(), String(params.id), 'manageProject')
     if (project.trashedAt === null) throw new ProjectNotTrashedException()
     const deleted = await deleteProjectRows(project)
-    await releaseDeletedProject(deleted, { realtime: this.realtime, storage: this.storage })
+    await releaseDeletedProject(deleted, {
+      realtime: this.realtime,
+      storage: this.storage,
+      outputs: this.outputs,
+    })
     response.noContent()
   }
 }

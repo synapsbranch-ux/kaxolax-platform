@@ -10,8 +10,12 @@ export const http = defineConfig({
   allowMethodSpoofing: false,
   useAsyncLocalStorage: false,
   /**
-   * L'API n'est joignable que derrière Next.js (local) ou CloudFront (staging). On ne fait confiance
-   * qu'aux N derniers intermédiaires : l'IP du client (limitation de débit) ne peut pas être forgée.
+   * Derrière Next.js (local) ou Cloudflare puis le proxy de Railway (production), on ne fait
+   * confiance qu'aux `TRUSTED_PROXY_HOPS` derniers intermédiaires pour l'IP, le protocole et l'hôte
+   * d'origine (en-têtes X-Forwarded-*). En production, ces valeurs restent forgeables : Railway
+   * n'authentifie pas Cloudflare, et une connexion directe à son edge (en contournant Cloudflare)
+   * fait passer un X-Forwarded-For choisi pour l'IP du client. Aucune règle ne doit s'y fier tant
+   * que l'origine n'est pas authentifiée (voir deploy/railway/README.md, note ‡).
    */
   trustProxy: (_address: string, distance: number) => distance < env.get('TRUSTED_PROXY_HOPS', 1),
   router: { matcher: 'tree' },

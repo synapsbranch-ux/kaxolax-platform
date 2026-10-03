@@ -24,6 +24,14 @@ export default class PlanLimit extends BaseModel {
   @column({ consume: (value: string | number) => Number(value) })
   declare storageBytes: number
 
+  /** Crédits IA par mois (1 crédit = 0,01 $ de coût de l'API Anthropic). */
+  @column()
+  declare aiMonthlyCredits: number
+
+  /** Images bitmap par mois. */
+  @column()
+  declare imageMonthlyCredits: number
+
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }

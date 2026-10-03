@@ -15,7 +15,9 @@
       // Image linux/amd64 : agent de compilation sur l'image TeX Live (contexte = racine du monorepo).
       "image": "./container/Dockerfile",
       "image_build_context": "../..",
-      // TeX Live complet (plusieurs Go) : le disque des petites instances ne suffit pas.
+      // Arguments de build de production : refus d'une image TeX Live sans empreinte (Dockerfile).
+      "image_vars": { "TEXLIVE_REQUIRE_PINNED": "1" },
+      // Image TeX Live (variante medium, plusieurs Go) : le disque des petites instances ne suffit pas.
       "instance_type": "standard-4",
       "max_instances": 50,
     },

@@ -16,15 +16,17 @@ import Workspace from '#models/workspace'
 import { type AdminAction, auditFailures, recordAdminAction } from '#services/admin_audit'
 import { likePattern, paginationOf } from '#services/admin_users'
 import { isoString, isoStringOrNull } from '#services/dates'
-import type ObjectStorage from '#services/object_storage'
 import { isUuid, ProjectNotFoundException } from '#services/project_access'
 import {
   InvalidNewOwnerException,
   type OwnershipTransfer,
   transferOwnership,
 } from '#services/project_ownership'
-import { deleteProjectRows, releaseDeletedProject } from '#services/project_service'
-import type RealtimeClient from '#services/realtime_client'
+import {
+  deleteProjectRows,
+  type ProjectReleaseServices,
+  releaseDeletedProject,
+} from '#services/project_service'
 
 const ROLE_ORDER: Record<ProjectRole, number> = { owner: 0, editor: 1, reviewer: 2, viewer: 3 }
 
@@ -247,7 +249,7 @@ export async function changeProjectState(
 export async function deleteProject(
   admin: User,
   projectId: string,
-  deps: { realtime: RealtimeClient; storage: ObjectStorage },
+  deps: ProjectReleaseServices,
 ): Promise<void> {
   const deleted = await auditFailures(projectFailure(admin, 'project.delete', projectId), () =>
     db.transaction(async (trx) => {

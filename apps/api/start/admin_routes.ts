@@ -10,6 +10,7 @@ const AdminUsersController = () => import('#controllers/admin_users_controller')
 const AdminProjectsController = () => import('#controllers/admin_projects_controller')
 const AdminBannersController = () => import('#controllers/admin_banners_controller')
 const AdminInsightsController = () => import('#controllers/admin_insights_controller')
+const AdminAiController = () => import('#controllers/admin_ai_controller')
 
 /** Déclare les routes de l'admin ; appelée dans le groupe `/api/v1` de `start/routes.ts`. */
 export function registerAdminRoutes() {
@@ -39,6 +40,9 @@ export function registerAdminRoutes() {
 
       router.get('stats', [AdminInsightsController, 'stats'])
       router.get('audit-log', [AdminInsightsController, 'auditLog'])
+
+      // Santé de l'IA (clé, modèle accessible), sans consommer de tokens.
+      router.get('ai/health', [AdminAiController, 'health'])
     })
     .prefix('admin')
     .use([middleware.auth(), middleware.admin()])

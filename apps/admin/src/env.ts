@@ -6,7 +6,7 @@ const optional = <T extends z.ZodType>(type: T) =>
 
 /** Variables d'environnement du serveur Next.js, validées au démarrage (dev, build et start). */
 const schema = z.object({
-  /** URL de l'API vue par le serveur Next.js (réécriture de /api). */
+  /** URL de l'API vue par le serveur Next.js (réécriture de /api, figée par `next build`). */
   API_INTERNAL_URL: z.url().default('http://127.0.0.1:3333'),
   /**
    * Clerk, lu à l'exécution (et non figé au build) : la même image sert tous les environnements.

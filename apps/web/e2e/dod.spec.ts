@@ -1,15 +1,38 @@
 import { join } from 'node:path'
-import { expect, type Page, test } from '@playwright/test'
-import { signIn, signOut, signUp, testEmail } from './clerk'
+import { expect, test } from '@playwright/test'
+import { deleteOwnedProjects } from './api'
+import { deleteTestUserByEmail, signIn, signOut, signUp, testEmail } from './clerk'
+import {
+  activeLine,
+  chooseCompiler,
+  compile,
+  expectPdfText,
+  FIXTURES,
+  openInTree,
+  replaceEditorContent,
+} from './project'
 
 /**
  * « Définition de terminé » de l'étape 1, automatisée : compte, projet, upload, écriture,
  * compilations pdfLaTeX et XeLaTeX, erreur, SyncTeX, export et réimport, reconnexion, puis
  * recompilation à chaud d'un document de 10 pages en moins de 3 s. Depuis l'étape 2, le compte est
- * créé et la connexion faite par Clerk (instance de développement, adresse +clerk_test).
+ * créé et la connexion faite par Clerk (instance de développement, adresse +clerk_test) ; les
+ * compilations sont suivies dans les deux modes de l'API (synchrone ou 202 suivi, `compile()`).
+ * Le compte et ses projets sont supprimés à la fin.
  */
 
-const fixtures = join(import.meta.dirname, 'fixtures')
+const fixtures = FIXTURES
+const email = testEmail('dod')
+
+test.afterEach(async ({ page }) => {
+  try {
+    await page.goto('/dashboard')
+    await deleteOwnedProjects(page)
+  } catch (error) {
+    console.warn('could not delete the projects of the journey', error)
+  }
+  await deleteTestUserByEmail(email)
+})
 
 const INTRO = [
   '\\section{Introduction}',
@@ -52,67 +75,7 @@ function tenPages(edit: string): string {
   )
 }
 
-async function replaceEditorContent(page: Page, text: string): Promise<void> {
-  const content = page.locator('.cm-content')
-  await content.click()
-  await page.keyboard.press('ControlOrMeta+A')
-  await page.keyboard.press('Delete')
-  // Une seule insertion : pas de fermeture automatique des accolades.
-  await page.keyboard.insertText(text)
-  await expect(page.getByTestId('sync-state')).toHaveText('Enregistré')
-}
-
-async function openInTree(page: Page, path: string): Promise<void> {
-  await page.locator(`[data-path="${path}"]`).click()
-  await expect(page.locator('.cm-content')).toBeVisible()
-}
-
-/** Lance une compilation et attend la réponse de l'API. */
-async function compile(page: Page) {
-  const response = page.waitForResponse(
-    (candidate) => candidate.url().endsWith('/compile') && candidate.request().method() === 'POST',
-  )
-  await page.getByTestId('recompile').click()
-  return (await (await response).json()) as {
-    status: string
-    pdfUrl: string | null
-    durationMs: number
-  }
-}
-
-/** Choisit le compilateur dans le menu de la pastille de statut et attend son enregistrement. */
-async function chooseCompiler(page: Page, label: string): Promise<void> {
-  await page.getByTestId('compile-menu').click()
-  const item = page.getByRole('menuitemradio', { name: label })
-  if ((await item.getAttribute('aria-checked')) === 'true') {
-    await page.keyboard.press('Escape')
-    return
-  }
-  const saved = page.waitForResponse(
-    (candidate) =>
-      /\/projects\/[0-9a-f-]{36}$/.test(new URL(candidate.url()).pathname) &&
-      candidate.request().method() === 'PATCH',
-  )
-  await item.click()
-  expect((await saved).ok()).toBe(true)
-}
-
-async function expectPdfText(page: Page, ...texts: string[]): Promise<void> {
-  // Le tiroir des logs recouvre le haut du PDF : il est refermé.
-  const closeLogs = page.getByTestId('close-logs')
-  if (await closeLogs.isVisible()) await closeLogs.click()
-  const viewer = page.getByTestId('pdf-viewer')
-  // Couches texte de toutes les pages rendues (les pages hors de l'écran le sont à la demande).
-  for (const text of texts) await expect(viewer).toContainText(text)
-}
-
-async function activeLine(page: Page): Promise<string> {
-  return (await page.locator('.cm-activeLineGutter').first().textContent()) ?? ''
-}
-
 test('stage 1 definition of done', async ({ page }, testInfo) => {
-  const email = testEmail('dod')
-
   await test.step('1. create an account (Clerk), confirm the email, land on the dashboard', async () => {
     await signUp(page, { email, firstName: 'Ada', lastName: 'Lovelace' })
   })
@@ -232,7 +195,7 @@ test('stage 1 definition of done', async ({ page }, testInfo) => {
     await replaceEditorContent(page, tenPages('Edited version.'))
     const warm = await compile(page)
     expect(warm.status).toBe('success')
-    // Durée mesurée par l'agent de compilation (sur staging : le worker, sous gVisor).
+    // Durée mesurée par l'agent de compilation (instance déployée : le Worker, sous gVisor).
     testInfo.annotations.push({
       type: 'warm 10-page recompile',
       description: `${String(warm.durationMs)} ms`,

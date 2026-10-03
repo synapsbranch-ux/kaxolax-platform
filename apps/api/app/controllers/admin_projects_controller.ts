@@ -9,7 +9,7 @@ import {
   searchProjects,
   transferProject,
 } from '#services/admin_projects'
-import ObjectStorage from '#services/object_storage'
+import ObjectStorage, { CompileOutputStorage } from '#services/object_storage'
 import { ownershipTransferEvents, publishProjectEvents } from '#services/project_events'
 import RealtimeClient from '#services/realtime_client'
 import { adminProjectsQueryValidator, transferProjectValidator } from '#validators/admin'
@@ -20,6 +20,7 @@ export default class AdminProjectsController {
   constructor(
     private readonly realtime: RealtimeClient,
     private readonly storage: ObjectStorage,
+    private readonly outputs: CompileOutputStorage,
   ) {}
 
   async index({ request }: HttpContext) {
@@ -78,6 +79,7 @@ export default class AdminProjectsController {
     await deleteProject(auth.getUserOrFail(), String(params.id), {
       realtime: this.realtime,
       storage: this.storage,
+      outputs: this.outputs,
     })
     response.noContent()
   }
