@@ -17,8 +17,21 @@ import { planLimitsCache } from '#services/entitlements'
 import { createProject } from '#services/project_service'
 import { createUser } from '#tests/helpers'
 
-/** Migrations de la tâche 1 (0130 à 0136), annulées puis rejouées par le test aller-retour. */
-const FOUNDATION_MIGRATIONS = 7
+/** Première migration de la tâche 1 (0130 à 0136). */
+const FIRST_FOUNDATION_MIGRATION = 'database/migrations/1790000000130'
+
+/**
+ * Migrations à annuler pour retirer celles de la tâche 1 : la première d'entre elles et toutes
+ * les suivantes déjà jouées (des migrations plus récentes s'intercalent après 0136).
+ */
+async function foundationSteps(): Promise<number> {
+  const row = (await db
+    .from('adonis_schema')
+    .where('name', '>=', FIRST_FOUNDATION_MIGRATION)
+    .count('* as total')
+    .first()) as { total: string | number }
+  return Number(row.total)
+}
 
 async function rawColumn(table: string, column: string, id: string): Promise<unknown> {
   const row = (await db.from(table).where('id', id).select(column).first()) as Record<
@@ -236,9 +249,9 @@ test.group('ai schema: constraints', (group) => {
 })
 
 /**
- * Migrations aller-retour : les 7 migrations de la tâche 1 sont annulées puis rejouées sur la base
- * de test, sans perte des données existantes. Hors transaction globale (DDL) ; le projet créé est
- * supprimé à la fin.
+ * Migrations aller-retour : les migrations de la tâche 1 (et les suivantes) sont annulées puis
+ * rejouées sur la base de test, sans perte des données existantes. Hors transaction globale
+ * (DDL) ; le projet créé est supprimé à la fin.
  */
 test.group('ai schema: migrations round trip', () => {
   test('rolls back and replays the foundation migrations without losing data', async ({
@@ -249,7 +262,7 @@ test.group('ai schema: migrations round trip', () => {
     try {
       const down = new MigrationRunner(db, app, {
         direction: 'down',
-        step: FOUNDATION_MIGRATIONS,
+        step: await foundationSteps(),
       })
       await down.run()
       assert.isNull(down.error)

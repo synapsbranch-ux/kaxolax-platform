@@ -45,7 +45,26 @@ function subscriptionLabel(subscription: MePlanResponse['subscription']): string
   }
 }
 
-/** Lignes affichées : stockage (jauge), durée de compilation, collaborateurs, historique. */
+const creditFormat = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 })
+
+/** Crédits du mois : consommés sur le total et date de remise à zéro, avec une jauge. */
+function creditRow(
+  label: string,
+  balance: MePlanResponse['credits']['ai'],
+  resetsAt: string,
+): PlanUsageRow {
+  const reset = dateFormat.format(new Date(resetsAt))
+  return {
+    label,
+    value: `${creditFormat.format(balance.used)} sur ${creditFormat.format(balance.monthly)}, remis à zéro le ${reset}`,
+    ratio: balance.monthly === 0 ? 1 : Math.min(1, balance.used / balance.monthly),
+  }
+}
+
+/**
+ * Lignes affichées : stockage (jauge), durée de compilation, collaborateurs, historique, crédits
+ * IA et images du mois (jauges, remis à zéro le 1er).
+ */
 export function planUsageView(plan: MePlanResponse): PlanUsageView {
   const { limits, usage } = plan
   const ratio =
@@ -75,6 +94,8 @@ export function planUsageView(plan: MePlanResponse): PlanUsageView {
             ? 'Complet'
             : `${String(limits.historyRetentionDays)} jour${limits.historyRetentionDays > 1 ? 's' : ''}`,
       },
+      creditRow('Crédits IA', plan.credits.ai, plan.credits.resetsAt),
+      creditRow('Images', plan.credits.images, plan.credits.resetsAt),
     ],
     subscription: subscriptionLabel(plan.subscription),
     storageFull: usage.storageBytes >= limits.storageBytes,
@@ -83,6 +104,7 @@ export function planUsageView(plan: MePlanResponse): PlanUsageView {
 
 /** Libellés des features des plans (slugs du Dashboard Clerk). */
 export const PLAN_FEATURE_LABELS: Record<PlanFeature, string> = {
+  ai: 'Crédits IA et images étendus',
   long_compile: 'Compilations longues',
   unlimited_collaborators: 'Collaborateurs illimités',
   full_history: 'Historique complet',

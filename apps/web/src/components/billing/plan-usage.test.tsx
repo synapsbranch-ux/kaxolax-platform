@@ -17,6 +17,12 @@ const free: MePlanResponse = {
     storageBytes: 500 * MIB,
   },
   usage: { storageBytes: 125 * MIB, maxCollaboratorsInProject: 1 },
+  credits: {
+    periodStart: '2026-10-01T00:00:00.000Z',
+    resetsAt: '2026-11-01T00:00:00.000Z',
+    ai: { monthly: 100, used: 12.5, remaining: 87.5 },
+    images: { monthly: 5, used: 0, remaining: 5 },
+  },
   subscription: null,
   upgradeUrl: 'http://localhost:3000/pricing',
 }
@@ -46,6 +52,12 @@ describe('plan and usage', () => {
       { label: 'Durée de compilation', value: '20 s au plus par compilation' },
       { label: 'Collaborateurs', value: '1 par projet (le plus grand de vos projets : 1)' },
       { label: 'Historique', value: '1 jour' },
+      {
+        label: 'Crédits IA',
+        value: '12,5 sur 100, remis à zéro le 1 novembre 2026',
+        ratio: 0.125,
+      },
+      { label: 'Images', value: '0 sur 5, remis à zéro le 1 novembre 2026', ratio: 0 },
     ])
     expect(view.subscription).toBeNull()
     expect(view.storageFull).toBe(false)
@@ -56,6 +68,8 @@ describe('plan and usage', () => {
       '4 min au plus par compilation',
       'Illimités (le plus grand de vos projets : 1)',
       'Complet',
+      '12,5 sur 100, remis à zéro le 1 novembre 2026',
+      '0 sur 5, remis à zéro le 1 novembre 2026',
     ])
     expect(paid.subscription).toBe('Abonnement actif, renouvelé le 1 novembre 2026')
     expect(
