@@ -2,10 +2,14 @@ import { Exception } from '@adonisjs/core/exceptions'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
+import AiConversation from '#models/ai_conversation'
+import GitLink from '#models/git_link'
+import PersonalAccessToken from '#models/personal_access_token'
 import Project from '#models/project'
 import ProjectMember from '#models/project_member'
 import User from '#models/user'
 import WorkspaceMember from '#models/workspace_member'
+import ZoteroLink from '#models/zotero_link'
 import { type DeletedProject, deleteProjectRows } from '#services/project_service'
 import { acceptPendingInvitationsFor, type JoinedProject } from '#services/sharing_service'
 import { ensurePersonalWorkspace } from '#services/workspace_service'
@@ -143,7 +147,10 @@ export interface DeletedClerkUser {
 /**
  * Compte supprimé dans Clerk : la ligne est gardée et anonymisée (elle reste l'auteur des
  * compilations et des futurs messages), le compte quitte les projets et workspaces des autres et
- * ses propres projets sont supprimés. Renvoie les projets dont il faut ensuite libérer les
+ * ses propres projets sont supprimés. Ses données personnelles restées dans les projets des autres
+ * partent aussi (la ligne n'est jamais supprimée, donc aucun CASCADE ne les atteint) : ses
+ * conversations avec l'IA (messages compris), ses liens Git et Zotero (avec leurs jetons chiffrés),
+ * et ses jetons d'accès personnels sont révoqués. Renvoie les projets dont il faut ensuite libérer les
  * ressources, et les projets partagés qu'il a quittés (à annoncer, `announceDepartures`).
  */
 export async function deleteClerkUser(
@@ -168,6 +175,16 @@ export async function deleteClerkUser(
     .where('userId', user.id)
     .whereNot('role', 'owner')
     .delete()
+  // Données personnelles hors de ses projets : conversations IA (messages en CASCADE ; l'usage
+  // passé reste compté, `ai_message_id` à NULL), intégrations dont ses jetons OAuth servaient la
+  // synchronisation, jetons d'accès révoqués (gardés pour le journal, inutilisables).
+  await AiConversation.query({ client: trx }).where('userId', user.id).delete()
+  await GitLink.query({ client: trx }).where('ownerId', user.id).delete()
+  await ZoteroLink.query({ client: trx }).where('ownerId', user.id).delete()
+  await PersonalAccessToken.query({ client: trx })
+    .where('userId', user.id)
+    .whereNull('revokedAt')
+    .update({ revokedAt: DateTime.utc().toSQL() })
 
   user.useTransaction(trx)
   user.merge({

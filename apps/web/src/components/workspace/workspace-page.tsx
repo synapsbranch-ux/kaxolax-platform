@@ -3,6 +3,7 @@
 import type { EditorView } from '@codemirror/view'
 import {
   canComment as canCommentRole,
+  canEdit as canEditRole,
   type Compiler,
   type CompileResult,
   type LogEntry,
@@ -23,6 +24,7 @@ import {
   useSettings,
 } from '@/components/preferences/settings-provider'
 import { api, ApiError, errorMessage, type Project, type ProjectTree } from '@/lib/api'
+import { warmsCompiler } from '@/lib/builds'
 import {
   closeTab,
   EMPTY_TABS,
@@ -157,7 +159,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     [user],
   )
 
-  const canEdit = project?.role === 'owner' || project?.role === 'editor'
+  const canEdit = project !== null && canEditRole(project.role)
   // Chat lu seulement s'il est affiché : sidebar visible, onglet Chats, sans recherche par-dessus.
   const chat = useProjectChat(
     project?.id ?? null,
@@ -170,7 +172,7 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
       await editor.current?.flush()
     },
     options: preferences.compile,
-    warm: canEdit,
+    warm: warmsCompiler(project?.role),
     onError: setError,
   })
   const { compile, onBuildEvent } = compileState
@@ -610,6 +612,17 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
     [editorPreferences, preferences.theme, spellcheck.config],
   )
   const { openSettings } = useSettings()
+  // Lectures des réglages de l'IA stables tant que projet et workspace ne changent pas : un
+  // renommage ou un changement de langue ne relance pas la lecture (ProjectAiSetting).
+  const workspaceId = project?.workspaceId ?? null
+  const loadAiSettings = useCallback(() => api.projectAi(projectId), [projectId])
+  const loadWorkspaceAiSettings = useCallback(
+    () =>
+      workspaceId === null
+        ? Promise.reject(new Error('Workspace unknown'))
+        : api.workspaceAi(workspaceId),
+    [workspaceId],
+  )
   const projectSettings = useMemo<ProjectSettings | null>(
     () =>
       project === null
@@ -623,8 +636,19 @@ export function WorkspacePage({ projectId }: { projectId: string }) {
                 (await api.updateProject(projectId, { spellcheckLanguage: language })).project,
               )
             },
+            loadAiSettings,
+            onAiEnabledChange: async (enabled) => {
+              const settings = await api.updateProjectAi(projectId, enabled)
+              setProject((current) =>
+                current === null ? current : { ...current, aiEnabled: settings.projectEnabled },
+              )
+              return settings
+            },
+            loadWorkspaceAiSettings,
+            onWorkspaceAiEnabledChange: (enabled) =>
+              api.updateWorkspaceAi(project.workspaceId, enabled),
           },
-    [project, canEdit, projectId],
+    [project, canEdit, projectId, loadAiSettings, loadWorkspaceAiSettings],
   )
   useProjectSettings(projectSettings)
 

@@ -44,7 +44,7 @@ Réglages du Dashboard Clerk :
 | Webhooks                                   | Endpoint `https://<domaine>/api/v1/webhooks/clerk`, événements `user.created`, `user.updated`, `user.deleted`, et Billing : tous les `subscription.*` (`created`, `updated`, `active`, `pastDue`) et `subscriptionItem.*` (`created`, `updated`, `active`, `canceled`, `upcoming`, `ended`, `abandoned`, `incomplete`, `pastDue`, `freeTrialEnding`) |
 | Billing → Settings                         | Billing activé pour les utilisateurs (« User plans ») ; passerelle de paiement Stripe (compte de test en développement)                                                                                                                                                                                                                              |
 | Billing → Plans (User plans)               | Plan **Free**, slug `free`, plan par défaut (le slug proposé par Clerk, `free_user`, est à renommer) ; plan **Pro**, slug `pro`, payant, visible publiquement                                                                                                                                                                                        |
-| Billing → Features                         | Slugs `long_compile`, `unlimited_collaborators`, `full_history`, `extra_storage`, toutes rattachées à Pro, aucune à Free                                                                                                                                                                                                                             |
+| Billing → Features                         | Slugs `long_compile`, `unlimited_collaborators`, `full_history`, `extra_storage`, `ai` (crédits IA et images au-delà de Free), toutes rattachées à Pro, aucune à Free                                                                                                                                                                                |
 | Sessions (jeton de session)                | Version 2 du jeton (par défaut) : claims `pla` (`u:pro`) et `fea` (`u:long_compile,…`) ajoutés par Clerk, rien à personnaliser ; ne pas les écraser dans le jeton personnalisé                                                                                                                                                                       |
 | API keys                                   | Clé publishable, clé secrète, et « PEM Public Key » (JWT public key)                                                                                                                                                                                                                                                                                 |
 
@@ -90,19 +90,19 @@ attente : 1 jour), puis s'arrête. Un client S3 local doit utiliser `forcePathSt
 
 ## Commandes
 
-| Commande                         | Effet                                                         |
-| -------------------------------- | ------------------------------------------------------------- |
-| `pnpm dev`                       | Lance tous les paquets et apps en mode développement          |
-| `pnpm build`                     | Compile tout                                                  |
-| `pnpm lint`                      | ESLint (règles typées strictes)                               |
-| `pnpm typecheck`                 | Vérification des types                                        |
-| `pnpm test`                      | Tests (Vitest, Japa) ; la stack locale doit tourner           |
-| `pnpm check`                     | lint + typecheck + tests + build, comme la CI                 |
-| `pnpm format`                    | Formate avec Prettier (`format:check` pour vérifier)          |
-| `pnpm stack:up`                  | `docker compose up -d --wait`                                 |
-| `pnpm stack:check`               | Vérifie que la stack locale répond                            |
-| `pnpm stack:down`                | Arrête la stack (`docker compose down -v` efface les données) |
-| `pnpm --filter @kaxolax/web e2e` | Parcours Playwright de la « Définition de terminé »           |
+| Commande                         | Effet                                                              |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `pnpm dev`                       | Lance tous les paquets et apps en mode développement               |
+| `pnpm build`                     | Compile tout                                                       |
+| `pnpm lint`                      | ESLint (règles typées strictes)                                    |
+| `pnpm typecheck`                 | Vérification des types                                             |
+| `pnpm test`                      | Tests (Vitest, Japa) ; la stack locale doit tourner                |
+| `pnpm check`                     | lint + typecheck + tests + build, comme la CI                      |
+| `pnpm format`                    | Formate avec Prettier (`format:check` pour vérifier)               |
+| `pnpm stack:up`                  | `docker compose up -d --wait`                                      |
+| `pnpm stack:check`               | Vérifie que la stack locale répond                                 |
+| `pnpm stack:down`                | Arrête la stack (`docker compose down -v` efface les données)      |
+| `pnpm --filter @kaxolax/web e2e` | Parcours Playwright de la DoD et de la MFA (CI) ; `e2e:all` : tous |
 
 ## Structure
 

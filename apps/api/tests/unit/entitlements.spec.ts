@@ -18,6 +18,8 @@ const FREE: PlanLimitRow = {
   maxCollaborators: 1,
   historyRetentionDays: 1,
   storageBytes: 500,
+  aiMonthlyCredits: 100,
+  imageMonthlyCredits: 5,
 }
 const PRO: PlanLimitRow = {
   planSlug: 'pro',
@@ -25,6 +27,8 @@ const PRO: PlanLimitRow = {
   maxCollaborators: null,
   historyRetentionDays: null,
   storageBytes: 20_000,
+  aiMonthlyCredits: 2000,
+  imageMonthlyCredits: 100,
 }
 
 function entitlements(plan: string, features: Entitlements['features'] = new Set()): Entitlements {
@@ -73,6 +77,7 @@ test.group('entitlements: claims of the session token', () => {
 test.group('entitlements: limits', () => {
   test('derives the features of a plan from its limits (fallback without claims)', ({ assert }) => {
     assert.deepEqual([...featuresFromLimits(PRO, FREE)].sort(), [
+      'ai',
       'extra_storage',
       'full_history',
       'long_compile',
@@ -83,6 +88,8 @@ test.group('entitlements: limits', () => {
       [...featuresFromLimits({ ...FREE, maxCollaborators: 5 }, FREE)],
       ['unlimited_collaborators'],
     )
+    // Plus d'images seulement : la feature `ai` lève les deux réserves.
+    assert.deepEqual([...featuresFromLimits({ ...FREE, imageMonthlyCredits: 6 }, FREE)], ['ai'])
   })
 
   test('applies the plan values, and the free values for a missing feature', ({ assert }) => {
@@ -91,12 +98,15 @@ test.group('entitlements: limits', () => {
       'unlimited_collaborators',
       'full_history',
       'extra_storage',
+      'ai',
     ] as const)
     assert.deepInclude(effectiveLimits(entitlements('pro', all), PRO, FREE), {
       maxCompileSeconds: 240,
       maxCollaborators: null,
       historyRetentionDays: null,
       storageBytes: 20_000,
+      aiCredits: 2000,
+      imageCredits: 100,
     })
     const partial = effectiveLimits(
       entitlements('pro', new Set(['long_compile'] as const)),
@@ -108,6 +118,8 @@ test.group('entitlements: limits', () => {
       maxCollaborators: 1,
       historyRetentionDays: 1,
       storageBytes: 500,
+      aiCredits: 100,
+      imageCredits: 5,
     })
     // Une feature ne dépasse jamais les valeurs du plan.
     assert.deepInclude(effectiveLimits(entitlements('free', all), FREE, FREE), {

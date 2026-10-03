@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { aiCreditsSchema } from './ai.js'
 
 /**
  * Abonnements (Clerk Billing) : plans utilisateur définis dans le Dashboard Clerk, features par
@@ -13,18 +14,33 @@ export const FREE_PLAN = 'free'
 /** Slug du plan payant (Pro) dans le Dashboard Clerk. */
 export const PRO_PLAN = 'pro'
 
-/** Features des plans, par slug du Dashboard Clerk (claim `fea` du jeton de session). */
+/**
+ * Features des plans, par slug du Dashboard Clerk (claim `fea` du jeton de session). `ai` lève
+ * les crédits IA et images mensuels au-delà de ceux de Free.
+ */
 export const PLAN_FEATURES = [
   'long_compile',
   'unlimited_collaborators',
   'full_history',
   'extra_storage',
+  'ai',
 ] as const
 export const planFeatureSchema = z.enum(PLAN_FEATURES)
 export type PlanFeature = z.infer<typeof planFeatureSchema>
 
-/** Limites appliquées par l'API (chacune levée par une feature). */
-export const planLimitNameSchema = z.enum(['compile_time', 'collaborators', 'storage', 'history'])
+/**
+ * Limites appliquées par l'API (chacune levée par une feature). Les crédits (`ai_credits`,
+ * `image_credits`) sont ceux du plan de l'utilisateur qui lance l'action ; les autres, ceux du
+ * propriétaire du projet.
+ */
+export const planLimitNameSchema = z.enum([
+  'compile_time',
+  'collaborators',
+  'storage',
+  'history',
+  'ai_credits',
+  'image_credits',
+])
 export type PlanLimitName = z.infer<typeof planLimitNameSchema>
 
 /** Feature qui lève chaque limite (plan_limits garde la valeur chiffrée). */
@@ -33,12 +49,15 @@ export const PLAN_LIMIT_FEATURES: Record<PlanLimitName, PlanFeature> = {
   collaborators: 'unlimited_collaborators',
   storage: 'extra_storage',
   history: 'full_history',
+  ai_credits: 'ai',
+  image_credits: 'ai',
 }
 
 /**
  * Corps d'un refus 403 `E_PLAN_LIMIT`, commun à toutes les limites. `limit.max` : secondes de
- * compilation, collaborateurs (en plus du propriétaire), octets de stockage ou jours d'historique.
- * `current` : usage au moment du refus, si connu. `upgradeUrl` : page de tarifs.
+ * compilation, collaborateurs (en plus du propriétaire), octets de stockage, jours d'historique,
+ * crédits IA ou images du mois. `current` : usage au moment du refus, si connu (crédits arrondis
+ * à l'unité supérieure). `upgradeUrl` : page de tarifs.
  */
 export const planLimitErrorSchema = z.object({
   code: z.literal('E_PLAN_LIMIT'),
@@ -77,6 +96,8 @@ export const mePlanResponseSchema = z.object({
     /** Plus grand nombre de collaborateurs (membres et invitations) parmi ses projets. */
     maxCollaboratorsInProject: count,
   }),
+  /** Crédits IA et images du mois en cours (plan du compte connecté). */
+  credits: aiCreditsSchema,
   /** Élément d'abonnement du plan en cours dans le miroir (statut Clerk, fin de période). */
   subscription: z
     .object({

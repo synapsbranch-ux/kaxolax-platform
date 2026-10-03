@@ -1,8 +1,9 @@
+import type { VersionKind } from '@kaxolax/contracts'
 import { column } from '@adonisjs/lucid/orm'
 import { type DateTime } from 'luxon'
 import UuidModel from '#models/uuid_model'
 
-export type VersionKind = 'auto' | 'compile' | 'restore'
+export type { VersionKind }
 
 /** Version du projet : métadonnées en base, texte compressé dans S3 sous `s3Prefix`. */
 export default class ProjectVersion extends UuidModel {

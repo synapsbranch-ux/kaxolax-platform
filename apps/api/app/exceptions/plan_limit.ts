@@ -13,6 +13,8 @@ const MESSAGES: Record<PlanLimitName, string> = {
   collaborators: 'The collaborator limit of the project owner plan is reached',
   storage: 'The storage limit of the project owner plan is reached',
   history: 'The history retention of the project owner plan is reached',
+  ai_credits: 'The monthly AI credits of your plan are used up',
+  image_credits: 'The monthly image credits of your plan are used up',
 }
 
 export interface PlanLimitDetails {

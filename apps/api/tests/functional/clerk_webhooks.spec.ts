@@ -4,12 +4,17 @@ import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
+import AiConversation from '#models/ai_conversation'
+import AiMessage from '#models/ai_message'
 import ClerkWebhookEvent from '#models/clerk_webhook_event'
+import GitLink from '#models/git_link'
 import Project from '#models/project'
 import ProjectMember from '#models/project_member'
 import User from '#models/user'
 import Workspace from '#models/workspace'
 import WorkspaceMember from '#models/workspace_member'
+import ZoteroLink from '#models/zotero_link'
+import { createPersonalAccessToken } from '#services/personal_access_tokens'
 import RealtimeClient from '#services/realtime_client'
 import { signWebhook } from '#tests/clerk_keys'
 import { createUser, newClerkUserId, uniqueEmail } from '#tests/helpers'
@@ -202,5 +207,81 @@ test.group('clerk: webhooks', (group) => {
     ;(await send(client, 'user.updated', clerkUser(clerkUserId, uniqueEmail()))).assertStatus(204)
     await user.refresh()
     assert.equal(user.email, `deleted+${user.id}@users.invalid`)
+  })
+
+  test('a deleted user loses AI conversations, integration links and access tokens', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUser()
+    const other = await createUser()
+    const shared = await client.post('/api/v1/projects').json({ name: 'Theirs' }).loginAs(other)
+    const sharedId = String(shared.body().project.id)
+    await ProjectMember.create({ projectId: sharedId, userId: user.id, role: 'editor' })
+
+    // Données personnelles dans le projet d'un autre, que le CASCADE n'atteint pas.
+    const conversation = await AiConversation.create({
+      projectId: sharedId,
+      userId: user.id,
+      title: null,
+      archivedAt: null,
+    })
+    const message = await AiMessage.create({
+      conversationId: conversation.id,
+      role: 'user',
+      content: [{ type: 'text', text: 'private question' }],
+      model: null,
+      status: 'complete',
+      stopReason: null,
+      usage: null,
+      errorCode: null,
+    })
+    const theirs = await AiConversation.create({
+      projectId: sharedId,
+      userId: other.id,
+      title: null,
+      archivedAt: null,
+    })
+    await GitLink.create({
+      projectId: sharedId,
+      ownerId: user.id,
+      provider: 'github',
+      repositoryOwner: 'kaxolax',
+      repositoryName: 'thesis',
+      branch: 'main',
+      accessToken: 'ghu_plain_access_token',
+      syncStatus: 'idle',
+    })
+    const project2 = await client.post('/api/v1/projects').json({ name: 'Bib' }).loginAs(other)
+    const bibId = String(project2.body().project.id)
+    await ZoteroLink.create({
+      projectId: bibId,
+      ownerId: user.id,
+      libraryType: 'user',
+      libraryId: '42',
+      collectionKey: null,
+      documentId: null,
+      apiKey: 'zotero-plain-key',
+      syncStatus: 'idle',
+    })
+    const { token } = await createPersonalAccessToken(user, {
+      name: 'MCP',
+      scopes: ['read'],
+      projectIds: null,
+      expiresInDays: 30,
+    })
+
+    ;(await send(client, 'user.deleted', { id: user.clerkUserId, deleted: true })).assertStatus(204)
+
+    assert.isNull(await AiConversation.find(conversation.id))
+    assert.isNull(await AiMessage.find(message.id))
+    assert.isNotNull(await AiConversation.find(theirs.id))
+    assert.lengthOf(await GitLink.query().where('ownerId', user.id), 0)
+    assert.lengthOf(await ZoteroLink.query().where('ownerId', user.id), 0)
+    await token.refresh()
+    assert.isNotNull(token.revokedAt)
+    // Projets des autres intacts.
+    assert.isNotNull(await Project.find(sharedId))
+    assert.isNotNull(await Project.find(bibId))
   })
 })

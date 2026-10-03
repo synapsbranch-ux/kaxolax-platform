@@ -1,6 +1,6 @@
 'use client'
 
-import type { SpellcheckLanguage } from '@kaxolax/contracts'
+import type { ProjectAiSettings, SpellcheckLanguage, WorkspaceAiSettings } from '@kaxolax/contracts'
 import {
   Component,
   createContext,
@@ -15,7 +15,7 @@ import {
 } from 'react'
 
 /** Onglets de la boîte des paramètres. */
-export type SettingsSection = 'editor' | 'spellcheck' | 'project'
+export type SettingsSection = 'editor' | 'spellcheck' | 'project' | 'plan'
 
 /** Réglages du projet ouvert, affichés dans l'onglet Projet (page projet seulement). */
 export interface ProjectSettings {
@@ -24,6 +24,14 @@ export interface ProjectSettings {
   /** Propriétaire ou éditeur : peut changer la langue du correcteur. */
   canEdit: boolean
   onSpellcheckLanguageChange: (language: SpellcheckLanguage) => Promise<void>
+  /** Activation de l'assistant IA du projet (lue à l'ouverture de l'onglet). */
+  loadAiSettings: () => Promise<ProjectAiSettings>
+  /** Active ou désactive l'IA du projet (propriétaire). */
+  onAiEnabledChange: (enabled: boolean) => Promise<ProjectAiSettings>
+  /** Activation de l'IA du workspace du projet (membre du workspace). */
+  loadWorkspaceAiSettings: () => Promise<WorkspaceAiSettings>
+  /** Active ou désactive l'IA de tout le workspace (propriétaire du workspace). */
+  onWorkspaceAiEnabledChange: (enabled: boolean) => Promise<WorkspaceAiSettings>
 }
 
 interface SettingsContextValue {

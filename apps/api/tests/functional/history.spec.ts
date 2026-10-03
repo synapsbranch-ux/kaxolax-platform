@@ -420,6 +420,24 @@ test.group('history', (group) => {
       realtime.events.some((event) => event.type === 'tree.changed' && event.reason === 'restore'),
     )
 
+    // L'état restauré a tout de suite sa version, au nom de l'éditeur qui restaure.
+    const restoredVersion = await ProjectVersion.findOrFail(response.restoredVersionId ?? '')
+    assert.equal(restoredVersion.kind, 'restored')
+    assert.deepEqual(restoredVersion.authorIds, [editor.id])
+    const restoredManifest = versionDetailSchema.parse(
+      (
+        await client
+          .get(`/api/v1/projects/${projectId}/versions/${restoredVersion.id}`)
+          .loginAs(editor)
+      ).body(),
+    )
+    assert.sameMembers(
+      restoredManifest.entries
+        .filter((entry) => entry.status !== 'deleted')
+        .map((entry) => entry.id),
+      [...original.documents.map((document) => document.id), fileId],
+    )
+
     // Rien n'est perdu : la version créée avant la restauration contient l'état remplacé.
     const backup = await ProjectVersion.findOrFail(response.backupVersionId)
     assert.equal(backup.kind, 'restore')
@@ -441,6 +459,61 @@ test.group('history', (group) => {
     assert.equal(await textOf(extraId), 'En plus')
     assert.equal(await textOf(mainId), 'Tout réécrit')
     assert.isNull(await File.find(fileId))
+  })
+
+  test('versions the restored state right away, authored by the person who restores', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await createUser()
+    const { projectId, fileId } = await setupProject(client, owner)
+    const editor = await addMember(projectId, 'editor')
+    const first = await createVersion(deps(), projectId, { kind: 'compile' })
+    ;(
+      await client.delete(`/api/v1/projects/${projectId}/entities/file/${fileId}`).loginAs(owner)
+    ).assertStatus(204)
+    realtime.events = []
+
+    // Seul un binaire revient : aucune mise à jour Yjs, l'auteur vient de la restauration.
+    const restored = await client
+      .post(`/api/v1/projects/${projectId}/versions/${first?.version.id ?? ''}/restore`)
+      .json({ scope: 'entry', entryId: fileId })
+      .loginAs(editor)
+    restored.assertStatus(200)
+    const response = restoreVersionResponseSchema.parse(restored.body())
+    assert.isNotNull(response.restoredVersionId)
+    assert.notEqual(response.restoredVersionId, response.backupVersionId)
+    const version = await ProjectVersion.findOrFail(response.restoredVersionId ?? '')
+    assert.equal(version.kind, 'restored')
+    assert.deepEqual(version.authorIds, [editor.id])
+    const detail = versionDetailSchema.parse(
+      (
+        await client.get(`/api/v1/projects/${projectId}/versions/${version.id}`).loginAs(owner)
+      ).body(),
+    )
+    assert.isTrue(detail.entries.some((entry) => entry.id === fileId && entry.status === 'added'))
+    // Annoncée aux clients comme les autres versions, après la sauvegarde.
+    assert.deepEqual(
+      realtime.events.flatMap((event) =>
+        event.type === 'version.created' ? [[event.kind, event.actorId]] : [],
+      ),
+      [
+        ['restore', editor.id],
+        ['restored', editor.id],
+      ],
+    )
+    // Rien de plus pour le balayage : l'état restauré est déjà versionné.
+    assert.equal(await sweepDueVersions(deps(), later(10)), 0)
+
+    // Restaurer l'état courant ne crée pas de version vide.
+    const same = await client
+      .post(`/api/v1/projects/${projectId}/versions/${version.id}/restore`)
+      .json({ scope: 'project' })
+      .loginAs(editor)
+    same.assertStatus(200)
+    const sameResponse = restoreVersionResponseSchema.parse(same.body())
+    assert.equal(sameResponse.backupVersionId, version.id)
+    assert.isNull(sameResponse.restoredVersionId)
   })
 
   test('restores a single deleted file at its path, replacing what took it since', async ({

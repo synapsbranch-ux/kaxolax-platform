@@ -40,12 +40,30 @@ reconnecter en validant la MFA. L'admin n'a pas d'inscription (`/sign-in` seulem
   facultatifs (heure locale du navigateur), terminer maintenant (heure du serveur), supprimer.
 - **Statistiques** (`/stats?days=7|30|90|365`) : inscriptions (total et histogramme par jour),
   utilisateurs actifs sur 7 et 30 jours, abonnés Pro et abonnements par plan, compilations
-  (volume, durée moyenne, taux d'échec, répartition par résultat et par agent). Graphiques en
-  SVG et CSS, sans bibliothèque.
+  terminées (volume, durée moyenne, taux d'échec, répartition par résultat et par agent) ; les
+  compilations annulées sont comptées à part (hors total, durée et taux), celles encore en cours
+  ne comptent pas (`lib/stats.ts`). Graphiques en SVG et CSS, sans bibliothèque.
 - **Journal** (`/audit-log`) : actions de l'admin (auteur, action, cible, résultat, détails),
   filtres par action, type et id de cible, résultat, auteur et période.
 
-## Variables (`apps/admin/.env`)
+## En-têtes de sécurité et CSP
+
+`src/lib/security-headers.ts` (testé dans `security-headers.test.ts`) :
+
+- CSP stricte sur chaque page, posée par le proxy (`src/proxy.ts`) avec l'option
+  `contentSecurityPolicy` de `clerkMiddleware` : nonce par requête (Next.js l'applique à ses
+  scripts, le layout racine le passe à `ClerkProvider`) et `'strict-dynamic'` ; origines de
+  Clerk (Frontend API de l'instance, `img.clerk.com`, Turnstile, workers `blob:`) ajoutées par
+  Clerk, `'unsafe-eval'` en développement seulement. L'admin ajoute `connect-src 'self'` (tout
+  passe par `/api`), `img-src 'self' data:`, `font-src 'self' data:`, `object-src 'none'`,
+  `base-uri 'self'`, `form-action 'self'` et `frame-ancestors 'none'`. Styles `'unsafe-inline'`
+  (Clerk, attributs `style` de React). zod est réglé sans compilation de ses validateurs dans le
+  navigateur (`src/instrumentation-client.ts`) : aucune violation de la CSP.
+- En-têtes fixes de toutes les réponses (`next.config.ts`) : `X-Robots-Tag: noindex, nofollow`,
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `Permissions-Policy` (caméra, micro, géolocalisation, USB, série, HID et paiement refusés).
+
+## Variables (`apps/admin/.env`, lues à l'exécution sauf `API_INTERNAL_URL`)
 
 | Variable                | Rôle                                                                |
 | ----------------------- | ------------------------------------------------------------------- |
@@ -64,7 +82,7 @@ Domaine : un sous-domaine du domaine principal de l'instance Clerk de production
 
 ```bash
 pnpm --filter @kaxolax/admin dev    # http://localhost:3001 (l'API doit tourner sur :3333)
-pnpm --filter @kaxolax/admin test   # Vitest (contrôle des claims, formats)
+pnpm --filter @kaxolax/admin test   # Vitest (contrôle des claims, formats, statistiques, CSP)
 ```
 
 Image : `docker build -f docker/Dockerfile --target admin .` (Next.js `standalone`, port 3001).

@@ -20,7 +20,8 @@ dans le script.
 (\*) Plusieurs instances exigent `REDIS_URL` (extension Redis de Hocuspocus et bus entre
 instances, `apps/realtime/src/cluster.ts`) : sans lui, deux clients d'un même document sur deux
 instances ne se voient pas, et les événements de projet (`REALTIME_INTERNAL_URL`, résultat des
-compilations compris) n'atteignent que l'instance appelée.
+compilations compris) n'atteignent que l'instance appelée. En production (`NODE_ENV=production`),
+realtime refuse de démarrer sans `REDIS_URL`, même avec une seule instance.
 
 - **Étape finale du Dockerfile** : Railway ne choisit pas de cible (`--target`). La dernière étape
   de `docker/Dockerfile` reprend celle que désigne l'argument de build `KAXOLAX_SERVICE` ; une
@@ -74,6 +75,7 @@ Clerk et SMTP fournis par l'opérateur.
 | `HISTORY_SWEEP_SECONDS`                                                   | facultative : balayage des versions automatiques, en secondes (défaut 30 ; 0 désactive), dans chaque réplica           |
 | `HISTORY_RETRY_SECONDS`                                                   | facultative : délai avant un nouvel essai de version automatique en échec (défaut 600)                                 |
 | `HISTORY_PURGE_SECONDS`                                                   | facultative : purge des versions expirées selon le plan, en secondes (défaut 3600 ; 0 désactive)                       |
+| `ANTHROPIC_API_KEY`                                                       | facultative, secret : clé de la Console Anthropic (API keys) (¶)                                                       |
 
 `COMPILE_GATEWAY_URL` n'est pas posée en production (mode `gateway` seulement). L'API n'utilise
 pas Redis : pas de `REDIS_URL` (le script signale une ancienne valeur restée en place).
@@ -97,6 +99,10 @@ accès à la galerie) ; l'API le lit par l'API S3 avec le jeton `app`, en lectur
 bucket (sortie Terraform `texlive_index`). Sans `TEXLIVE_INDEX_BUCKET`, les
 routes `/texlive/*` répondent 503 en production.
 
+(¶) Clé de l'API Anthropic (Claude), côté api seulement (jamais sur web ni admin). Sans elle,
+l'IA est désactivée : toute route d'IA répond 503 `E_AI_UNAVAILABLE` et la santé de l'admin
+(`/admin/ai/health`) l'indique.
+
 ### realtime
 
 Variables lues par `apps/realtime/src/config.ts`.
@@ -107,7 +113,7 @@ Variables lues par `apps/realtime/src/config.ts`.
 | `HOST`, `PORT`, `LOG_LEVEL`                  | `::`, `1234`, `info`                                                                                                                       |
 | `DATABASE_URL`, `DB_SSL`                     | `${{Postgres.DATABASE_URL}}`, `false`                                                                                                      |
 | `REALTIME_TOKEN_SECRET`, `INTERNAL_TOKEN`    | `${{api.REALTIME_TOKEN_SECRET}}`, `${{api.INTERNAL_TOKEN}}`                                                                                |
-| `REDIS_URL`                                  | `${{Redis.REDIS_URL}}` (obligatoire à 2 réplicas)                                                                                          |
+| `REDIS_URL`                                  | `${{Redis.REDIS_URL}}` (obligatoire en production : sans elle, le service refuse de démarrer)                                              |
 | `REDIS_PREFIX`                               | facultative : préfixe des clés et canaux Redis (défaut `kaxolax-realtime` ; un par environnement sur un même Redis)                        |
 | `STORE_DEBOUNCE_MS`, `STORE_MAX_DEBOUNCE_MS` | facultatives : écriture d'un document en base après 2 s sans modification, au plus tard 10 s après la première                             |
 | `ROLE_RECHECK_MS`, `ROLE_SWEEP_MS`           | facultatives : rôle relu à la mise à jour d'un rédacteur au-delà de 5 s ; relecture de toutes les connexions toutes les 30 s (0 désactive) |
@@ -118,18 +124,26 @@ Variables lues par `apps/realtime/src/config.ts`.
 
 Variables lues par `apps/{web,admin}/src/env.ts`, plus celles du serveur Next.js autonome.
 
-| Variable                                                     | Valeur                                            |
-| ------------------------------------------------------------ | ------------------------------------------------- |
-| `KAXOLAX_SERVICE`                                            | `web` ou `admin` (argument de build)              |
-| `NODE_ENV`, `HOSTNAME`                                       | `production`, `::`                                |
-| `PORT`                                                       | `3000` (web), `3001` (admin)                      |
-| `API_INTERNAL_URL`                                           | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:3333` (†) |
-| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_JWT_KEY` | instance Clerk de production (lues à l'exécution) |
+| Variable                                                     | Valeur                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `KAXOLAX_SERVICE`                                            | `web` ou `admin` (argument de build)                                |
+| `NODE_ENV`, `HOSTNAME`                                       | `production`, `::`                                                  |
+| `PORT`                                                       | `3000` (web), `3001` (admin)                                        |
+| `API_INTERNAL_URL`                                           | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:3333` (†)                   |
+| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_JWT_KEY` | instance Clerk de production (lues à l'exécution)                   |
+| `REALTIME_PUBLIC_URL`                                        | web : `${{api.REALTIME_PUBLIC_URL}}` (CSP, lue à l'exécution) (★)   |
+| `S3_PUBLIC_ENDPOINT`                                         | web : `${{api.S3_PUBLIC_ENDPOINT}}` (CSP ; repli `S3_ENDPOINT`) (★) |
+| `TEMPLATES_PUBLIC_URL`, `TEMPLATES_CATALOG_URL`              | web : mêmes valeurs que l'api (CSP, miniatures des templates) (★)   |
 
 (†) Valeur **de build** : `next build` fige la cible des réécritures `/api/*` dans
 `routes-manifest.json`. Le Dockerfile la déclare en `ARG` de l'étape `builder`, et Railway
 transmet la variable de service comme argument de build. La changer exige un nouveau build (un
 simple redémarrage garde l'ancienne cible).
+
+(★) Origines de la CSP du web (`apps/web/src/env.ts`), mêmes noms et valeurs que l'api ; l'admin
+ne les lit pas. Facultatives : celles qui manquent en production sont lues sur l'API
+(`GET /api/v1/client-config`) et le démarrage les signale par un avertissement ; une valeur
+invalide arrête le service.
 
 ### backup et restore-test
 

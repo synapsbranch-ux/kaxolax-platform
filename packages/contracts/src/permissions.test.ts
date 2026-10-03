@@ -5,6 +5,7 @@ import {
   canCompile,
   canEdit,
   canLeave,
+  canManageAi,
   canManageMembers,
   canManageProject,
   canManageShareLinks,
@@ -29,6 +30,7 @@ describe('project permissions', () => {
       'manageShareLinks',
       'transferOwnership',
       'manageProject',
+      'manageAi',
     ])
     expect(permissionsOf('editor')).toEqual(['read', 'compile', 'comment', 'edit', 'leave'])
     expect(permissionsOf('reviewer')).toEqual(['read', 'compile', 'comment', 'leave'])
@@ -47,14 +49,15 @@ describe('project permissions', () => {
         canManageShareLinks(role),
         canTransferOwnership(role),
         canManageProject(role),
+        canManageAi(role),
         canLeave(role),
       ],
     ])
     expect(Object.fromEntries(table)).toEqual({
-      owner: [true, true, true, true, true, true, true, true, false],
-      editor: [true, true, true, true, false, false, false, false, true],
-      reviewer: [true, true, true, false, false, false, false, false, true],
-      viewer: [true, true, false, false, false, false, false, false, true],
+      owner: [true, true, true, true, true, true, true, true, true, false],
+      editor: [true, true, true, true, false, false, false, false, false, true],
+      reviewer: [true, true, true, false, false, false, false, false, false, true],
+      viewer: [true, true, false, false, false, false, false, false, false, true],
     })
   })
 

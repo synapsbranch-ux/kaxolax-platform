@@ -136,4 +136,10 @@ export default await Env.create(new URL('../', import.meta.url), {
   TEMPLATES_CATALOG_URL: optional(urlWith('http', 'https')),
   /** Base des fichiers du catalogue (PDF, miniatures, zip) ; défaut : dossier du catalogue. */
   TEMPLATES_PUBLIC_URL: optional(urlWith('http', 'https')),
+
+  /**
+   * Clé de l'API Anthropic (Claude), côté API seulement. Facultative : sans elle, les routes de
+   * l'IA répondent 503 `E_AI_UNAVAILABLE` et le reste de l'application fonctionne.
+   */
+  ANTHROPIC_API_KEY: Env.schema.secret.optional(),
 })

@@ -7,8 +7,10 @@ import { sha256Schema } from './common.js'
  * par l'historique. Dates ISO 8601 en UTC.
  *
  * Une version est créée après `HISTORY_IDLE_SECONDS` sans modification du projet (`auto`), à
- * chaque compilation manuelle (`compile`) et avant chaque restauration (`restore`). Ses auteurs
- * sont les comptes qui ont envoyé des mises à jour Yjs depuis la version précédente.
+ * chaque compilation manuelle (`compile`), avant chaque restauration (`restore` : l'état remplacé)
+ * et juste après (`restored` : l'état restauré). Ses auteurs sont les comptes qui ont envoyé des
+ * mises à jour Yjs depuis la version précédente ; pour `restored`, la personne qui restaure en
+ * fait toujours partie (même quand seule l'arborescence a changé).
  */
 
 const isoDate = z.iso.datetime()
@@ -20,7 +22,7 @@ export const HISTORY_PAGE_SIZE = 50
 export const HISTORY_PAGE_MAX_SIZE = 100
 export const VERSION_LABEL_MAX_LENGTH = 100
 
-export const versionKindSchema = z.enum(['auto', 'compile', 'restore'])
+export const versionKindSchema = z.enum(['auto', 'compile', 'restore', 'restored'])
 export type VersionKind = z.infer<typeof versionKindSchema>
 
 /** Codes d'erreur propres à l'historique (`code` du corps de la réponse). */
@@ -156,6 +158,11 @@ export type RestoreVersionInput = z.infer<typeof restoreVersionInputSchema>
 export const restoreVersionResponseSchema = z.object({
   /** Version créée juste avant la restauration (l'état remplacé, rien n'est perdu). */
   backupVersionId: z.uuid(),
+  /**
+   * Version de l'état restauré (`restored`), créée tout de suite après ; null si l'état restauré
+   * est identique à la sauvegarde, ou si sa création a échoué (le balayage la rattrape alors).
+   */
+  restoredVersionId: z.uuid().nullable(),
   restored: z.object({
     documents: z.number().int().nonnegative(),
     files: z.number().int().nonnegative(),

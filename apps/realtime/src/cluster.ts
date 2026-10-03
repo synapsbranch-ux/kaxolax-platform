@@ -17,6 +17,10 @@ import type { MemberChange, MemberChangeFanout } from './access.js'
 
 const uuid = z.uuid()
 
+/** Bornes d'une réponse `document-states` (état Yjs d'un document : quelques Kio en pratique). */
+const MAX_SNAPSHOT_DOCUMENTS = 10_000
+const MAX_SNAPSHOT_BASE64 = 8 * 1024 * 1024
+
 export const clusterMessageSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('member-changed'), projectId: uuid, userId: uuid }),
   z.object({ kind: z.literal('user-disconnect'), userId: uuid }),
@@ -34,6 +38,19 @@ export const clusterMessageSchema = z.discriminatedUnion('kind', [
    */
   z.object({ kind: z.literal('flush-updates'), projectId: uuid, requestId: uuid }),
   z.object({ kind: z.literal('flush-updates-done'), requestId: uuid }),
+  /**
+   * Instantané du projet (`server.ts`) : chaque instance répond `document-states` avec l'état Yjs
+   * (vecteur d'état et suppressions, `Y.encodeSnapshot` en base64) des documents du projet
+   * qu'elle a chargés ; l'instance appelée attend de les avoir reçus par l'extension Redis.
+   */
+  z.object({ kind: z.literal('document-states-request'), projectId: uuid, requestId: uuid }),
+  z.object({
+    kind: z.literal('document-states'),
+    requestId: uuid,
+    documents: z
+      .array(z.object({ documentId: uuid, snapshot: z.base64().max(MAX_SNAPSHOT_BASE64) }))
+      .max(MAX_SNAPSHOT_DOCUMENTS),
+  }),
   /** `projectId` null : à tous les documents meta (bannière). */
   z.object({
     kind: z.literal('project-event'),

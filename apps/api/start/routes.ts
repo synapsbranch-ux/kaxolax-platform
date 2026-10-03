@@ -32,10 +32,16 @@ const HistoryController = () => import('#controllers/history_controller')
 const TexliveController = () => import('#controllers/texlive_controller')
 const WordCountsController = () => import('#controllers/word_counts_controller')
 const TemplatesController = () => import('#controllers/templates_controller')
+const AiSettingsController = () => import('#controllers/ai_settings_controller')
+const PersonalAccessTokensController = () =>
+  import('#controllers/personal_access_tokens_controller')
+const ClientConfigController = () => import('#controllers/client_config_controller')
 
 router
   .group(() => {
     router.get('health', () => ({ status: 'ok' }))
+    // Origines vues par le navigateur (CSP du serveur web) : publiques, rien de secret.
+    router.get('client-config', [ClientConfigController, 'show'])
 
     // Signé par Clerk (Standard Webhooks) : ni session ni jeton.
     router.post('webhooks/clerk', [ClerkWebhooksController, 'handle'])
@@ -58,10 +64,22 @@ router
         router.get('me/plan', [PlanController, 'show'])
         router.get('me/preferences', [PreferencesController, 'show'])
         router.patch('me/preferences', [PreferencesController, 'update'])
+        // Jetons d'accès personnels (packages/contracts/src/tokens.ts) : secret affiché une fois.
+        router.get('me/tokens', [PersonalAccessTokensController, 'index'])
+        router.post('me/tokens', [PersonalAccessTokensController, 'store'])
+        router.delete('me/tokens/:id', [PersonalAccessTokensController, 'destroy'])
         // Bannières système actives (affichées en haut de l'application).
         router.get('banners/active', [BannersController, 'active'])
+        // Canal temps réel du compte (bannière système en direct sur toutes les pages).
+        router.post('me/realtime-token', [RealtimeController, 'userToken'])
 
         router.get('workspaces', [WorkspacesController, 'index'])
+        // Activation de l'IA (packages/contracts/src/ai.ts) : lecture par tout membre,
+        // modification par le propriétaire (permission `manageAi`).
+        router.get('workspaces/:id/ai', [AiSettingsController, 'showWorkspace'])
+        router.put('workspaces/:id/ai', [AiSettingsController, 'updateWorkspace'])
+        router.get('projects/:id/ai', [AiSettingsController, 'showProject'])
+        router.put('projects/:id/ai', [AiSettingsController, 'updateProject'])
 
         // Index des packages TeX Live (packages/contracts/src/texlive.ts).
         router.get('texlive/packages', [TexliveController, 'index'])

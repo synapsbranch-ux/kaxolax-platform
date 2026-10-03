@@ -7,9 +7,11 @@ import {
   parseDocumentName,
   parseMetaDocumentName,
   parseRealtimeDocumentName,
+  parseUserChannelName,
   readDocumentText,
   replaceDocumentText,
   TEXT_FIELD,
+  userChannelName,
 } from './index.js'
 
 const projectId = '6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f'
@@ -90,5 +92,21 @@ describe('document state', () => {
     Y.applyUpdate(client, initial)
     Y.applyUpdate(client, replaced)
     expect(client.getText(TEXT_FIELD).toJSON()).toBe('two')
+  })
+})
+
+describe('user channel names', () => {
+  it('round-trips and is told apart from project documents', () => {
+    const name = userChannelName(projectId)
+    expect(name).toBe(`user:${projectId}`)
+    expect(parseUserChannelName(name)).toEqual({ userId: projectId })
+    expect(parseRealtimeDocumentName(name)).toEqual({ kind: 'user', userId: projectId })
+    expect(parseDocumentName(name)).toBeNull()
+    expect(parseMetaDocumentName(name)).toBeNull()
+    expect(parseUserChannelName(metaDocumentName(projectId))).toBeNull()
+  })
+
+  it.each(['user:x', `user:${projectId}:extra`, `users:${projectId}`])('rejects %s', (name) => {
+    expect(parseUserChannelName(name)).toBeNull()
   })
 })

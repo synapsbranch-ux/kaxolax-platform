@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import type { NextConfig } from 'next'
 import { serverEnv } from './src/env'
+import { WEB_SECURITY_HEADERS } from './src/lib/security-headers'
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -18,6 +19,11 @@ const nextConfig: NextConfig = {
     return Promise.resolve([
       { source: '/api/:path*', destination: `${serverEnv.API_INTERNAL_URL}/api/:path*` },
     ])
+  },
+  // En-têtes de sécurité fixes de toutes les réponses ; la CSP (nonce par requête) est posée par
+  // le proxy sur les pages (src/lib/security-headers.ts).
+  headers() {
+    return Promise.resolve([{ source: '/:path*', headers: [...WEB_SECURITY_HEADERS] }])
   },
 }
 

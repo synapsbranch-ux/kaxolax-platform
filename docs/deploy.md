@@ -53,12 +53,14 @@ passe de l'équipe.
 | `COMPILE_WORKER_SECRET` (≥ 32 caractères)        | `openssl rand -base64 48`          | api, Worker (`wrangler secret put`)                    |
 | `CLERK_*`                                        | Dashboard Clerk (production)       | api, web, admin                                        |
 | `SMTP_*`                                         | fournisseur SMTP                   | api                                                    |
+| `ANTHROPIC_API_KEY` (facultative)                | Console Anthropic, API keys        | api                                                    |
 | Jetons R2 `app`, `backup`                        | Terraform (`kaxolax-infra`)        | api ; backup                                           |
 | Jetons R2 `templates_publish`, `texlive_publish` | Terraform (`kaxolax-infra`)        | CI de kaxolax-templates ; CI de kaxolax-texlive-images |
 | Clé age des sauvegardes                          | `age-keygen -o kaxolax-backup.key` | clé **publique** seule dans `backup`                   |
 
 `kaxolax-infra/railway/provision.sh` génère `APP_KEY`, `REALTIME_TOKEN_SECRET`,
 `INTERNAL_TOKEN` et `COMPILE_WORKER_SECRET` s'ils manquent et ne les remplace jamais.
+Sans `ANTHROPIC_API_KEY`, l'IA est désactivée : toute route d'IA répond 503 `E_AI_UNAVAILABLE`.
 
 ## 3. Cloudflare : zone, DNS, WAF, R2
 
@@ -180,15 +182,20 @@ Avec `kaxolax-infra/railway/provision.sh` (procédure §4), ou à la main :
    `TEMPLATES_CATALOG_URL`, `TEMPLATES_PUBLIC_URL`, `TEXLIVE_INDEX_BUCKET` et
    `TEXLIVE_INDEX_KEY` (sorties Terraform) ; `REALTIME_INTERNAL_URL` sur le réseau privé ;
    `TRUSTED_PROXY_HOPS=2` (IP et `X-Forwarded-*` restent forgeables : note ‡) ;
-   `SMTP_PORT=465` avec `SMTP_SECURE=true`. `API_INTERNAL_URL` du web et de l'admin est lue **au build**
+   `SMTP_PORT=465` avec `SMTP_SECURE=true` ; `ANTHROPIC_API_KEY` facultative (secret, api
+   seulement). Web : `REALTIME_PUBLIC_URL`, `S3_PUBLIC_ENDPOINT`, `TEMPLATES_PUBLIC_URL` et
+   `TEMPLATES_CATALOG_URL`, mêmes valeurs que l'api, lues à l'exécution pour la CSP (absentes :
+   lues sur `GET /api/v1/client-config`, avertissement au démarrage). Realtime : `REDIS_URL`
+   obligatoire en production. `API_INTERNAL_URL` du web et de l'admin est lue **au build**
    (réécritures `/api/*` figées par `next build`, `ARG` de l'étape `builder` du Dockerfile) : la
    changer exige un nouveau build.
 4. Domaines personnalisés de chaque service, puis cibles CNAME reportées dans Cloudflare
    (`railway_targets` de Terraform) ; attendre les certificats, puis TLS `strict`.
 5. Clerk : domaine de production, URL du webhook `https://api.<domaine>/api/v1/webhooks/clerk`.
 
-Réplicas de realtime : 2 dans `realtime.json`, ce qui exige `REDIS_URL` sur realtime (extension
-Redis de Hocuspocus et bus entre instances, `apps/realtime/src/cluster.ts`) : sans lui, deux
+Réplicas de realtime : 2 dans `realtime.json`. `REDIS_URL` est obligatoire sur realtime en
+production (refus de démarrer sans elle), et nécessaire à plusieurs instances (extension
+Redis de Hocuspocus et bus entre instances, `apps/realtime/src/cluster.ts`) : sans elle, deux
 clients d'un même document sur deux instances ne se voient pas, et un événement du projet
 (compilation comprise) n'atteint que les connexions de l'instance appelée. L'API n'utilise pas
 Redis.
